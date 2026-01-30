@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="theme-color" content="#0a1020" />
+
+  <title>Dashboard | ASTRA — AI Career Analytics v2.1.2</title>
+  <meta name="description" content="Interactive analytics dashboard tracking optimizations, cover letters, SuperHuman activity, MasterMind chats, and Talk sessions across the ASTRA suite." />
+  <meta name="author" content="Sri Akash Kadali" />
+
+  <!-- CSP: CDN Chart.js, blob: previews, workers, localhost websockets -->
+  <meta http-equiv="Content-Security-Policy"
+        content="
+          default-src 'self' blob: data:;
+          img-src 'self' data: blob:;
+          style-src 'self' 'unsafe-inline';
+          script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval';
+          connect-src 'self' blob: data: https: http://127.0.0.1:8000 ws://127.0.0.1:8000 http://0.0.0.0:8000 ws://0.0.0.0:8000 https://cdn.jsdelivr.net;
+          frame-src 'self' blob: data: about:;
+          child-src 'self' blob:;
+          worker-src 'self' blob:;
+          media-src 'self' blob: data:;
+          font-src 'self' data:;
+          object-src 'none';
+          base-uri 'self';
+          frame-ancestors 'self';
+        " />
+
+  <link rel="icon" type="image/png" href="/static/assets/favicon.png" />
+  <link rel="stylesheet" href="/static/css/base.css?v=2.1.2" />
+  <link rel="stylesheet" href="/static/css/animations.css?v=2.1.2" />
+  <link rel="stylesheet" href="/static/css/app.css?v=2.1.2" />
+
+  <style>
+    :root{
+      --bg:#0a1020;--panel:rgba(255,255,255,0.05);--muted:rgba(255,255,255,0.7);
+      --accent:#5bd0ff;--accent2:#a678ff;--radius:14px;--glow:0 0 25px rgba(91,208,255,0.25);
+    }
+
+    /* Futuristic background */
+    body{
+      background: radial-gradient(circle at 25% 20%, #0a1020 0%, #03060f 80%);
+      color:#e4ecff;font-family:"Inter","Segoe UI",Roboto,sans-serif;overflow-x:hidden;
+      line-height:1.6;position:relative;min-height:100vh;margin:0;
+    }
+    ::selection{ background:var(--accent); color:#000; }
+    .visually-hidden{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+    body::before{
+      content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+      background:
+        repeating-linear-gradient(to right, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px),
+        repeating-linear-gradient(to bottom, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px);
+    }
+    body::after{
+      content:"";position:fixed;width:500px;height:500px;top:30%;right:10%;z-index:0;pointer-events:none;
+      background: radial-gradient(circle, rgba(91,208,255,0.15), transparent 70%);filter: blur(70px);
+      animation: floatGlow 10s ease-in-out infinite alternate;
+    }
+    @keyframes floatGlow{ from{transform:translateY(0) scale(1);opacity:.9;} to{transform:translateY(-40px) scale(1.05);opacity:.7;} }
+
+    .menu-toggle,.theme-toggle{display:none!important;}
+
+    /* Sidebar */
+    .sidebar{display:flex;flex-direction:column;padding-top:.25rem;}
+    @media (min-width:880px){
+      .sidebar{position:fixed;top:0;left:0;width:260px;height:100vh;background:rgba(10,16,32,0.65);
+        border-right:1px solid rgba(255,255,255,0.05);backdrop-filter: blur(18px);z-index:5;}
+      main.console,footer{margin-left:260px;}
+    }
+    @media (max-width:879px){
+      .sidebar{position:fixed;left:-100%;top:0;width:70%;height:100vh;background:rgba(10,16,32,0.95);
+        transition:transform .3s ease;z-index:20;}
+      body.nav-open .sidebar{transform:translateX(100%);}
+    }
+
+    .brand{display:flex;align-items:center;gap:.75rem;padding:.6rem 1rem .05rem;}
+    .brand img{width:72px;height:auto;aspect-ratio:1/1;object-fit:contain;
+      filter: drop-shadow(0 0 6px rgba(91,208,255,0.6));transition:transform .25s, filter .25s;}
+    .brand img:hover{transform:scale(1.05);filter: drop-shadow(0 0 12px rgba(91,208,255,0.9));}
+    .logo-text{font-weight:700;font-size:1.35rem;background:linear-gradient(90deg,var(--accent),var(--accent2));
+      -webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:.5px;}
+    .vnav{list-style:none;padding:0;margin:.05rem 1rem 1rem;}
+    .vnav li{margin-bottom:.42rem;}
+    .vnav a{color:#cfd9ff;text-decoration:none;display:block;padding:.6rem 1rem;border-radius:10px;transition:background .2s,color .2s;}
+    .vnav a:hover,.vnav a.active-link{background: rgba(91,208,255,0.15); color: var(--accent);}
+
+    /* Main */
+    main.console{position:relative;z-index:2;padding:3rem 3rem 5rem;animation:fadeRise 1s ease;}
+    h1.page-title{font-size:2.3rem;font-weight:700;text-align:center;margin-bottom:.6rem;
+      background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:1px;}
+    .muted{color:var(--muted);text-align:center;margin:0 auto 2rem;max-width:700px;}
+
+    .toolbar{display:flex;align-items:center;justify-content:flex-end;gap:.6rem;margin:-.5rem 0 1.25rem;}
+    .btn{border:1px solid rgba(255,255,255,0.14);background:rgba(10,16,32,0.85);color:#fff;padding:8px 12px;border-radius:10px;cursor:pointer;font-size:14px;transition:background .2s, transform .15s;}
+    .btn:hover{background:rgba(255,255,255,0.08);transform:translateY(-1px);}
+    #dashboard-status{color:var(--muted);font-size:.9rem;}
+
+    /* Metric cards */
+    .cards-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:18px;margin-bottom:2.5rem;}
+    .metric{background:var(--panel);border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius);padding:18px;text-align:center;transition:transform .25s, box-shadow .25s;position:relative;overflow:hidden;}
+    .metric:hover{transform:translateY(-4px);box-shadow:0 0 35px rgba(91,208,255,0.25);}
+    .metric::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,transparent,rgba(91,208,255,0.15));opacity:0;transition:opacity .3s;}
+    .metric:hover::before{opacity:1;}
+    .metric .num{font-size:2rem;color:var(--accent);font-weight:600;}
+    .metric .label{color:var(--muted);font-size:.9rem;}
+
+    /* Charts */
+    .chart-section{background:var(--panel);border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius);padding:1.5rem;margin-bottom:2.5rem;
+      box-shadow:0 0 20px rgba(91,208,255,0.08);backdrop-filter:blur(10px);transition:transform .3s, box-shadow .3s;}
+    .chart-section:hover{transform:translateY(-4px);box-shadow:0 0 30px rgba(91,208,255,0.25);}
+    .chart-section h2{text-align:center;font-size:1.1rem;margin-bottom:.8rem;background:linear-gradient(90deg,var(--accent),var(--accent2));
+      -webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:.5px;}
+    .chart-section canvas{display:block;margin:0 auto;width:100%;max-width:900px;height:320px!important;border-radius:12px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.02);}
+
+    /* Footer */
+    footer{text-align:center;padding:2rem 1rem;font-size:.9rem;color:#9aa7cc;border-top:1px solid rgba(255,255,255,0.05);backdrop-filter:blur(10px);z-index:2;position:relative;}
+    footer a{color:var(--accent);text-decoration:none;} footer a:hover{text-decoration:underline;}
+
+    @keyframes fadeRise{ from{opacity:0; transform:translateY(25px);} to{opacity:1; transform:translateY(0);} }
+
+    @media (max-width:880px){
+      .brand{padding:.5rem 1rem .04rem}.brand img{width:60px}.logo-text{font-size:1.2rem}.vnav{margin:.02rem 1rem 1rem}
+    }
+  </style>
+</head>
+
+<body class="page-enter" data-app="astra">
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar" role="navigation" aria-label="Primary">
+    <div class="brand">
+      <img src="/static/assets/logo.png" alt="ASTRA Logo" loading="lazy" />
+      <span class="logo-text">ASTRA</span>
+    </div>
+    <ul class="vnav">
+      <li><a href="/index.html">🏠 HIREX</a></li>
+      <li><a href="/preview.html">📄 HIREX Preview</a></li>
+      <li><a href="/coverletter.html">✉️ HIREX Letter</a></li>
+      <li><a href="/talk.html">💬 Talk to HIREX</a></li>
+      <li><a href="/mastermind.html">🧠 MasterMind</a></li>
+      <li><a href="/superhuman.html">✨ SuperHuman</a></li>
+      <li><a href="/dashboard.html" class="active-link" aria-current="page">📊 Dashboard</a></li>
+      <li><a href="/genie.html">🧞 Genie</a></li>
+    </ul>
+  </aside>
+
+  <!-- Main -->
+  <main id="content" class="console" role="main">
+    <div class="main-inner">
+      <h1 class="page-title anim rise">📊 Dashboard Analytics</h1>
+      <p class="muted">AI-powered insights across <strong>Optimizations</strong>, <strong>Cover Letters</strong>, <strong>SuperHuman</strong>, <strong>MasterMind</strong>, and <strong>Talk Sessions</strong>.</p>
+
+      <div class="toolbar" aria-label="Dashboard controls">
+        <button class="btn" id="dashboard-refresh" type="button">↻ Refresh</button>
+        <span id="dashboard-status" aria-live="polite">Idle</span>
+      </div>
+
+      <!-- Metrics -->
+      <section class="cards-row anim fade" aria-label="High-level metrics">
+        <div class="metric"><div class="num" id="opt_count">0</div><div class="label">Optimizations</div></div>
+        <div class="metric"><div class="num" id="cl_count">0</div><div class="label">Cover Letters</div></div>
+        <div class="metric"><div class="num" id="hm_count">0</div><div class="label">SuperHuman Calls</div></div>
+        <div class="metric"><div class="num" id="mm_count">0</div><div class="label">MasterMind Chats</div></div>
+        <div class="metric"><div class="num" id="talk_count">0</div><div class="label">Talk Queries</div></div>
+      </section>
+
+      <!-- Charts -->
+      <section class="chart-section" aria-labelledby="h_opt"><h2 id="h_opt">📄 Resume Optimizations</h2><canvas id="chart_optimizations"></canvas></section>
+      <section class="chart-section" aria-labelledby="h_cl"><h2 id="h_cl">✉️ Cover Letter Generation</h2><canvas id="chart_coverletters"></canvas></section>
+      <section class="chart-section" aria-labelledby="h_sh"><h2 id="h_sh">✨ SuperHuman Refinements</h2><canvas id="chart_superhuman"></canvas></section>
+      <section class="chart-section" aria-labelledby="h_mm"><h2 id="h_mm">🧠 MasterMind Insights</h2><canvas id="chart_mastermind"></canvas></section>
+      <section class="chart-section" aria-labelledby="h_talk"><h2 id="h_talk">💬 Talk Queries</h2><canvas id="chart_talk"></canvas></section>
+    </div>
+  </main>
+
+  <footer>
+    &copy; 2025 <strong>ASTRA</strong> — Developed by <strong>Sri Akash Kadali</strong> |
+    Powered by <strong>FastAPI</strong> + <strong>Chart.js</strong> + <strong>OpenAI</strong>
+  </footer>
+
+  <!-- Toast -->
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Scripts: Chart.js first, then util/ui, then dashboard logic -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
+  <script src="/static/js/util.js?v=2.1.2" defer></script>
+  <script src="/static/js/ui.js?v=2.1.2" defer></script>
+  <script src="/static/js/dashboard.js?v=2.1.2" defer></script>
+
+  <!-- Fallback inline charts (only if dashboard.js didn't render / no backend).
+       Guards against double-render by checking Chart.getChart(...) -->
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      if (!window.Chart) return;
+
+      const maybeInit = (id, init) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const existing = (Chart.getChart ? Chart.getChart(el) : null);
+        if (existing) return; // already rendered by dashboard.js
+        const ctx = el.getContext("2d");
+        init(ctx);
+      };
+
+      const gradient = (ctx, a, b) => { const g = ctx.createLinearGradient(0,0,0,300); g.addColorStop(0,a); g.addColorStop(1,b); return g; };
+      const baseOptions = {
+        plugins:{ legend:{ display:false } },
+        scales:{
+          x:{ ticks:{ color:"#bbb" }, grid:{ color:"rgba(255,255,255,0.06)" } },
+          y:{ ticks:{ color:"#888" }, grid:{ color:"rgba(255,255,255,0.06)" } }
+        }
+      };
+      const labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+
+      maybeInit("chart_optimizations", (ctx) => new Chart(ctx, {
+        type:"line",
+        data:{ labels, datasets:[{
+          label:"Optimizations", data:[5,9,6,4,7,3,8],
+          borderColor:"rgba(91,208,255,0.8)", backgroundColor:gradient(ctx,"rgba(91,208,255,0.8)","rgba(159,120,255,0.3)"),
+          fill:true, tension:0.4
+        }]},
+        options: baseOptions
+      }));
+
+      maybeInit("chart_coverletters", (ctx) => new Chart(ctx, {
+        type:"bar",
+        data:{ labels, datasets:[{
+          label:"Cover Letters", data:[3,6,5,7,4,8,5],
+          borderColor:"rgba(255,184,77,0.8)", backgroundColor:gradient(ctx,"rgba(255,184,77,0.8)","rgba(255,107,107,0.3)")
+        }]},
+        options: baseOptions
+      }));
+
+      maybeInit("chart_superhuman", (ctx) => new Chart(ctx, {
+        type:"line",
+        data:{ labels, datasets:[{
+          label:"SuperHuman", data:[8,5,6,7,9,4,5],
+          borderColor:"rgba(121,255,207,0.8)", backgroundColor:gradient(ctx,"rgba(121,255,207,0.8)","rgba(91,208,255,0.3)"),
+          fill:true, tension:0.4
+        }]},
+        options: baseOptions
+      }));
+
+      maybeInit("chart_mastermind", (ctx) => new Chart(ctx, {
+        type:"bar",
+        data:{ labels, datasets:[{
+          label:"MasterMind", data:[2,4,3,5,6,4,7],
+          borderColor:"rgba(173,91,255,0.8)", backgroundColor:gradient(ctx,"rgba(173,91,255,0.8)","rgba(91,208,255,0.3)")
+        }]},
+        options: baseOptions
+      }));
+
+      maybeInit("chart_talk", (ctx) => new Chart(ctx, {
+        type:"line",
+        data:{ labels, datasets:[{
+          label:"Talk", data:[7,9,5,6,8,4,7],
+          borderColor:"rgba(255,107,107,0.8)", backgroundColor:gradient(ctx,"rgba(255,107,107,0.8)","rgba(255,184,77,0.3)"),
+          fill:true, tension:0.4
+        }]},
+        options: baseOptions
+      }));
+    });
+  </script>
+</body>
+</html>

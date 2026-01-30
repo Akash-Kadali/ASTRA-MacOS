@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="theme-color" content="#0a1020" />
+
+  <title>🧞 Genie | ASTRA — Guide & FAQ v2.1.2</title>
+  <meta name="description" content="Genie — unified About + Help for the ASTRA suite. Includes HIREX quick start, FAQs, credits, and architecture." />
+  <meta name="author" content="Sri Akash Kadali" />
+  <meta property="og:title" content="ASTRA — Genie (About + Help)" />
+  <meta property="og:description" content="Unified guide for ASTRA: HIREX (resume optimizer), MasterMind (assistant), SuperHuman (humanizer)." />
+  <meta property="og:image" content="/static/assets/og-preview.png" />
+
+  <!-- CSP allows local dev (HTTP/WS), data/blob previews, and OpenAI for images (if needed) -->
+  <meta http-equiv="Content-Security-Policy"
+        content="
+          default-src 'self' blob: data:;
+          img-src 'self' data: blob:;
+          style-src 'self' 'unsafe-inline';
+          script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval';
+          connect-src 'self'
+                       blob:
+                       http://127.0.0.1:8000 ws://127.0.0.1:8000
+                       http://0.0.0.0:8000 ws://0.0.0.0:8000
+                       http://localhost:8000 ws://localhost:8000
+                       https://api.openai.com
+                       https://cdn.jsdelivr.net;
+          frame-src 'self' blob: data: about:;
+          child-src 'self' blob:;
+          worker-src 'self' blob:;
+          media-src 'self' blob: data:;
+          font-src 'self' data:;
+          object-src 'none';
+          base-uri 'self';
+          frame-ancestors 'self';
+        " />
+
+  <link rel="icon" type="image/png" href="/static/assets/favicon.png" />
+  <link rel="stylesheet" href="/static/css/base.css?v=2.1.2" />
+  <link rel="stylesheet" href="/static/css/animations.css?v=2.1.2" />
+  <link rel="stylesheet" href="/static/css/app.css?v=2.1.2" />
+
+  <style>
+    :root {
+      --bg:#0a1020;
+      --accent:#5bd0ff;
+      --accent2:#9f78ff;
+      --panel:rgba(255,255,255,0.05);
+      --muted:rgba(255,255,255,0.7);
+      --stroke:rgba(255,255,255,0.08);
+      --radius:14px;
+      --glow:0 0 25px rgba(91,208,255,0.25);
+    }
+    body {
+      margin:0;
+      background: radial-gradient(circle at 25% 22%, var(--bg) 0%, #03060f 80%) fixed;
+      color:#e4ecff;
+      font-family:"Inter","Segoe UI",Roboto,sans-serif;
+      line-height:1.6;
+      overflow-x:hidden;
+      min-height:100vh;
+      position:relative;
+      text-align:left;
+    }
+    ::selection { background: var(--accent); color:#000; }
+    body::before {
+      content:"";
+      position:fixed; inset:0;
+      background:
+        repeating-linear-gradient(to right, rgba(255,255,255,0.035) 0 1px, transparent 1px 80px),
+        repeating-linear-gradient(to bottom, rgba(255,255,255,0.035) 0 1px, transparent 1px 80px);
+      pointer-events:none; z-index:0;
+    }
+    body::after {
+      content:"";
+      position:fixed; width:420px; height:420px; top:18%; right:10%;
+      background: radial-gradient(circle, rgba(91,208,255,0.15), transparent 70%);
+      filter: blur(65px); animation: floatGlow 10s ease-in-out infinite alternate;
+      pointer-events:none; z-index:0;
+    }
+    @keyframes floatGlow {
+      from { transform:translateY(0); opacity:.9; }
+      to   { transform:translateY(-36px); opacity:.75; }
+    }
+
+    .menu-toggle, .theme-toggle { display:none !important; }
+
+    /* Sidebar */
+    .sidebar {
+      position:fixed; top:0; left:0; width:260px; height:100vh;
+      background:rgba(10,16,32,0.65);
+      border-right:1px solid var(--stroke);
+      backdrop-filter:blur(18px);
+      display:flex; flex-direction:column;
+      padding-top:.25rem; z-index:5;
+    }
+    @media(max-width:880px){
+      .sidebar{left:-100%;width:70%;background:rgba(10,16,32,0.95);transition:transform .3s ease;}
+      body.nav-open .sidebar{transform:translateX(100%);}
+    }
+
+    .brand { display:flex; align-items:center; gap:.75rem; padding:.6rem 1rem .05rem; }
+    .brand img { width:72px; aspect-ratio:1/1; filter:drop-shadow(0 0 6px rgba(91,208,255,.6)); transition:.25s; }
+    .brand img:hover { transform:scale(1.05); filter:drop-shadow(0 0 10px rgba(91,208,255,.9)); }
+    .logo-text { font-weight:700; font-size:1.35rem; background:linear-gradient(90deg,var(--accent),var(--accent2)); background-clip:text; -webkit-background-clip:text; color:transparent; }
+
+    .vnav { list-style:none; margin:.4rem 1rem 1rem; padding:0; }
+    .vnav li { margin-bottom:.4rem; }
+    .vnav a { display:block; padding:.55rem 1rem; color:#cfd9ff; text-decoration:none; border-radius:10px; transition:.2s; }
+    .vnav a:hover,.vnav a.active-link { background:rgba(91,208,255,0.15); color:var(--accent); }
+
+    .cta-primary {
+      margin:1rem; margin-top:auto; border:none;
+      background:linear-gradient(90deg,var(--accent),var(--accent2));
+      color:#fff; font-weight:600; border-radius:10px;
+      padding:.6rem; cursor:pointer; transition:.2s;
+    }
+    .cta-primary:hover { opacity:.9; }
+
+    /* Main */
+    main.console {
+      position:relative; z-index:2;
+      padding:3rem 3rem 5rem;
+      margin-left:260px;
+      animation:fadeRise .8s ease;
+      display:flex !important;
+      flex-direction:column !important;
+      align-items:stretch !important;
+      justify-content:flex-start !important;
+      flex-wrap:nowrap !important;
+      text-align:left;
+    }
+    @keyframes fadeRise { from{opacity:0;transform:translateY(25px);} to{opacity:1;transform:none;} }
+    main.console > * { width:100% !important; max-width:100% !important; float:none !important; display:block !important; }
+
+    .page-title {
+      font-size:2.2rem; font-weight:700;
+      text-align:left;
+      background:linear-gradient(90deg,var(--accent),var(--accent2));
+      background-clip:text; -webkit-background-clip:text; color:transparent;
+      margin-bottom:.6rem;
+    }
+    .muted {
+      color:var(--muted);
+      max-width:760px;
+      margin:0 0 2rem 0;
+      text-align:left;
+    }
+
+    section.card {
+      background:var(--panel);
+      border:1px solid var(--stroke);
+      border-radius:var(--radius);
+      padding:1.6rem 1.8rem;
+      margin-bottom:2rem;
+      box-shadow:var(--glow);
+      backdrop-filter:blur(10px);
+      transition:transform .25s ease, box-shadow .25s ease;
+      display:block !important;
+      text-align:left;
+    }
+    section.card:hover { transform:translateY(-3px); box-shadow:0 0 36px rgba(91,208,255,.25); }
+    section.card h2 {
+      font-size:1.25rem;
+      background:linear-gradient(90deg,var(--accent),var(--accent2));
+      background-clip:text; -webkit-background-clip:text; color:transparent;
+      margin-bottom:.8rem;
+      text-align:left;
+    }
+
+    details {
+      background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.1);
+      border-radius:10px; padding:.8rem 1rem; margin:.6rem 0; transition:.25s;
+      text-align:left;
+    }
+    details[open]{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.2);}
+    summary{font-weight:600;font-size:1rem;color:#fff;list-style:none;cursor:pointer; text-align:left;}
+    details p{margin-top:.6rem;color:var(--muted);font-size:.95rem;}
+
+    footer {
+      text-align:left; padding:2rem 1rem; font-size:.9rem; color:#9aa7cc;
+      border-top:1px solid var(--stroke); backdrop-filter:blur(10px);
+    }
+
+    @media(max-width:880px){
+      main.console{margin-left:0;padding:2rem 1.4rem 4rem;}
+    }
+
+    .btn-row { display:flex; gap:.6rem; flex-wrap:wrap; margin:.8rem 0 0; }
+    .btn {
+      border:1px solid var(--stroke);
+      background:rgba(255,255,255,.06);
+      color:#e4ecff; padding:.45rem .7rem; border-radius:10px;
+      font-weight:600; cursor:pointer;
+      text-align:left;
+    }
+    .btn:hover{background:rgba(255,255,255,.1);}
+    code.k { background:rgba(255,255,255,.08); padding:.06rem .35rem; border-radius:6px; }
+    .kv { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.92rem; }
+    #status_text { transition: opacity .3s ease; }
+  </style>
+</head>
+
+<body class="page-enter" data-app="astra">
+  <a href="#content" class="sr-only">Skip to content</a>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar" role="navigation" aria-label="Primary">
+    <div class="brand">
+      <img src="/static/assets/logo.png" alt="ASTRA Logo" loading="lazy" />
+      <span class="logo-text">ASTRA</span>
+    </div>
+    <ul class="vnav">
+      <li><a href="/index.html">🏠 HIREX</a></li>
+      <li><a href="/preview.html">📄 HIREX Preview</a></li>
+      <li><a href="/coverletter.html">✉️ HIREX Letter</a></li>
+      <li><a href="/talk.html">💬 Talk to HIREX</a></li>
+      <li><a href="/mastermind.html">🧠 MasterMind</a></li>
+      <li><a href="/superhuman.html">✨ SuperHuman</a></li>
+      <li><a href="/dashboard.html">📊 Dashboard</a></li>
+      <li><a href="/genie.html" class="active-link" aria-current="page">🧞 Genie</a></li>
+    </ul>
+    <button class="cta-primary" onclick="window.location.href='mailto:sriakashkadali@gmail.com'">📧 Contact Support</button>
+  </aside>
+
+  <!-- Main -->
+  <main class="console" id="content" role="main">
+    <h1 class="page-title">🧞 Genie — Guide & FAQ</h1>
+    <p class="muted">
+      <strong>ASTRA</strong> (Automated System for Tailored Resume Applications): <strong>HIREX</strong> is the resume optimizer,
+      <strong>SuperHuman</strong> is a standalone humanizer, and <strong>MasterMind</strong> is a standalone assistant
+      with no resume dependency.
+    </p>
+
+    <!-- STATUS -->
+    <section class="card" id="status_card" aria-live="polite">
+      <h2>🟢 System Status</h2>
+      <p id="status_text">Checking FastAPI backend…</p>
+      <ul id="status_meta" class="muted" style="margin-top:.6rem;"></ul>
+      <div class="btn-row">
+        <button class="btn" id="btn_diag">Copy diagnostics</button>
+        <button class="btn" id="btn_clear">Clear local cache</button>
+        <button class="btn" id="btn_ping">Ping API</button>
+      </div>
+    </section>
+
+    <!-- ABOUT -->
+    <section class="card">
+      <h2>ℹ️ About ASTRA</h2>
+      <p>Under the ASTRA umbrella:</p>
+      <ul>
+        <li><strong>HIREX — High Resume eXpert</strong>: AI-driven LaTeX resume optimization aligned to a given JD.</li>
+        <li><strong>SuperHuman — Humanizer</strong>: Standalone text polishing and tone refinement (not resume-specific).</li>
+        <li><strong>MasterMind</strong>: Standalone ChatGPT-class assistant for research, coding, writing, and more.</li>
+        <li><strong>Cover Letter</strong>: Personalized cover-letter generation powered by HIREX context.</li>
+      </ul>
+    </section>
+
+    <!-- QUICK START -->
+    <section class="card">
+      <h2>🚀 Quick Start (HIREX)</h2>
+      <ol>
+        <li>Open the <a href="/index.html">Home</a> page.</li>
+        <li>Paste your <strong>Job Description (JD)</strong>.</li>
+        <li>(Optional) Enable <strong>Humanize</strong> for tone refinement.</li>
+        <li>Click <em>“Optimize Resume”</em>.</li>
+        <li>View or download results via <a href="/preview.html">Preview</a>.</li>
+      </ol>
+      <p class="muted kv">Tip: Server memory lets you reload previous Company/Role runs from <code class="k">/api/context</code> without re-pasting.</p>
+    </section>
+
+    <!-- FAQ -->
+    <section class="card">
+      <h2>💡 Common Questions (HIREX)</h2>
+      <details open>
+        <summary>What file formats are supported?</summary>
+        <p>LaTeX (<code>.tex</code>) inputs with PDF outputs.</p>
+      </details>
+      <details>
+        <summary>Can I change the base resume?</summary>
+        <p>Yes. Replace <code>data/samples/base_resume.tex</code>; subsequent runs will use it.</p>
+      </details>
+      <details>
+        <summary>What does “Humanize” do?</summary>
+        <p>It refines fluency, tone, and clarity while keeping content truthful.</p>
+      </details>
+    </section>
+
+    <!-- API -->
+    <section class="card">
+      <h2>🛰️ API Endpoints (v2.1.x)</h2>
+      <ul class="kv">
+        <li><code>GET /health</code> — Service heartbeat (also exposed via app version). <small class="muted">Compat: trailing slash ok</small></li>
+        <li><code>GET /api/utils/ping</code> · <code>GET /api/utils/version</code> · <code>GET /api/utils/config</code> · <code>POST /api/utils/log</code> — Diagnostics & telemetry.</li>
+        <li><code>POST /api/optimize</code> <small class="muted">Primary</small> — JD → Optimized resume (LaTeX/PDF). <small class="muted">Compat aliases: <code>/api/optimize/run</code>, <code>/api/optimize/submit</code></small></li>
+        <li><code>POST /api/coverletter</code> — JD + base CL → Cover Letter (LaTeX/PDF).</li>
+        <li><code>POST /api/superhuman/rewrite</code> — Text rewrite (LaTeX-safe).</li>
+        <li><code>POST /api/talk/answer</code> <small class="muted">alias</small> & <code>POST /api/talk</code> — JD-aware Q&amp;A; loads from Context if provided.</li>
+        <li><code>POST /api/mastermind/start</code> · <code>POST /api/mastermind/chat</code> · <code>GET /api/mastermind/history</code> · <code>GET /api/mastermind/sessions</code> — MasterMind chat flows.</li>
+        <li><code>GET /api/context/list</code> · <code>GET /api/context/get</code> · <code>POST /api/context/save</code> — Stable server memory (key: <code>{company}__{role}</code>).</li>
+        <li><code>GET /api/dashboard</code> · <code>/summary</code> — Analytics summary + trends + history.</li>
+      </ul>
+    </section>
+
+    <!-- ARCHITECTURE -->
+    <section class="card">
+      <h2>🧩 Architecture & Technology</h2>
+      <ol class="kv">
+        <li><strong>Frontend:</strong> Modular Vanilla JS (v2.1.x) with state persistence.</li>
+        <li><strong>Backend:</strong> FastAPI microservices handling AI inference and LaTeX rendering.</li>
+        <li><strong>AI Core:</strong> OpenAI GPT-5 / GPT-4o-mini (configurable defaults).</li>
+        <li><strong>Data Layer:</strong> JSONL analytics and filesystem session/context stores.</li>
+        <li><strong>Security:</strong> Sandboxed TeX compilation and LaTeX-safe input escaping.</li>
+      </ol>
+    </section>
+
+    <!-- DATA -->
+    <section class="card">
+      <h2>💾 Data & Storage</h2>
+      <p class="muted">Client-side keys used across modules:</p>
+      <ul class="kv">
+        <li><code>hirex_history</code> — chronological actions</li>
+        <li><code>hirex_tex</code>, <code>hirex_pdf</code>, <code>hirex_pdf_humanized</code></li>
+        <li><code>hirex_company</code>, <code>hirex_role</code>, <code>hirex_fit_score</code></li>
+        <li><code>hirex_jd_text</code>, <code>hirex_use_humanize</code></li>
+        <li><code>hirex_rating_history</code>, <code>hirex_coverage_ratio</code> (if available)</li>
+      </ul>
+    </section>
+
+    <!-- CREDITS -->
+    <section class="card">
+      <h2>💡 Credits & Development</h2>
+      <ul class="kv">
+        <li>👨‍💻 <strong>Developer:</strong> Sri Akash Kadali</li>
+        <li>🏫 <strong>Institution:</strong> University of Maryland, College Park</li>
+        <li>🧭 <strong>Vision:</strong> Merge AI automation with human creativity</li>
+        <li>⚙️ <strong>Stack:</strong> FastAPI · Python · LaTeX · OpenAI API · Vanilla JS · HTML · CSS</li>
+      </ul>
+    </section>
+
+    <!-- LICENSE -->
+    <section class="card">
+      <h2>📜 License & Usage</h2>
+      <p>
+        HIREX v2.1.x is released under the <strong>MIT License</strong>.<br />
+        Free for academic and personal use. Attribution to <strong>Sri Akash Kadali</strong> is appreciated for derivative or commercial applications.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    © 2025 <strong>ASTRA</strong> — Developed by <strong>Sri Akash Kadali</strong> |
+    Powered by <strong>FastAPI</strong> + <strong>LaTeX</strong>
+  </footer>
+
+  <script src="/static/js/util.js?v=2.1.2" defer></script>
+  <script src="/static/js/ui.js?v=2.1.2" defer></script>
+  <script>
+    // ---- Utilities ----------------------------------------------------------
+    async function fetchJSON(url, opts = {}, ms = 7000) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), ms);
+      try {
+        const res = await fetch(url, { ...opts, signal: ctrl.signal, cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return await res.json();
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    // like fetchJSON, but keeps headers (for 'Date' header fallback)
+    async function fetchJSONRaw(url, opts = {}, ms = 7000) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), ms);
+      try {
+        const res = await fetch(url, { ...opts, signal: ctrl.signal, cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const json = await res.json();
+        return { json, res };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function getApiBase() {
+      const host = location.hostname;
+      if (["127.0.0.1","0.0.0.0","localhost"].includes(host)) return "http://127.0.0.1:8000";
+      return (window.HIREX && typeof HIREX.getApiBase === "function") ? HIREX.getApiBase() : location.origin;
+    }
+
+    function clearLocalCache() {
+      const keys = Object.keys(localStorage).filter(k => k.startsWith("hirex_"));
+      keys.forEach(k => localStorage.removeItem(k));
+      alert("Local cache cleared (" + keys.length + " keys).");
+    }
+
+    // Robust date parser for various Python/HTTP formats
+    function parseServerDate(val) {
+      if (!val) return NaN;
+      let s = String(val).trim();
+
+      // If header date (RFC 7231), let Date.parse handle it
+      if (/^[A-Za-z]{3}, \d{2} /.test(s)) {
+        const t = Date.parse(s);
+        return isNaN(t) ? NaN : t;
+      }
+
+      // Normalize: "YYYY-MM-DD HH:MM:SS(.micro)[+TZ]" -> "YYYY-MM-DDTHH:MM:SS(.ms)Z?"
+      if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/.test(s)) {
+        s = s.replace(" ", "T");
+      }
+      // Trim microseconds to milliseconds
+      s = s.replace(/(\.\d{3})\d+/, "$1");
+
+      // If ISO without timezone, assume UTC
+      if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !/[zZ]|[+\-]\d{2}:?\d{2}$/.test(s)) {
+        s += "Z";
+      }
+
+      const t = Date.parse(s);
+      return isNaN(t) ? NaN : t;
+    }
+
+    document.addEventListener("DOMContentLoaded", async () => {
+      const statusText = document.getElementById("status_text");
+      const statusMeta = document.getElementById("status_meta");
+      const base = getApiBase();
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+
+      // Wire buttons
+      document.getElementById("btn_clear")?.addEventListener("click", clearLocalCache);
+      document.getElementById("btn_ping")?.addEventListener("click", async () => {
+        try {
+          const p = await fetchJSON(`${base}/api/utils/ping`);
+          alert(`Ping OK: ${p.status} (${p.platform} · py ${p.python})`);
+        } catch (e) {
+          alert("Ping failed: " + (e && e.message || e));
+        }
+      });
+      document.getElementById("btn_diag")?.addEventListener("click", async () => {
+        try {
+          const [v, c] = await Promise.allSettled([
+            fetchJSON(`${base}/api/utils/version`),
+            fetchJSON(`${base}/api/utils/config`)
+          ]);
+          const payload = {
+            when: new Date().toISOString(),
+            base,
+            version: v.value || null,
+            config: (c.value && c.value.config) || null
+          };
+          await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+          alert("Diagnostics copied to clipboard.");
+        } catch {
+          alert("Could not copy diagnostics.");
+        }
+      });
+
+      // Status: try /health then enrich with /api/utils/version + /ping
+      try {
+        // Use RAW to access headers for 'Date' fallback
+        const { json: health, res: healthRes } = await fetchJSONRaw(`${base}/health/`);
+        const ver  = await fetchJSON(`${base}/api/utils/version`).catch(() => ({}));
+        const ping = await fetchJSON(`${base}/api/utils/ping`).catch(() => ({}));
+
+        const appV = (ver && ver.version) || (health && health.version) || "2.1.x";
+        statusText.textContent = `Backend OK — v${appV}`;
+
+        statusMeta.innerHTML = `
+          <li><strong>Status:</strong> ${health.status || "ok"}</li>
+          <li><strong>Time:</strong> <span id="server_time">—</span>
+              <small class="muted" id="time_note"></small>
+              <small class="muted">· ${tz}</small></li>
+          <li><strong>API Base:</strong> ${base}</li>
+          <li><strong>Platform:</strong> ${ping.platform || "—"} · py ${ping.python || "—"}</li>
+          <li><strong>Default Model:</strong> ${(ver && ver.default_model) || "—"}</li>`;
+
+        // ---- Live server-time clock (robust against odd formats) -------------
+        const candidates = [
+          health?.time,
+          ver?.build_time,
+          healthRes?.headers?.get("date") // RFC7231 HTTP-date fallback
+        ];
+
+        let serverEpochMs = NaN;
+        for (const c of candidates) {
+          const t = parseServerDate(c);
+          if (!Number.isNaN(t)) { serverEpochMs = t; break; }
+        }
+
+        const timeEl = document.getElementById("server_time");
+        const noteEl = document.getElementById("time_note");
+
+        let timeOffsetMs = 0;
+        if (!Number.isNaN(serverEpochMs)) {
+          timeOffsetMs = serverEpochMs - Date.now();
+          noteEl.textContent = "Live";
+        } else {
+          // Fall back to local clock so we never show "Invalid Date"
+          timeOffsetMs = 0;
+          noteEl.textContent = "Live (Local Clock)";
+        }
+
+        function renderServerClock() {
+          if (!timeEl) return;
+          const now = new Date(Date.now() + timeOffsetMs);
+          timeEl.textContent = now.toLocaleString();
+        }
+        renderServerClock();
+        setInterval(renderServerClock, 1000);
+
+        // Re-sync from server every 60 seconds to avoid drift
+        setInterval(async () => {
+          try {
+            const { json: h2, res: h2Res } = await fetchJSONRaw(`${base}/health/`);
+            const nextCandidates = [h2?.time, h2Res?.headers?.get("date")];
+            let nextMs = NaN;
+            for (const c of nextCandidates) {
+              const t = parseServerDate(c);
+              if (!Number.isNaN(t)) { nextMs = t; break; }
+            }
+            if (!Number.isNaN(nextMs)) {
+              timeOffsetMs = nextMs - Date.now();
+              if (noteEl) noteEl.textContent = "auto-updating (server-synced)";
+            }
+          } catch (_) { /* ignore periodic re-sync errors */ }
+        }, 60000);
+
+      } catch (e) {
+        statusText.textContent = "Backend check failed (offline or CORS).";
+        statusMeta.innerHTML = `<li><strong>Error:</strong> ${(e && e.message) || "Unknown"}</li>
+          <li><strong>API Base:</strong> ${base}</li>`;
+      }
+    });
+  </script>
+</body>
+</html>

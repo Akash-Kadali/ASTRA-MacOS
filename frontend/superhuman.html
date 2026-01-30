@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="theme-color" content="#0a1020" />
+
+  <title>SuperHuman | ASTRA — Humanizer v2.1.0</title>
+  <meta name="description" content="SuperHuman — ASTRA’s standalone Humanizer to refine any text for tone, clarity, and flow. No resume or JD context required." />
+  <meta name="author" content="Sri Akash Kadali" />
+
+  <!-- CSP -->
+  <meta http-equiv="Content-Security-Policy"
+        content="
+          default-src 'self' blob: data:;
+          img-src 'self' data: blob:;
+          style-src 'self' 'unsafe-inline';
+          script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval';
+          connect-src 'self' blob: http://127.0.0.1:8000 ws://127.0.0.1:8000 http://0.0.0.0:8000 ws://0.0.0.0:8000 https://api.openai.com;
+          frame-src 'self' blob: data: about:;
+          child-src 'self' blob:;
+          worker-src 'self' blob:;
+          font-src 'self' data:;
+          media-src 'self' blob: data:;
+          object-src 'none';
+          base-uri 'self';
+          frame-ancestors 'self';
+        " />
+
+  <link rel="icon" type="image/png" href="/static/assets/favicon.png" />
+  <link rel="preload" href="/static/assets/logo.png" as="image" />
+  <link rel="preconnect" href="https://api.openai.com" crossorigin />
+  <link rel="stylesheet" href="/static/css/base.css?v=2.1.0" />
+  <link rel="stylesheet" href="/static/css/animations.css?v=2.1.0" />
+  <link rel="stylesheet" href="/static/css/app.css?v=2.1.0" />
+
+  <style>
+    :root {
+      --bg:#0a1020; --panel:rgba(255,255,255,0.05); --muted:rgba(255,255,255,0.7);
+      --accent:#5bd0ff; --accent2:#a678ff; --radius:14px; --stroke:rgba(255,255,255,0.08);
+      --sidebar-w:260px;
+    }
+
+    body {
+      background: radial-gradient(circle at 25% 20%, #0a1020 0%, #03060f 80%) fixed;
+      color:#e4ecff; font-family:"Inter","Segoe UI",Roboto,sans-serif;
+      line-height:1.6; margin:0; min-height:100vh; overflow-x:hidden; position:relative;
+    }
+    ::selection { background:var(--accent); color:#000; }
+
+    /* decorative grid overlay */
+    body::before {
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+      background:
+        repeating-linear-gradient(to right, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px),
+        repeating-linear-gradient(to bottom, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px);
+    }
+    body::after {
+      content:""; position:fixed; width:460px; height:460px; top:25%; right:8%;
+      background: radial-gradient(circle, rgba(91,208,255,0.15), transparent 70%);
+      filter: blur(68px); animation: glow 10s ease-in-out infinite alternate;
+      pointer-events:none; z-index:0;
+    }
+    @keyframes glow {
+      from { transform:translateY(0) scale(1); opacity:.9; }
+      to   { transform:translateY(-36px) scale(1.05); opacity:.75; }
+    }
+
+    .menu-toggle,.theme-toggle{display:none!important;}
+
+    /* Sidebar (unified 260px) */
+    .sidebar {
+      position:fixed; top:0; left:0; width:var(--sidebar-w); height:100vh;
+      background:rgba(10,16,32,0.65); border-right:1px solid var(--stroke);
+      backdrop-filter:blur(18px); z-index:5; display:flex; flex-direction:column; padding-top:.25rem;
+    }
+    @media(max-width:879px){
+      .sidebar{ left:-100%; width:70%; background:rgba(10,16,32,0.95); transition:transform .3s ease; }
+      body.nav-open .sidebar{ transform:translateX(100%); }
+    }
+
+    .brand{ display:flex; align-items:center; gap:.75rem; padding:.6rem 1rem .05rem; }
+    .brand img{
+      width:72px; aspect-ratio:1/1; object-fit:contain;
+      filter:drop-shadow(0 0 6px rgba(91,208,255,.6)); transition:transform .25s, filter .25s;
+    }
+    .brand img:hover{ transform:scale(1.05); filter:drop-shadow(0 0 12px rgba(91,208,255,.9)); }
+    .logo-text{
+      font-weight:700; font-size:1.35rem;
+      background:linear-gradient(90deg,var(--accent),var(--accent2));
+      color:transparent; -webkit-background-clip:text; background-clip:text;
+    }
+
+    .vnav{ list-style:none; padding:0; margin:.05rem 1rem 1rem; }
+    .vnav li{ margin-bottom:.42rem; }
+    .vnav a{
+      display:block; padding:.6rem 1rem; color:#cfd9ff; text-decoration:none;
+      border-radius:10px; transition:background .2s, color .2s;
+    }
+    .vnav a:hover, .vnav a.active-link{ background:rgba(91,208,255,0.15); color:var(--accent); }
+
+    /* Mobile hamburger */
+    .hamburger{
+      position:fixed; top:12px; left:16px; z-index:30;
+      background:rgba(255,255,255,0.08); color:#eaf0ff;
+      border:1px solid rgba(255,255,255,0.12); border-radius:10px;
+      padding:.45rem .65rem; cursor:pointer; display:none;
+      backdrop-filter: blur(8px);
+    }
+    @media(max-width:879px){ .hamburger{ display:block; } }
+
+    /* Main */
+    main.console {
+      position:relative; z-index:2; display:flex; flex-direction:column; gap:1.5rem;
+      padding:2.2rem 2.4rem 4rem; margin-left:var(--sidebar-w); animation:fadeRise .8s ease;
+    }
+    @keyframes fadeRise { from{opacity:0; transform:translateY(18px);} to{opacity:1; transform:translateY(0);} }
+    @media(max-width:879px){ main.console{ margin-left:0; padding:1.5rem 1.25rem 4rem; } }
+
+    .page-title {
+      font-size:2.2rem; font-weight:800; text-align:center; margin:.2rem 0 .6rem;
+      background:linear-gradient(90deg,var(--accent),var(--accent2));
+      color:transparent; -webkit-background-clip:text; background-clip:text;
+    }
+    .muted{ color:var(--muted); text-align:center; margin:0 auto; max-width:760px; }
+
+    /* Toolbar */
+    .toolbar {
+      display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; justify-content:center;
+      background:var(--panel); border:1px solid var(--stroke); border-radius:12px; padding:.6rem;
+      box-shadow:0 0 20px rgba(91,208,255,.08); backdrop-filter:blur(10px); margin:0 auto; max-width:1200px;
+    }
+    .toolbar select,.toolbar button,.toolbar label{
+      height:36px; border-radius:10px; border:1px solid rgba(255,255,255,.12);
+      background:rgba(15,22,40,0.9); color:#eaf0ff; padding:0 10px; font-size:13px;
+    }
+    .toolbar .primary{
+      background:var(--accent); color:#0a1020; border:none; font-weight:700;
+      box-shadow:0 0 16px rgba(91,208,255,.2); cursor:pointer; padding:0 14px;
+    }
+    .toolbar .primary:hover{ background:#72d7ff; }
+    .toolbar .ghost{ background:transparent; border:1px dashed rgba(255,255,255,.18); cursor:pointer; }
+    .toolbar .status{ color:var(--muted); font-size:13px; padding:0 6px; }
+
+    /* Toggle switch */
+    .switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; inset: 0; background-color: #444; border-radius: 26px; transition: .3s;
+    }
+    .slider:before {
+      position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px;
+      background-color: white; border-radius: 50%; transition: .3s;
+    }
+    input:checked + .slider { background-color: var(--accent); }
+    input:checked + .slider:before { transform: translateX(24px); }
+    .toggle-label { font-size: 13px; color: var(--muted); margin-left: 8px; }
+
+    /* Split panes */
+    .split { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:0 auto; max-width:1200px; }
+    @media (max-width:980px){ .split{ grid-template-columns:1fr; } }
+
+    .pane {
+      display:flex; flex-direction:column; gap:8px; background:var(--panel); border:1px solid var(--stroke);
+      border-radius:14px; padding:10px; box-shadow:0 0 20px rgba(91,208,255,.08); backdrop-filter:blur(10px);
+    }
+    .pane .head{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:2px 2px 0; }
+    .pane .head .title{ font-weight:700; color:#eaf0ff; }
+    .pane .head .actions{ display:flex; gap:6px; flex-wrap:wrap; }
+
+    .btn{ height:32px; padding:0 10px; border-radius:8px; border:1px solid rgba(255,255,255,.12);
+      background:#0f1628; color:#eaf0ff; font-size:13px; cursor:pointer; }
+    .btn:hover{ background:rgba(255,255,255,.08); }
+
+    .editor,.output {
+      flex:1; min-height:420px; border-radius:10px; border:1px solid rgba(255,255,255,.08);
+      background:rgba(0,0,0,.2); padding:12px; color:#e6ecff; font-size:14.5px; line-height:1.6;
+      outline:none; overflow:auto; white-space:pre-wrap; word-break:break-word;
+    }
+    textarea.editor{ resize:vertical; }
+    .hint{ color:var(--muted); font-size:12px; text-align:right; }
+
+    footer{ text-align:center; padding:2rem 1rem; font-size:.9rem; color:#9aa7cc;
+      border-top:1px solid var(--stroke); backdrop-filter:blur(10px); }
+  </style>
+</head>
+
+<body class="page-enter" data-app="astra">
+  <!-- Mobile hamburger -->
+  <button id="nav-toggle" class="hamburger" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar" role="navigation" aria-label="Primary">
+    <div class="brand">
+      <img src="/static/assets/logo.png" alt="ASTRA Logo" loading="lazy" />
+      <span class="logo-text">ASTRA</span>
+    </div>
+    <ul class="vnav">
+      <li><a href="/index.html">🏠 HIREX</a></li>
+      <li><a href="/preview.html">📄 HIREX Preview</a></li>
+      <li><a href="/coverletter.html">✉️ HIREX Letter</a></li>
+      <li><a href="/talk.html">💬 Talk to HIREX</a></li>
+      <li><a href="/mastermind.html">🧠 MasterMind</a></li>
+      <li><a href="/superhuman.html" class="active-link" aria-current="page">✨ SuperHuman</a></li>
+      <li><a href="/dashboard.html">📊 Dashboard</a></li>
+      <li><a href="/genie.html">🧞 Genie</a></li>
+    </ul>
+  </aside>
+
+  <!-- Main Section -->
+  <main id="content" class="console" role="main">
+    <h1 class="page-title">SuperHuman — Humanizer</h1>
+    <p class="muted">Top to bottom flow — input/output remain side-by-side. Perfect for large content refinement.</p>
+
+    <!-- Toolbar -->
+    <div class="toolbar" role="toolbar" aria-label="Humanizer controls">
+      <select id="mode" aria-label="Rewrite mode">
+        <option value="paragraph" selected>Paragraph</option>
+        <option value="sentence">Sentence</option>
+        <option value="resume">Resume Bullet</option>
+        <option value="coverletter">Cover Letter</option>
+        <option value="custom">Custom</option>
+      </select>
+
+      <select id="tone" aria-label="Tone">
+        <option value="balanced" selected>Balanced</option>
+        <option value="formal">Formal</option>
+        <option value="confident">Confident</option>
+        <option value="conversational">Conversational</option>
+        <option value="academic">Academic</option>
+      </select>
+
+      <label for="latex_safe">
+        <input type="checkbox" id="latex_safe" checked /> LaTeX-safe
+      </label>
+
+      <!-- Global Humanize Toggle -->
+      <label class="switch" title="Toggle Humanize API">
+        <input type="checkbox" id="humanize_toggle" checked />
+        <span class="slider"></span>
+      </label>
+      <span class="toggle-label">Humanize API</span>
+
+      <button id="rewrite_btn" class="primary" type="button">⚡ Humanize</button>
+      <button id="clear_btn" class="ghost" type="button">🧹 Clear</button>
+      <span class="status" id="status_badge" aria-live="polite">🟢 Humanize ON</span>
+    </div>
+
+    <!-- Input / Output -->
+    <section class="split" aria-label="Humanizer editor and output">
+      <div class="pane">
+        <div class="head">
+          <div class="title">✍️ Input</div>
+          <div class="actions">
+            <button id="paste_btn" class="btn" type="button" aria-controls="input_text">📋 Paste</button>
+            <span class="hint"><span class="kbd">Ctrl</span>/<span class="kbd">Cmd</span> + <span class="kbd">Enter</span> to Humanize</span>
+          </div>
+        </div>
+        <textarea id="input_text" class="editor" placeholder="Paste or type text to humanize…" spellcheck="false"></textarea>
+      </div>
+
+      <div class="pane">
+        <div class="head">
+          <div class="title">🧠 Humanized</div>
+          <div class="actions">
+            <button id="copy_btn" class="btn" type="button">📄 Copy</button>
+            <button id="download_btn" class="btn" type="button">⬇️ Download</button>
+            <button id="select_btn" class="btn" type="button">🔎 Select all</button>
+          </div>
+        </div>
+        <div id="human_output" class="output" contenteditable="true" role="textbox" aria-multiline="true" tabindex="0">(output appears here)</div>
+        <div class="hint">Editable area — tweak and copy instantly.</div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    © 2025 <strong>ASTRA</strong> — Developed by <strong>Sri Akash Kadali</strong> |
+    Powered by <strong>FastAPI</strong> + <strong>AI Humanize API</strong>
+  </footer>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Scripts -->
+  <script src="/static/js/util.js?v=2.1.0" defer></script>
+  <script src="/static/js/ui.js?v=2.1.0" defer></script>
+  <!-- Align with latest SuperHuman engine (v2.1.2) -->
+  <script src="/static/js/superhuman.js?v=2.1.2" defer></script>
+
+  <!-- Page-only helper actions -->
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      // Mobile nav toggle
+      const navToggle = document.getElementById("nav-toggle");
+      navToggle?.addEventListener("click", () => {
+        const on = !document.body.classList.contains("nav-open");
+        document.body.classList.toggle("nav-open", on);
+        navToggle.setAttribute("aria-expanded", String(on));
+      });
+
+      const H = window.HIREX || {};
+      const outEl = document.getElementById("human_output");
+      const inputEl = document.getElementById("input_text");
+      const getOutText = () => (outEl?.innerText || outEl?.textContent || "").trim();
+
+      // Copy
+      document.getElementById("copy_btn")?.addEventListener("click", async () => {
+        const text = getOutText();
+        if (!text) return (H.toast ? H.toast("⚠️ Nothing to copy.") : alert("Nothing to copy."));
+        try { await navigator.clipboard.writeText(text); H.toast?.("📋 Copied to clipboard!"); }
+        catch { (H.toast || alert)("⚠️ Clipboard permission denied."); }
+      });
+
+      // Select all
+      document.getElementById("select_btn")?.addEventListener("click", () => {
+        if (!outEl) return;
+        const range = document.createRange(); range.selectNodeContents(outEl);
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        H.toast?.("🔎 Selected all output.");
+      });
+
+      // Download
+      document.getElementById("download_btn")?.addEventListener("click", () => {
+        const text = getOutText();
+        if (!text) return (H.toast ? H.toast("⚠️ Nothing to download.") : alert("Nothing to download."));
+        const ts = new Date().toISOString().replace(/[:.]/g,"-");
+        const name = `SuperHuman_${ts}.txt`;
+        const blob = new Blob([text], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = Object.assign(document.createElement("a"), { href: url, download: name });
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 600);
+      });
+
+      // Paste
+      document.getElementById("paste_btn")?.addEventListener("click", async () => {
+        try {
+          const t = await navigator.clipboard.readText();
+          if (!t) return H.toast?.("ℹ️ Clipboard is empty.");
+          if (inputEl) {
+            inputEl.value = (inputEl.value ? inputEl.value + "\n" : "") + t;
+            inputEl.focus();
+            H.toast?.("📋 Pasted into input.");
+          }
+        } catch {
+          (H.toast || alert)("⚠️ Clipboard permission denied.");
+        }
+      });
+
+      (window.ASTRA ?? window.HIREX)?.debugLog?.("SUPERHUMAN PAGE LOADED", { version: "v2.1.0" });
+    });
+  </script>
+</body>
+</html>

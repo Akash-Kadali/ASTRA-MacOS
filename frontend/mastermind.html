@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="theme-color" content="#0a1020" />
+
+  <title>MasterMind | ASTRA — Standalone Assistant v2.1.2</title>
+  <meta name="description" content="MasterMind — a standalone ChatGPT-class assistant for research, coding, writing, and brainstorming." />
+  <meta name="author" content="Sri Akash Kadali" />
+  <meta property="og:title" content="MasterMind | ASTRA — Standalone Assistant" />
+  <meta property="og:description" content="A fast, versatile assistant for research, code, writing, and strategy." />
+  <meta property="og:image" content="/static/assets/og-preview.png" />
+  <meta property="og:type" content="website" />
+
+  <!-- CSP aligned with app (local API, dev websockets, blob/data, OpenAI) -->
+  <meta http-equiv="Content-Security-Policy"
+        content="
+          default-src 'self' blob: data:;
+          img-src 'self' data: blob:;
+          style-src 'self' 'unsafe-inline';
+          script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval';
+          connect-src 'self'
+                       blob:
+                       http://127.0.0.1:8000 ws://127.0.0.1:8000
+                       http://0.0.0.0:8000 ws://0.0.0.0:8000
+                       http://localhost:8000 ws://localhost:8000
+                       https://api.openai.com;
+          frame-src 'self' blob: data: about:;
+          child-src 'self' blob:;
+          worker-src 'self' blob:;
+          media-src 'self' blob: data:;
+          font-src 'self' data:;
+          object-src 'none';
+          base-uri 'self';
+          frame-ancestors 'self';
+        " />
+
+  <link rel="icon" type="image/png" href="/static/assets/favicon.png" />
+  <link rel="preload" href="/static/assets/logo.png" as="image" />
+  <link rel="stylesheet" href="/static/css/base.css?v=2.1.2" />
+  <link rel="stylesheet" href="/static/css/animations.css?v=2.1.2" />
+  <link rel="stylesheet" href="/static/css/app.css?v=2.1.2" />
+
+  <style>
+    :root{
+      --bg:#0a1020;
+      --panel:#101622;
+      --muted:rgba(255,255,255,0.70);
+      --accent:#5bd0ff;
+      --accent2:#a678ff;
+      --radius:12px;
+      --maxw:780px;
+      --sidebar-w:260px;
+    }
+
+    body{
+      margin:0; background:var(--bg); color:#e6ecff;
+      font-family:"Inter","Segoe UI",system-ui,Roboto,sans-serif;
+      -webkit-font-smoothing:antialiased; overflow-x:hidden; line-height:1.6;
+      isolation:isolate; min-height:100vh; position:relative;
+    }
+    ::selection{ background:var(--accent); color:#000; }
+    .menu-toggle,.theme-toggle,.bg-boxes{ display:none !important; }
+
+    .gpt-bg{
+      position:fixed; inset:0; z-index:-1; pointer-events:none;
+      background:
+        radial-gradient(1200px 600px at 50% 0%, rgba(255,255,255,0.06), transparent 70%),
+        radial-gradient(900px 500px at 50% 100%, rgba(255,255,255,0.04), transparent 70%),
+        linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0) 35%, rgba(255,255,255,0.02));
+    }
+    @media (max-width: 900px){
+      .gpt-bg{
+        background:
+          radial-gradient(900px 450px at 50% 0%, rgba(255,255,255,0.06), transparent 70%),
+          radial-gradient(680px 380px at 50% 100%, rgba(255,255,255,0.04), transparent 70%),
+          linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0) 35%, rgba(255,255,255,0.02));
+      }
+    }
+
+    /* Sidebar */
+    .sidebar{
+      display:flex; flex-direction:column; padding-top:.25rem;
+      position:fixed; top:0; left:0; width:var(--sidebar-w); height:100vh;
+      background:#0d1320cc; backdrop-filter:blur(16px);
+      border-right:1px solid rgba(255,255,255,0.06); z-index:2;
+    }
+    @media(max-width:879px){
+      .sidebar{left:-100%; width:70%; transition:transform .3s ease}
+      body.nav-open .sidebar{transform:translateX(100%)}
+    }
+    .brand{display:flex; align-items:center; gap:.75rem; padding:.6rem 1rem .05rem}
+    .brand img{width:72px; height:auto; aspect-ratio:1/1; object-fit:contain; filter:drop-shadow(0 0 6px rgba(91,208,255,.6)); transition:transform .25s, filter .25s}
+    .brand img:hover{transform:scale(1.05); filter:drop-shadow(0 0 12px rgba(91,208,255,.9))}
+    .logo-text{background:linear-gradient(90deg,var(--accent),var(--accent2)); -webkit-background-clip:text; background-clip:text; color:transparent; font-weight:700; font-size:1.35rem; letter-spacing:.3px}
+    .vnav{list-style:none; padding:0; margin:.05rem 1rem 1rem}
+    .vnav li{margin-bottom:.42rem}
+    .vnav a{display:block; padding:.6rem 1rem; color:#cfd9ff; text-decoration:none; border-radius:10px; transition:background .2s,color .2s}
+    .vnav a:hover,.vnav a.active-link{background:rgba(91,208,255,.15); color:var(--accent)}
+
+    /* Mobile hamburger */
+    .hamburger{
+      position:fixed; top:12px; left:16px; z-index:3;
+      background:rgba(255,255,255,0.08); color:#eaf0ff;
+      border:1px solid rgba(255,255,255,0.12); border-radius:10px;
+      padding:.45rem .65rem; cursor:pointer; display:none;
+      backdrop-filter: blur(8px);
+    }
+    @media(max-width:879px){ .hamburger{ display:block; } }
+
+    /* Main */
+    main.console{
+      display:block !important; position:relative; z-index:1;
+      margin-left:var(--sidebar-w); min-height:100vh;
+      padding:24px 24px 140px;
+      animation:fadeRise .6s ease;
+    }
+    @keyframes fadeRise{from{opacity:0; transform:translateY(25px)} to{opacity:1; transform:none}}
+    @media(max-width:879px){ main.console{margin-left:0; padding:20px 16px 140px} }
+
+    .topbar{
+      width:100%; max-width:var(--maxw); margin-inline:auto;
+      display:flex; gap:8px; align-items:center; justify-content:flex-end; flex-wrap:wrap;
+      position:sticky; top:0; z-index:1; backdrop-filter: blur(8px);
+    }
+    .topbar select, .topbar button, .topbar input[type="checkbox"]{
+      height:36px; border-radius:10px; border:1px solid rgba(255,255,255,.12);
+      background:#0f1628; color:#eaf0ff; padding:0 10px; font-size:13px;
+    }
+    .topbar label{ color:var(--muted); font-size:12px; display:flex; align-items:center; gap:6px; }
+    .topbar .btn{background:var(--accent); color:#0a1020; border:none; font-weight:600; cursor:pointer}
+    .topbar .btn:hover{background:#72d7ff}
+
+    .header-note{
+      width:100%; max-width:var(--maxw); margin:0 auto 8px; color:var(--muted); font-size:.95rem; text-align:center;
+    }
+
+    #session_list{
+      width:100%; max-width:var(--maxw); margin:6px auto 10px; display:flex; gap:8px; flex-wrap:wrap;
+    }
+    .session-item{
+      padding:6px 10px; border:1px solid rgba(255,255,255,.12); border-radius:10px; background:#0f1628; cursor:pointer; font-size:12px; color:#cfe2ff;
+    }
+    .session-item.active{ border-color:var(--accent); color:#000; background:var(--accent); }
+
+    .chat-stream{ width:100%; max-width:var(--maxw); margin-inline:auto; }
+    .msg-row{ display:flex; gap:10px; margin:10px 0; align-items:flex-start; }
+    .msg-row.user{ flex-direction:row-reverse; }
+    .msg-row .avatar{
+      width:32px; height:32px; display:grid; place-items:center;
+      border-radius:50%; background:#182135; border:1px solid rgba(255,255,255,.08);
+      font-size:16px;
+    }
+    .msg-row .bubble{
+      background:#0f1524; border:1px solid rgba(255,255,255,.08);
+      border-radius:12px; padding:12px 14px; color:#e8eeff; font-size:14px; line-height:1.55;
+      max-width:calc(var(--maxw) - 60px);
+      word-wrap:break-word; overflow-wrap:anywhere;
+    }
+    .msg-row.user .bubble{ background:#0e1a2e; }
+    .bubble.typing{ opacity:.85; font-style:italic; }
+
+    .composer{
+      position:sticky; bottom:0; left:0; right:0;
+      margin-top:24px; padding:12px 0 20px; backdrop-filter: blur(8px);
+    }
+    .composer .bar{
+      width:100%; max-width:var(--maxw); margin-inline:auto;
+      background:#0f1628; border:1px solid rgba(255,255,255,.12);
+      border-radius:16px; padding:10px; display:flex; gap:10px;
+      box-shadow: 0 6px 28px rgba(0,0,0,0.25);
+    }
+    .composer textarea{
+      flex:1; min-height:52px; max-height:240px; resize:vertical;
+      background:transparent; border:none; outline:none;
+      color:#eaf0ff; font-size:14px; line-height:1.45;
+    }
+    .composer .send{
+      border:none; border-radius:12px; padding:0 14px;
+      background:var(--accent); color:#0a1020; font-weight:700; cursor:pointer;
+      height:40px; align-self:flex-end;
+    }
+    .composer .send:hover{ background:#72d7ff; }
+    .composer .hint{ width:100%; max-width:var(--maxw); margin:6px auto 0; color:var(--muted); font-size:12px; text-align:center; }
+
+    .vnav a:focus, .send:focus, select:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:2px; }
+    .page-enter{opacity:0; animation:fadeIn .45s ease .05s forwards}
+    @keyframes fadeIn{to{opacity:1}}
+  </style>
+</head>
+
+<body class="page-enter" data-app="astra">
+  <div class="gpt-bg" aria-hidden="true"></div>
+
+  <!-- Mobile hamburger -->
+  <button id="nav-toggle" class="hamburger" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar" role="navigation" aria-label="Primary">
+    <div class="brand">
+      <img src="/static/assets/logo.png" alt="ASTRA Logo" loading="lazy" />
+      <span class="logo-text">ASTRA</span>
+    </div>
+    <ul class="vnav">
+      <li><a href="/index.html">🏠 HIREX</a></li>
+      <li><a href="/preview.html">📄 HIREX Preview</a></li>
+      <li><a href="/coverletter.html">✉️ HIREX Letter</a></li>
+      <li><a href="/talk.html">💬 Talk to HIREX</a></li>
+      <li><a href="/mastermind.html" class="active-link" aria-current="page">🧠 MasterMind</a></li>
+      <li><a href="/superhuman.html">✨ SuperHuman</a></li>
+      <li><a href="/dashboard.html">📊 Dashboard</a></li>
+      <li><a href="/genie.html">🧞 Genie</a></li>
+    </ul>
+  </aside>
+
+  <!-- Main -->
+  <main id="content" class="console" role="main">
+    <div class="topbar" role="toolbar" aria-label="Chat settings">
+      <select id="persona" aria-label="Assistant persona">
+        <option value="General" selected>General</option>
+        <option value="Researcher">Researcher</option>
+        <option value="CodeHelper">Code Helper</option>
+        <option value="DataAnalyst">Data Analyst</option>
+        <option value="Writer">Writer</option>
+      </select>
+      <select id="model" aria-label="Model selection">
+        <option value="gpt-4o-mini" selected>gpt-4o-mini</option>
+        <option value="gpt-4o">gpt-4o</option>
+      </select>
+      <select id="tone" aria-label="Tone (optional)">
+        <option value="balanced" selected>Balanced</option>
+        <option value="friendly">Friendly</option>
+        <option value="formal">Formal</option>
+        <option value="concise">Concise</option>
+        <option value="creative">Creative</option>
+      </select>
+      <label for="use_context">
+        <input type="checkbox" id="use_context" checked />
+        Use context
+      </label>
+      <button id="refresh_sessions" class="btn" type="button">↻ Refresh</button>
+      <button id="new_session" class="btn" type="button">+ New chat</button>
+    </div>
+
+    <p class="header-note">MasterMind • Ask anything — research, code, writing, strategy.</p>
+
+    <!-- Optional sessions tray -->
+    <div id="session_list" aria-label="Sessions"></div>
+
+    <!-- Chat stream -->
+    <div id="chat_stream" class="chat-stream" aria-live="polite">
+      <div class="msg-row bot">
+        <div class="avatar" aria-hidden="true">🤖</div>
+        <div class="bubble">Hi, I’m MasterMind! Pick a persona above or just start chatting.</div>
+      </div>
+    </div>
+
+    <div class="composer" role="region" aria-label="Message composer">
+      <div class="bar">
+        <textarea id="chat_input" placeholder="Message MasterMind…" aria-label="Message input"></textarea>
+        <button id="send_btn" class="send" type="button">Send</button>
+      </div>
+      <div class="hint">Tip: Press Ctrl/Cmd + Enter to send, or click Send.</div>
+    </div>
+  </main>
+
+  <!-- Toast -->
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Load order: util -> ui -> mastermind -->
+  <script src="/static/js/util.js?v=2.1.2" defer></script>
+  <script src="/static/js/ui.js?v=2.1.2" defer></script>
+  <script src="/static/js/mastermind.js?v=2.1.2" defer></script>
+
+  <!-- Minimal boot/wiring -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Mobile nav toggle
+      const navToggle = document.getElementById('nav-toggle');
+      navToggle?.addEventListener('click', () => {
+        const on = !document.body.classList.contains('nav-open');
+        document.body.classList.toggle('nav-open', on);
+        navToggle.setAttribute('aria-expanded', String(on));
+      });
+
+      // Ctrl/Cmd + Enter to send
+      const input = document.getElementById('chat_input');
+      const send  = document.getElementById('send_btn');
+      input?.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          e.preventDefault();
+          send?.click();
+        }
+      });
+
+      (window.ASTRA ?? window.HIREX)?.debugLog?.('MASTERMIND PAGE LOADED', { version: 'v2.1.2' });
+    });
+  </script>
+</body>
+</html>

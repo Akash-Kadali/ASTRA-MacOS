@@ -1,0 +1,20 @@
+pyinstaller --noconfirm --clean --onedir --windowed --name ASTRA "main.py" ^
+  --exclude-module nltk ^
+  --add-data "frontend;frontend" ^
+  --add-data ".env;." ^
+  --add-data "backend\.env;backend" ^
+  --add-data "data;data" ^
+  --add-data "backend\templates;backend\templates" ^
+  --add-data "backend\api\base_coverletter.tex;backend\api" ^
+  --collect-submodules backend ^
+  --hidden-import backend.api.optimize ^
+  --hidden-import backend.api.coverletter ^
+  --hidden-import backend.api.talk ^
+  --hidden-import backend.api.superhuman ^
+  --hidden-import backend.api.humanize ^
+  --hidden-import backend.api.mastermind ^
+  --hidden-import backend.api.dashboard ^
+  --hidden-import backend.api.models_router ^
+  --hidden-import backend.api.context_store ^
+  --hidden-import backend.api.utils_router ^
+  --hidden-import backend.api.debug

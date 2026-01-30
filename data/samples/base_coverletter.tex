@@ -1,0 +1,29 @@
+% HIREX base_coverletter.tex (anchor-based, token-ready)
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[hidelinks]{hyperref}
+\pagenumbering{gobble}
+\setlength{\parskip}{0.65em}
+\begin{document}
+
+\noindent Date: {{DATE}}
+
+\vspace{10pt}
+Hiring Manager \\
+{{COMPANY}} \\
+{{CITYSTATE}}
+
+\vspace{10pt}
+Dear Hiring Manager,
+
+%-----BODY-START-----%
+% (Cover-letter body is injected here by HIREX)
+%-----BODY-END-----%
+
+\vspace{10pt}
+Sincerely, \\
+{{NAME}} \\
+{{EMAIL}} \\
+{{PHONE}}
+
+\end{document}

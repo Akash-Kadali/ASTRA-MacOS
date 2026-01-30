@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="theme-color" content="#0a1020" />
+
+  <title>ASTRA • HIREX — Optimized Resume Viewer v2.1.2</title>
+  <meta name="description" content="Compare AI-optimized and humanized LaTeX resumes with JD-fit analysis, PDF preview, and download options in HIREX v2.1.2." />
+  <meta name="author" content="Sri Akash Kadali" />
+  <meta property="og:title" content="ASTRA • HIREX Preview v2.1.2 — Optimized Resume Viewer" />
+  <meta property="og:description" content="Interactive viewer for your AI-optimized & humanized resumes with JD fit score analytics and memory." />
+  <meta property="og:image" content="/static/assets/og-preview.png" />
+  <meta property="og:type" content="website" />
+
+  <!-- CSP tuned for local dev + blob iframe PDFs + dev websockets -->
+  <meta http-equiv="Content-Security-Policy"
+        content="
+          default-src 'self' blob: data:;
+          img-src 'self' data: blob:;
+          style-src 'self' 'unsafe-inline';
+          script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval';
+          connect-src 'self'
+                       blob:
+                       http://127.0.0.1:8000 ws://127.0.0.1:8000
+                       http://0.0.0.0:8000 ws://0.0.0.0:8000
+                       http://localhost:8000 ws://localhost:8000
+                       https://api.openai.com;
+          frame-src 'self' blob: data: about:;
+          child-src 'self' blob:;
+          worker-src 'self' blob:;
+          media-src 'self' blob: data:;
+          font-src 'self' data:;
+          object-src 'none';
+          base-uri 'self';
+          frame-ancestors 'self';
+        " />
+
+  <link rel="icon" type="image/png" href="/static/assets/favicon.png" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="preload" href="/static/assets/logo.png" as="image" />
+  <link rel="preconnect" href="https://api.openai.com" crossorigin />
+  <link rel="stylesheet" href="/static/css/base.css?v=2.1.2" />
+  <link rel="stylesheet" href="/static/css/animations.css?v=2.1.2" />
+  <link rel="stylesheet" href="/static/css/app.css?v=2.1.2" />
+
+  <style>
+    :root{
+      --accent:#5bd0ff; --accent2:#9f78ff; --bg:#0a1020;
+      --muted:rgba(255,255,255,0.7); --panel:rgba(255,255,255,0.05);
+      --stroke:rgba(255,255,255,0.08); --glow:0 0 25px rgba(91,208,255,0.25);
+    }
+
+    body{
+      background: radial-gradient(circle at 25% 20%, #0a1020 0%, #03060f 80%) fixed;
+      color:#e4ecff; font-family:"Inter","Segoe UI",Roboto,sans-serif;
+      line-height:1.6; overflow-x:hidden; margin:0; position:relative; min-height:100vh;
+    }
+    ::selection{ background:var(--accent); color:#000; }
+
+    body::before{
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+      background:
+        repeating-linear-gradient(to right, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px),
+        repeating-linear-gradient(to bottom, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px);
+    }
+    body::after{
+      content:""; position:fixed; width:450px; height:450px; top:25%; right:10%;
+      background: radial-gradient(circle, rgba(91,208,255,0.15), transparent 70%);
+      filter: blur(70px); animation: floatGlow 12s ease-in-out infinite alternate;
+      z-index:0; pointer-events:none;
+    }
+    @keyframes floatGlow{ from{transform:translateY(0) scale(1);opacity:.9;} to{transform:translateY(-30px) scale(1.05);opacity:.7;} }
+
+    .menu-toggle,.theme-toggle{ display:none !important; }
+
+    /* Sidebar */
+    .sidebar{ display:flex; flex-direction:column; padding-top:.25rem; }
+    @media (min-width:880px){
+      .sidebar{
+        position:fixed; top:0; left:0; width:260px; height:100vh;
+        background:rgba(10,16,32,0.65); border-right:1px solid rgba(255,255,255,0.05);
+        backdrop-filter: blur(18px); z-index:5;
+      }
+      main.console, footer{ margin-left:260px; }
+    }
+    @media (max-width:879px){
+      .sidebar{
+        position:fixed; left:-100%; top:0; width:75%; height:100vh;
+        background:rgba(10,16,32,0.95); transition:transform .3s ease; z-index:20;
+      }
+      body.nav-open .sidebar{ transform:translateX(100%); }
+    }
+
+    .brand{ display:flex; align-items:center; gap:.75rem; padding:.6rem 1rem .05rem; }
+    .brand img{
+      width:72px; height:auto; aspect-ratio:1/1; object-fit:contain;
+      filter: drop-shadow(0 0 6px rgba(91,208,255,0.6));
+      transition: transform .25s, filter .25s;
+    }
+    .brand img:hover{ transform:scale(1.05); filter: drop-shadow(0 0 12px rgba(91,208,255,0.9)); }
+    .logo-text{
+      background: linear-gradient(90deg,var(--accent),var(--accent2));
+      -webkit-background-clip:text; background-clip:text; color:transparent;
+      font-weight:700; font-size:1.35rem;
+    }
+
+    .vnav{ list-style:none; padding:0; margin:.05rem 1rem .75rem; }
+    .vnav li{ margin-bottom:.42rem; }
+    .vnav a{
+      color:#cfd9ff; text-decoration:none; display:block; padding:.6rem 1rem; border-radius:10px;
+      transition: background .2s, color .2s;
+    }
+    .vnav a:hover,.vnav a.active-link{ background: rgba(91,208,255,0.15); color: var(--accent); }
+
+    .sidebar .cta-primary{
+      display:block; margin:1rem; margin-top:auto; width:calc(100% - 2rem);
+      background:linear-gradient(90deg,var(--accent),var(--accent2)); color:#fff;
+      border:none; border-radius:10px; padding:.6rem; font-weight:600; cursor:pointer;
+      transition: transform .25s;
+    }
+    .sidebar .cta-primary:hover{ transform: translateY(-2px); }
+
+    /* Main */
+    main.console{ position:relative; z-index:2; padding:3rem 3rem 5rem; animation: fadeRise 1s ease; }
+    @keyframes fadeRise{ from{opacity:0; transform:translateY(25px);} to{opacity:1; transform:translateY(0);} }
+
+    h1{
+      font-size:2.2rem; font-weight:700;
+      background: linear-gradient(90deg,var(--accent),var(--accent2));
+      -webkit-background-clip:text; background-clip:text; color:transparent;
+      margin:0 0 1rem 0;
+    }
+
+    .btn{
+      border:1px solid rgba(255,255,255,0.14); background:rgba(10,16,32,0.85);
+      color:#fff; padding:10px 14px; border-radius:10px; cursor:pointer; font-size:14px;
+      transition:background .2s, transform .15s;
+    }
+    .btn:hover{ background:rgba(255,255,255,0.08); transform:translateY(-1px); }
+    .btn.accent{ border-color:var(--accent); color:var(--accent); box-shadow:0 0 15px rgba(91,208,255,0.15); }
+
+    /* Fit Score */
+    #fit-score-card{
+      background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1);
+      border-radius:14px; padding:1rem 1.25rem; min-width:220px; text-align:center; box-shadow:var(--glow);
+      transition: transform .25s ease;
+    }
+    #fit-score-card:hover{ transform: translateY(-3px); }
+    .fit-circle{
+      width:100px; height:100px; border-radius:50%; border:4px solid var(--accent);
+      margin:0 auto .75rem; position:relative; transition:border-color .25s ease;
+    }
+    .fit-circle::after{
+      content: attr(data-score) "%"; position:absolute; top:50%; left:50%;
+      transform: translate(-50%,-50%); font-size:1.3rem; font-weight:700;
+    }
+
+    /* PDF Cards */
+    #pdf-container{ display:flex; flex-direction:column; align-items:center; gap:3rem; width:100%; }
+    .pdf-card{
+      width:100%; max-width:1200px; background: rgba(255,255,255,0.03);
+      border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:1.25rem; box-shadow: var(--glow);
+      transition: transform .25s, box-shadow .25s, border-color .25s;
+    }
+    .pdf-card:hover{ transform: translateY(-4px); box-shadow: 0 0 40px rgba(91,208,255,0.25); }
+    .pdf-card.preferred{ border-color: var(--accent); box-shadow: 0 0 40px rgba(91,208,255,0.35); }
+    .pdf-frame iframe{ width:100%; height:88vh; border:none; border-radius:12px; background:#0e1428; }
+
+    /* LaTeX Output */
+    #tex-output{
+      white-space: pre-wrap; color:#dfe7ff; font-family:"Fira Code",monospace; font-size:.9rem; line-height:1.6;
+      background:rgba(10,16,32,0.85); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:1rem;
+      box-shadow: 0 0 20px rgba(91,208,255,0.1); overflow-x:auto; max-height:80vh;
+    }
+
+    footer{
+      text-align:center; padding:2rem 1rem; font-size:.9rem; color:#9aa7cc;
+      border-top:1px solid rgba(255,255,255,0.05); backdrop-filter: blur(10px);
+    }
+
+    @media (max-width:880px){
+      .brand{ padding:.5rem 1rem .04rem; }
+      .brand img{ width:60px; }
+      .logo-text{ font-size:1.2rem; }
+      .vnav{ margin:.02rem 1rem .75rem; }
+    }
+
+    /* Mobile hamburger */
+    .hamburger{
+      position:fixed; top:12px; left:16px; z-index:30;
+      background:rgba(255,255,255,0.08); color:#eaf0ff;
+      border:1px solid rgba(255,255,255,0.12); border-radius:10px;
+      padding:.45rem .65rem; cursor:pointer; display:none;
+      backdrop-filter: blur(8px);
+    }
+    @media(max-width:879px){ .hamburger{ display:block; } }
+  </style>
+</head>
+
+<body class="page-enter" data-app="hirex">
+  <!-- Mobile hamburger -->
+  <button id="nav-toggle" class="hamburger" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar" role="navigation" aria-label="Primary">
+    <div class="brand">
+      <img src="/static/assets/logo.png" alt="ASTRA Logo" loading="lazy" />
+      <span class="logo-text">ASTRA</span>
+    </div>
+
+    <ul class="vnav">
+      <li><a href="/index.html">🏠 HIREX</a></li>
+      <li><a href="/preview.html" class="active-link" aria-current="page">📄 HIREX Preview</a></li>
+      <li><a href="/coverletter.html">✉️ HIREX Letter</a></li>
+      <li><a href="/talk.html">💬 Talk to HIREX</a></li>
+      <li><a href="/mastermind.html">🧠 MasterMind</a></li>
+      <li><a href="/superhuman.html">✨ SuperHuman</a></li>
+      <li><a href="/dashboard.html">📊 Dashboard</a></li>
+      <li><a href="/genie.html">🧞 Genie</a></li>
+    </ul>
+
+    <button class="cta-primary" onclick="window.location.href='/index.html'">🚀 Optimize Again</button>
+  </aside>
+
+  <!-- Main -->
+  <main class="console" id="content" role="main">
+    <div class="main-inner">
+      <div class="header-row anim rise" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:2rem;">
+        <h1>Optimized Resume Preview</h1>
+        <div id="fit-score-card" class="anim fade" aria-live="polite">
+          <div class="fit-circle" id="fitCircle" data-score="--"></div>
+          <h2>🎯 JD Fit Score</h2>
+          <p>Rounds: <span id="fit-rounds">--</span></p>
+          <p id="fit-tier">Awaiting Analysis…</p>
+        </div>
+      </div>
+
+      <p class="muted">
+        Review your <strong>AI-optimized</strong> and <strong>humanized</strong> resumes side by side.
+        Compare outputs, verify JD-fit metrics, and download or copy your LaTeX source.
+      </p>
+
+      <section id="pdf-section" class="anim fade" aria-labelledby="pdf-viewer-title">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+          <h2 id="pdf-viewer-title">📄 Resume PDF Viewer</h2>
+          <button id="refresh-pdfs" class="btn accent" type="button" aria-controls="pdf-container" onclick="location.reload()">↻ Refresh PDFs</button>
+        </div>
+        <div id="pdf-container" aria-live="polite">
+          <p style="color:#bbb;text-align:center;">Loading your latest optimized resumes…</p>
+        </div>
+      </section>
+
+      <section id="latex-section" class="anim rise" aria-labelledby="latex-output-title">
+        <h2 id="latex-output-title">🧠 Optimized LaTeX Output</h2>
+        <pre id="tex-output" role="region" aria-live="polite">% Your optimized LaTeX will appear here...</pre>
+        <div style="margin-top:1rem;display:flex;gap:.75rem;flex-wrap:wrap;">
+          <button id="download-tex" class="btn accent" type="button">⬇️ Download .tex</button>
+          <button id="copy-tex" class="btn" type="button">📋 Copy Code</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    &copy; 2025 <strong>ASTRA</strong> — Developed by <strong>Sri Akash Kadali</strong> |
+    Powered by <strong>FastAPI</strong> + <strong>OpenAI</strong> + <strong>LaTeX</strong> |
+    <a href="https://github.com/Akash-Kadali" target="_blank" rel="noopener noreferrer">GitHub</a>
+  </footer>
+
+  <!-- Toast -->
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Scripts -->
+  <script src="/static/js/util.js?v=2.1.2" defer></script>
+  <script src="/static/js/ui.js?v=2.1.2" defer></script>
+  <!-- preview.js safely no-ops if #history-list is absent -->
+  <script src="/static/js/preview.js?v=2.1.2" defer></script>
+
+  <!-- Minimal boot/wiring -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Mobile nav toggle
+      const navToggle = document.getElementById('nav-toggle');
+      navToggle?.addEventListener('click', () => {
+        const on = !document.body.classList.contains('nav-open');
+        document.body.classList.toggle('nav-open', on);
+        navToggle.setAttribute('aria-expanded', String(on));
+      });
+
+      (window.ASTRA ?? window.HIREX)?.debugLog?.('PREVIEW PAGE LOADED', { version: 'v2.1.2' });
+    });
+  </script>
+</body>
+</html>
