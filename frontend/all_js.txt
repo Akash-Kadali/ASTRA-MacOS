@@ -1,0 +1,4554 @@
+
+/* FILE: ./static/js/util.js */
+
+/* ============================================================
+   HIREX • util.js (v2.1.2 — Unified Utility Layer)
+   ------------------------------------------------------------
+   Shared helper utilities across HIREX front-end modules.
+
+   • Global safe fetch patch (10m timeout, same-origin, abort-link)
+   • Safe JSON/text/binary fetch with retry, timeout & backoff
+   • Base64 ↔ Blob conversions, data:URL parsing, ObjectURL mgmt
+   • Download helpers, clipboard, debounce/throttle, sleep
+   • Theme & Humanize state helpers (persist + event emitters)
+   • Storage wrappers, filename sanitizer, FormData builders
+   • Integrated with HIREX logging + toast + cross-tab events
+
+   Author: Sri Akash Kadali
+   ============================================================ */
+
+/* ============================================================
+   🔧 Constants
+   ============================================================ */
+const UTIL_VERSION = "v2.1.2";
+const DEFAULT_BASE_TEX_PATH = "data/samples/base_resume.tex";
+const LS_KEYS = {
+  THEME: "hirex-theme",
+  HUMANIZE: "hirex-use-humanize", // "on" | "off" (legacy alt: hirex_use_humanize = "true"|"false")
+  MODEL: "hirex_model",
+};
+
+/* ============================================================
+   🌐 Global Safe Fetch Patch (prevents “signal is aborted”)
+   - Default timeout 10 minutes for long-running jobs
+   - Defaults credentials to 'same-origin'
+   - Links caller AbortSignal to our internal timeout signal
+   - Accepts non-standard init.timeoutMs from callers
+   - No-op if already patched
+   ============================================================ */
+(function installGlobalFetchPatch() {
+  if (window.__HIREX_PATCHED_FETCH__) return;
+  const NATIVE_FETCH = window.fetch;
+  const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
+  function linkSignals(innerCtrl, outerSignal) {
+    if (!outerSignal) return;
+    if (outerSignal.aborted) {
+      try { innerCtrl.abort(outerSignal.reason); } catch {}
+      return;
+    }
+    outerSignal.addEventListener(
+      "abort",
+      () => { try { innerCtrl.abort(outerSignal.reason); } catch {} },
+      { once: true }
+    );
+  }
+
+  window.fetch = function patchedFetch(input, init = {}) {
+    const timeoutMs = Number.isFinite(init.timeoutMs) ? init.timeoutMs : DEFAULT_TIMEOUT_MS;
+    const ctrl = new AbortController();
+    linkSignals(ctrl, init.signal);
+
+    const opts = {
+      credentials: init.credentials ?? "same-origin",
+      ...init,
+      signal: ctrl.signal,
+    };
+
+    const t = setTimeout(() => {
+      try { ctrl.abort(new DOMException("Timeout", "AbortError")); } catch { try { ctrl.abort(); } catch {} }
+    }, Math.max(0, timeoutMs));
+
+    const done = (p) => p.finally(() => clearTimeout(t));
+    return done(NATIVE_FETCH(input, opts));
+  };
+
+  window.__HIREX_PATCHED_FETCH__ = true;
+  console.log("%c🔒 [HIREX] global fetch patched", "color:#5bd0ff");
+})();
+
+/* ============================================================
+   🧰 Safe localStorage
+   ============================================================ */
+function lsGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
+function lsSet(key, val) { try { localStorage.setItem(key, val); return true; } catch { return false; } }
+function lsRemove(key) { try { localStorage.removeItem(key); } catch {} }
+
+/* ============================================================
+   🌐 API Base Resolver (honor global if provided)
+   ============================================================ */
+function getApiBase() {
+  try {
+    if (window.HIREX && typeof window.HIREX.getApiBase === "function") {
+      return window.HIREX.getApiBase();
+    }
+  } catch {}
+  const host = location.hostname;
+  return (["127.0.0.1", "localhost", "0.0.0.0"].includes(host)
+    ? "http://127.0.0.1:8000"
+    : location.origin);
+}
+
+/* ============================================================
+   🌗 Theme Helpers
+   ============================================================ */
+function getSystemTheme() {
+  try {
+    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  } catch { return "dark"; }
+}
+function getTheme() { return lsGet(LS_KEYS.THEME) || getSystemTheme(); }
+function setTheme(theme) {
+  const t = theme === "light" ? "light" : "dark";
+  try {
+    lsSet(LS_KEYS.THEME, t);
+    document.documentElement.setAttribute("data-theme", t);
+    // Update meta theme-color to avoid white flash on mobile
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) themeMeta.setAttribute("content", t === "dark" ? "#0a1020" : "#ffffff");
+    window.dispatchEvent(new CustomEvent("hirex:theme-change", { detail: { theme: t } }));
+    window.HIREX?.debugLog?.("Theme changed", { theme: t });
+  } catch (err) {
+    console.warn("[HIREX util] Failed to set theme:", err);
+  }
+  return t;
+}
+function onThemeChange(handler) {
+  const fn = (e) => handler?.(e.detail?.theme ?? getTheme());
+  window.addEventListener("hirex:theme-change", fn);
+  return () => window.removeEventListener("hirex:theme-change", fn);
+}
+
+/* ============================================================
+   🧑‍💼 Humanize Helpers (default ON)
+   ============================================================ */
+function getHumanizeState() {
+  // Support both new ("on"/"off") and legacy ("true"/"false") keys
+  const a = lsGet(LS_KEYS.HUMANIZE);
+  if (a === "on") return true;
+  if (a === "off") return false;
+  const b = lsGet("hirex_use_humanize");
+  if (b === "true") return true;
+  if (b === "false") return false;
+  return true; // default ON
+}
+function setHumanizeState(on) {
+  lsSet(LS_KEYS.HUMANIZE, on ? "on" : "off");
+  lsSet("hirex_use_humanize", on ? "true" : "false"); // keep legacy key mirrored
+  const evt = new CustomEvent("hirex:humanize-change", { detail: { on } });
+  window.dispatchEvent(evt);
+  document.dispatchEvent(evt);
+  window.HIREX?.debugLog?.("Humanize state changed", { on });
+  return on;
+}
+function onHumanizeChange(handler) {
+  const fn = (e) => handler?.(!!e.detail?.on);
+  window.addEventListener("hirex:humanize-change", fn);
+  return () => window.removeEventListener("hirex:humanize-change", fn);
+}
+
+/* ============================================================
+   🔌 Model Helpers
+   ============================================================ */
+function getCurrentModel() {
+  const fromLS = lsGet(LS_KEYS.MODEL);
+  if (fromLS) return fromLS;
+  if (window.HIREX?.getCurrentModel) return window.HIREX.getCurrentModel();
+  const sel = document.getElementById("model");
+  return (sel && sel.value) || "gpt-4o-mini";
+}
+function setCurrentModel(model) {
+  if (typeof model === "string" && model.trim()) {
+    lsSet(LS_KEYS.MODEL, model.trim());
+    const sel = document.getElementById("model");
+    if (sel) sel.value = model.trim();
+    window.dispatchEvent(new CustomEvent("hirex:model-change", { detail: { model: model.trim() } }));
+  }
+}
+
+/* ============================================================
+   🌍 Fetch Helpers (retry + timeout + exponential backoff)
+   - Works with JSON bodies, FormData, Blobs, etc.
+   - Same-origin credentials by default (matches FastAPI)
+   - Respects caller-supplied AbortSignal (linked)
+   - NOTE: Global fetch is already patched with 10m timeout.
+   ============================================================ */
+function _linkSignals(innerController, externalSignal) {
+  if (externalSignal && typeof externalSignal.addEventListener === "function") {
+    if (externalSignal.aborted) innerController.abort();
+    else externalSignal.addEventListener("abort", () => innerController.abort(), { once: true });
+  }
+}
+
+function _composeQuery(url, qs) {
+  if (!qs || typeof qs !== "object") return url;
+  const u = new URL(url, location.origin);
+  Object.entries(qs).forEach(([k, v]) => {
+    if (v === undefined || v === null) return;
+    if (Array.isArray(v)) v.forEach(x => u.searchParams.append(k, x));
+    else u.searchParams.set(k, String(v));
+  });
+  return u.toString();
+}
+
+async function _doFetch(url, options = {}, retries = 2) {
+  const internalController = new AbortController();
+  // Accept both options.timeoutMs and options.timeout (ms)
+  const timeoutMs = Number.isFinite(options.timeoutMs)
+    ? options.timeoutMs
+    : (Number.isFinite(options.timeout) ? options.timeout : (10 * 60 * 1000)); // 10m
+
+  // Independent timeout in case callers bypass the patch elsewhere
+  const timeout = setTimeout(() => internalController.abort(), timeoutMs);
+  _linkSignals(internalController, options.signal);
+
+  const isJsonBody =
+    options.body &&
+    typeof options.body === "object" &&
+    !(options.body instanceof FormData) &&
+    !(options.body instanceof Blob) &&
+    !(options.body instanceof ArrayBuffer);
+
+  // Default Accept to */* unless caller overrides
+  const headers = {
+    ...(isJsonBody ? { "Content-Type": "application/json" } : {}),
+    ...(options.headers || {}),
+  };
+
+  const reqUrl = options.qs ? _composeQuery(url, options.qs) : url;
+
+  try {
+    const res = await fetch(reqUrl, {
+      credentials: options.credentials || "same-origin",
+      ...options,
+      headers,
+      body: isJsonBody ? JSON.stringify(options.body) : options.body,
+      signal: internalController.signal,
+      timeoutMs, // read by our global fetch patch
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const msg = await res.text().catch(() => "");
+      const err = new Error(`HTTP ${res.status}: ${msg || "Unknown error"}`);
+      err.status = res.status;
+      window.HIREX?.debugLog?.("fetch ERROR", { url: reqUrl, status: res.status, msg });
+      throw err;
+    }
+    return res;
+  } catch (err) {
+    clearTimeout(timeout);
+    if (retries > 0) {
+      const attempt = 3 - retries + 1; // 1..3
+      const jitter = Math.floor(Math.random() * 300);
+      const delay = 500 * attempt + 600 + jitter; // progressive backoff + jitter
+      window.HIREX?.toast?.("⚠️ Network hiccup — retrying…");
+      await new Promise((r) => setTimeout(r, delay));
+      return _doFetch(url, options, retries - 1);
+    }
+    window.HIREX?.toast?.(`❌ Network error: ${err.message || err}`);
+    window.HIREX?.debugLog?.("fetch FAIL", { url: reqUrl, err: err.message });
+    throw err;
+  }
+}
+
+async function fetchJSON(url, options = {}, retries = 2) {
+  const res = await _doFetch(url, {
+    ...options,
+    headers: { Accept: "application/json", ...(options.headers || {}) },
+  }, retries);
+
+  const ct = (res.headers.get("content-type") || "").toLowerCase();
+  if (ct.includes("application/json")) {
+    try { return await res.json(); }
+    catch { return {}; }
+  }
+  // Some backends return JSON as text/plain
+  const text = await res.text().catch(() => "");
+  try {
+    const parsed = JSON.parse(text);
+    window.HIREX?.debugLog?.("fetchJSON (text->json)", { url, keys: Object.keys(parsed || {}) });
+    return parsed;
+  } catch {
+    window.HIREX?.debugLog?.("fetchJSON non-json", { url, length: text.length });
+    return {};
+  }
+}
+
+async function fetchText(url, options = {}, retries = 2) {
+  const res = await _doFetch(url, {
+    ...options,
+    headers: { Accept: "text/plain, */*;q=0.1", ...(options.headers || {}) },
+  }, retries);
+  const text = await res.text().catch(() => "");
+  window.HIREX?.debugLog?.("fetchText OK", { url, len: text.length });
+  return text;
+}
+
+async function fetchBinary(url, options = {}, retries = 2) {
+  const res = await _doFetch(url, {
+    ...options,
+    headers: { Accept: "*/*", ...(options.headers || {}) },
+  }, retries);
+  const buf = await res.arrayBuffer();
+  window.HIREX?.debugLog?.("fetchBinary OK", { url, bytes: buf.byteLength });
+  return buf;
+}
+
+function postJSON(url, data, options = {}, retries = 2) {
+  return fetchJSON(url, { method: "POST", body: data, ...(options || {}) }, retries);
+}
+
+function withTimeout(promise, ms, signal) {
+  const ctrl = new AbortController();
+  _linkSignals(ctrl, signal);
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => {
+      ctrl.abort();
+      reject(new Error("Timeout"));
+    }, ms);
+    promise.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); }
+    );
+  });
+}
+
+/* ============================================================
+   🧪 Base64 / Blob / data:URL Conversion
+   ============================================================ */
+function _normalizeBase64(b64 = "") {
+  let x = String(b64 || "").trim();
+  const i = x.indexOf("base64,");
+  if (i >= 0) x = x.slice(i + 7);
+  x = x.replace(/[\r\n\s]/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  const pad = x.length % 4;
+  return pad ? x + "=".repeat(4 - pad) : x;
+}
+
+function parseDataURL(dataUrl = "") {
+  if (!String(dataUrl).startsWith("data:")) return { mime: "", data: "" };
+  const [head, data] = dataUrl.split(",", 2);
+  const mime = (head.split(":")[1] || "").split(";")[0] || "";
+  return { mime, data: data || "" };
+}
+
+function base64ToBlob(base64, mime = "application/octet-stream") {
+  try {
+    let raw = String(base64 || "");
+    if (raw.startsWith("data:")) {
+      const { mime: m, data } = parseDataURL(raw);
+      mime = m || mime;
+      raw = data;
+    }
+    const norm = _normalizeBase64(raw);
+    const bin = atob(norm);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) & 0xff;
+    const blob = new Blob([bytes], { type: mime });
+    window.HIREX?.debugLog?.("base64ToBlob OK", { size: blob.size, mime });
+    return blob;
+  } catch (e) {
+    console.error("[HIREX] base64ToBlob error:", e);
+    window.HIREX?.toast?.("⚠️ Failed to decode Base64 data.");
+    return null;
+  }
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      try {
+        const str = reader.result?.toString() || "";
+        resolve(str.split(",")[1] || "");
+      } catch (err) { reject(err); }
+    };
+    reader.onerror = (e) => reject(e);
+    reader.readAsDataURL(blob);
+  });
+}
+
+function toDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result?.toString() || "");
+    reader.onerror = (e) => reject(e);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/* ============================================================
+   🔗 ObjectURL Registry (auto-revoke helpers)
+   ============================================================ */
+const __objectUrls = new Set();
+function makeObjectURL(blob) {
+  try {
+    const url = URL.createObjectURL(blob);
+    __objectUrls.add(url);
+    return url;
+  } catch { return ""; }
+}
+function revokeObjectURL(url) {
+  try { URL.revokeObjectURL(url); __objectUrls.delete(url); } catch {}
+}
+function revokeAllObjectURLs() {
+  __objectUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch {} });
+  __objectUrls.clear();
+}
+window.addEventListener("beforeunload", revokeAllObjectURLs);
+
+/* ============================================================
+   ⬇️ Download + Clipboard
+   ============================================================ */
+function sanitizeFilename(name, fallback = "file") {
+  try {
+    const n = String(name ?? "")
+      .replace(/[\\/:*?"<>|]+/g, "_")
+      .replace(/\s+/g, " ")
+      .trim();
+    return n || fallback;
+  } catch { return fallback; }
+}
+
+function downloadFile(filename, data, mime = "application/octet-stream") {
+  try {
+    const name = (window.HIREX?.sanitizeFilename || sanitizeFilename)(filename);
+    const blob =
+      data instanceof Blob
+        ? data
+        : typeof data === "string"
+        ? new Blob([data], { type: mime })
+        : new Blob([JSON.stringify(data)], { type: mime });
+
+    const url = makeObjectURL(blob);
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => revokeObjectURL(url), 600);
+    window.HIREX?.toast?.(`⬇️ Downloading ${name}`);
+  } catch (e) {
+    console.error("[HIREX] downloadFile error:", e);
+    window.HIREX?.toast?.("❌ Download failed.");
+  }
+}
+
+function downloadTextFile(filename, text) { downloadFile(filename, text, "text/plain"); }
+
+async function copyToClipboard(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(String(text ?? ""));
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = String(text ?? "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    window.HIREX?.toast?.("📋 Copied to clipboard!");
+    return true;
+  } catch (e) {
+    console.error("[HIREX] copy error:", e);
+    window.HIREX?.toast?.("⚠️ Clipboard permission denied.");
+    return false;
+  }
+}
+
+/* ============================================================
+   🕒 Misc Helpers
+   ============================================================ */
+function getTimestamp() {
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  window.HIREX?.debugLog?.("getTimestamp", { ts });
+  return ts;
+}
+
+function debounce(fn, delay = 300, immediate = false) {
+  let t;
+  return (...args) => {
+    const callNow = immediate && !t;
+    clearTimeout(t);
+    t = setTimeout(() => { t = null; if (!immediate) fn(...args); }, delay);
+    if (callNow) fn(...args);
+  };
+}
+
+function throttle(fn, interval = 200) {
+  let last = 0, timer = null, lastArgs = null;
+  return (...args) => {
+    const now = Date.now();
+    lastArgs = args;
+    if (now - last >= interval) {
+      last = now; fn(...args);
+    } else if (!timer) {
+      const wait = interval - (now - last);
+      timer = setTimeout(() => { last = Date.now(); timer = null; fn(...lastArgs); }, wait);
+    }
+  };
+}
+
+function sleep(ms = 500) { return new Promise((r) => setTimeout(r, ms)); }
+
+function formatBytes(bytes, decimals = 2) {
+  if (!+bytes) return "0 Bytes";
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+}
+
+/* ============================================================
+   📝 FormData / Payload Builders (align with backend v2.x)
+   ============================================================ */
+function buildOptimizeFormData(jdText, useHumanize) {
+  const fd = new FormData();
+  fd.append("jd_text", jdText || "");
+  fd.append("use_humanize", useHumanize ? "true" : "false");
+  fd.append("latex_safe", "true");
+  // Compatibility aliases (for older routes)
+  fd.append("jd", jdText || "");
+  fd.append("job_description", jdText || "");
+  fd.append("humanize", useHumanize ? "true" : "false");
+  fd.append("model", getCurrentModel());
+  return fd;
+}
+
+function buildCoverLetterFormData({ jd_text = "", resume_tex = "", use_humanize = true, tone = "balanced", length = "standard" } = {}) {
+  const fd = new FormData();
+  fd.append("jd_text", jd_text || "");
+  fd.append("resume_tex", (resume_tex || "").trim());
+  fd.append("use_humanize", use_humanize ? "true" : "false");
+  fd.append("tone", tone || "balanced");
+  fd.append("length", length || "standard");
+  fd.append("model", getCurrentModel());
+  return fd;
+}
+
+function buildSuperhumanPayload(text, tone = "balanced", mode = "paragraph", latex_safe = true) {
+  return {
+    text: String(text || ""),
+    tone: String(tone || "balanced").toLowerCase(),
+    mode: String(mode || "paragraph").toLowerCase(), // "paragraph" | "resume" | "coverletter" | "sentence" | "custom"
+    latex_safe: !!latex_safe,
+    model: getCurrentModel(),
+  };
+}
+
+/* ============================================================
+   🔗 Export Namespace
+   ============================================================ */
+window.HIREX = window.HIREX || {};
+Object.assign(window.HIREX, {
+  // Versions/keys
+  UTIL_VERSION,
+  DEFAULT_BASE_TEX_PATH,
+  LS_KEYS,
+
+  // Storage
+  lsGet,
+  lsSet,
+  lsRemove,
+
+  // API base
+  getApiBase,
+
+  // Theme
+  getSystemTheme,
+  getTheme,
+  setTheme,
+  onThemeChange,
+
+  // Humanize
+  getHumanizeState,
+  setHumanizeState,
+  onHumanizeChange,
+
+  // Model
+  getCurrentModel,
+  setCurrentModel,
+
+  // Fetch
+  fetchJSON,
+  fetchText,
+  fetchBinary,
+  postJSON,
+  withTimeout,
+
+  // Base64 / Blob / data URL
+  base64ToBlob,
+  blobToBase64,
+  toDataURL,
+  parseDataURL,
+
+  // ObjectURL helpers
+  makeObjectURL,
+  revokeObjectURL,
+  revokeAllObjectURLs,
+
+  // Download / clipboard
+  downloadFile,
+  downloadTextFile,
+  copyToClipboard,
+
+  // Utils
+  getTimestamp,
+  debounce,
+  throttle,
+  sleep,
+  formatBytes,
+  sanitizeFilename,
+
+  // Builders
+  buildOptimizeFormData,
+  buildCoverLetterFormData,
+  buildSuperhumanPayload,
+});
+
+console.log(
+  `%c⚙️ [HIREX] util.js initialized — ${UTIL_VERSION}`,
+  "background:#5bd0ff;color:#fff;padding:4px 8px;border-radius:4px;font-weight:bold;"
+);
+window.HIREX?.debugLog?.("UTIL LOADED", {
+  version: UTIL_VERSION,
+  origin: window.location.origin,
+  theme: getTheme(),
+  humanize: getHumanizeState(),
+  model: getCurrentModel(),
+});
+
+/* FILE: ./static/js/ui.js */
+
+/* ============================================================
+   HIREX • ui.js (v2.1.2 — Unified Global UI Layer)
+   ------------------------------------------------------------
+   Global UI behavior for all pages:
+   • Smooth sidebar (desktop + mobile adaptive)
+   • Theme persistence with system fallback + cross-tab sync
+   • Humanize switch enhancer + global event sync
+   • Active nav highlight + scroll-in animations
+   • Global helpers (copy, download, filenames, timestamps, model)
+   • Long-running API helpers (no accidental aborts)
+   • Robust multi-tab + accessibility compatibility
+
+   Author: Sri Akash Kadali
+   ============================================================ */
+
+/* Early theme apply to reduce white flash */
+(() => {
+  try {
+    const saved = localStorage.getItem("hirex-theme");
+    if (saved) {
+      document.documentElement.setAttribute("data-theme", saved === "light" ? "light" : "dark");
+    } else {
+      const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
+      document.documentElement.setAttribute("data-theme", prefersDark ? "dark" : "light");
+    }
+  } catch {}
+})();
+
+document.addEventListener("DOMContentLoaded", () => {
+  const APP_VERSION   = "v2.1.2";
+  const THEME_KEY     = "hirex-theme";
+  const HUMANIZE_KEY  = "hirex-use-humanize";   // "on" | "off"
+  const HUMANIZE_BOOL = "hirex_use_humanize";   // "true" | "false" (legacy/alt)
+  const MODEL_KEY     = "hirex_model";
+  const currentPage   = (window.location.pathname.split("/").pop() || "index.html");
+  const toastEl       = document.getElementById("toast");
+  const html          = document.documentElement;
+  const body          = document.body;
+
+  /* ============================================================
+     🧠 GLOBAL NAMESPACE + HELPERS
+     ============================================================ */
+  // Optional meta override for API base
+  const metaApiBase = (() => {
+    const m = document.querySelector('meta[name="hirex-api-base"]');
+    return m?.getAttribute("content")?.trim() || "";
+  })();
+
+  window.HIREX = window.HIREX || {};
+  Object.assign(window.HIREX, {
+    version: APP_VERSION,
+    __apiBase: metaApiBase || window.HIREX.__apiBase || "",
+
+    /* ---------- API base ---------- */
+    getApiBase: () => {
+      try {
+        if (typeof window.HIREX.__apiBase === "string" && window.HIREX.__apiBase) return window.HIREX.__apiBase;
+      } catch {}
+      const host = location.hostname;
+      if (["127.0.0.1", "localhost", "0.0.0.0"].includes(host)) return "http://127.0.0.1:8000";
+      return location.origin;
+    },
+
+    /* ---------- Notifications ---------- */
+    toast: (msg, t = 2600) => {
+      if (!toastEl) { console.log("[HIREX]", msg); return; }
+      toastEl.setAttribute("role", "status");
+      toastEl.setAttribute("aria-live", "polite");
+      toastEl.textContent = msg;
+      toastEl.classList.add("visible");
+      clearTimeout(toastEl._timeout);
+      toastEl._timeout = setTimeout(() => toastEl.classList.remove("visible"), t);
+    },
+
+    /* ---------- Logging (best-effort) ---------- */
+    debugLog: (msg, data = {}) => {
+      console.log("%c🟦 [HIREX]", "color:#5bd0ff;font-weight:bold;", msg, data);
+      try {
+        const base = (typeof window.HIREX.getApiBase === "function" ? window.HIREX.getApiBase() : location.origin);
+        void fetch(`${base}/api/debug/log`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            msg,
+            ...data,
+            version: APP_VERSION,
+            timestamp: new Date().toISOString(),
+            page: currentPage,
+          }),
+          cache: "no-store",
+          credentials: "same-origin",
+        }).catch(() => {});
+      } catch (err) {
+        console.warn("[HIREX] Debug log failed:", err?.message || err);
+      }
+    },
+
+    /* ---------- Humanize state (SSOT + legacy) ---------- */
+    getHumanizeState: () => {
+      const a = localStorage.getItem(HUMANIZE_KEY);          // "on" | "off"
+      if (a === "on") return true;
+      if (a === "off") return false;
+      const b = localStorage.getItem(HUMANIZE_BOOL);         // "true" | "false"
+      if (b === "true") return true;
+      if (b === "false") return false;
+      return true; // default ON
+    },
+    setHumanizeState: (on) => {
+      const bool = !!on;
+      localStorage.setItem(HUMANIZE_KEY,  bool ? "on"   : "off");
+      localStorage.setItem(HUMANIZE_BOOL, bool ? "true" : "false");
+      const evt = new CustomEvent("hirex:humanize-change", { detail: { on: bool } });
+      window.dispatchEvent(evt);
+      document.dispatchEvent(evt);
+    },
+
+    /* ---------- Model helpers ---------- */
+    getCurrentModel: () => {
+      const fromLS = localStorage.getItem(MODEL_KEY);
+      if (fromLS) return fromLS;
+      const sel = document.getElementById("model");
+      return (sel && sel.value) || "gpt-4o-mini";
+    },
+    setCurrentModel: (model) => {
+      if (typeof model === "string" && model.trim()) {
+        const m = model.trim();
+        localStorage.setItem(MODEL_KEY, m);
+        const sel = document.getElementById("model");
+        if (sel) sel.value = m;
+        window.dispatchEvent(new CustomEvent("hirex:model-change", { detail: { model: m } }));
+      }
+    },
+
+    /* ---------- File/clipboard helpers ---------- */
+    sanitizeFilename: (name) =>
+      String(name || "file").replace(/[\\/:*?"<>|]+/g, "_").trim() || "file",
+
+    getTimestamp: () => new Date().toISOString().replace(/[:.]/g, "-"),
+
+    copyToClipboard: async (text) => {
+      try {
+        await navigator.clipboard.writeText(String(text ?? ""));
+        window.HIREX.toast?.("📋 Copied to clipboard!");
+        return true;
+      } catch {
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = String(text ?? "");
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+          window.HIREX.toast?.("📋 Copied to clipboard!");
+          return true;
+        } catch {
+          window.HIREX.toast?.("⚠️ Clipboard permission denied.");
+          return false;
+        }
+      }
+    },
+
+    downloadTextFile: (filename, text) => {
+      const name = window.HIREX.sanitizeFilename(filename);
+      const blob = new Blob([String(text ?? "")], { type: "text/plain" });
+      const url  = URL.createObjectURL(blob);
+      const a    = Object.assign(document.createElement("a"), { href: url, download: name });
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 600);
+    },
+
+    downloadBlobFile: (filename, blob) => {
+      if (!blob) return;
+      const name = window.HIREX.sanitizeFilename(filename);
+      const url  = URL.createObjectURL(blob);
+      const a    = Object.assign(document.createElement("a"), { href: url, download: name });
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 600);
+    },
+
+    /* ---------- Smooth scroll utility ---------- */
+    scrollTo: (selector, offset = 0) => {
+      const el = document.querySelector(selector);
+      if (!el) return false;
+      const top = Math.max(0, el.getBoundingClientRect().top + window.scrollY - offset);
+      window.scrollTo({ top, behavior: "smooth" });
+      return true;
+    },
+  });
+
+  // Back-compat namespace (other modules may look at window.ASTRA)
+  window.ASTRA = window.ASTRA || window.HIREX;
+
+  /* ============================================================
+     🌗 THEME PERSISTENCE + SYNC
+     ============================================================ */
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  const setThemeMetaColor = (theme) => {
+    if (!themeMeta) return;
+    themeMeta.setAttribute("content", theme === "dark" ? "#0a1020" : "#ffffff");
+  };
+  const getSystemTheme = () =>
+    (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches)
+      ? "light" : "dark";
+
+  const applyTheme = (theme, { persist = true, silent = false } = {}) => {
+    const val = theme === "light" ? "light" : "dark";
+    html.setAttribute("data-theme", val);
+    setThemeMetaColor(val);
+    if (persist) localStorage.setItem(THEME_KEY, val);
+    window.dispatchEvent(new CustomEvent("hirex:theme-change", { detail: { theme: val } }));
+    if (!silent) HIREX.toast(`🌗 ${val === "dark" ? "Dark" : "Light"} Mode`);
+  };
+
+  const savedTheme = localStorage.getItem(THEME_KEY);
+  applyTheme(savedTheme || getSystemTheme(), { persist: !!savedTheme, silent: true });
+
+  const themeBtn = document.getElementById("themeToggle") || document.querySelector("[data-theme-toggle]");
+  themeBtn?.addEventListener("click", () => {
+    const cur = html.getAttribute("data-theme") || "dark";
+    applyTheme(cur === "dark" ? "light" : "dark");
+  });
+
+  const mqlDark = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  if (mqlDark) {
+    const onSysChange = (e) => {
+      if (!localStorage.getItem(THEME_KEY)) applyTheme(e.matches ? "dark" : "light", { persist: false });
+    };
+    if (typeof mqlDark.addEventListener === "function") mqlDark.addEventListener("change", onSysChange);
+    else if (typeof mqlDark.addListener === "function") mqlDark.addListener(onSysChange);
+  }
+
+  window.addEventListener("storage", (e) => {
+    if (e.key === THEME_KEY && e.newValue) applyTheme(e.newValue, { persist: false, silent: true });
+  });
+
+  /* ============================================================
+     🧩 HUMANIZE TOGGLE (Single Source of Truth)
+     ============================================================ */
+  (function initHumanizeToggle() {
+    const toggle = document.getElementById("humanize-toggle") || document.getElementById("humanize_toggle");
+    const hidden = document.getElementById("use_humanize_state");
+    if (!toggle) return;
+
+    const persist = (on) => {
+      localStorage.setItem(HUMANIZE_KEY,  on ? "on"   : "off");
+      localStorage.setItem(HUMANIZE_BOOL, on ? "true" : "false"); // keep both in sync
+    };
+
+    const setState = (on, { silent = false } = {}) => {
+      const isOn = !!on;
+      toggle.classList.toggle("on", isOn);
+      toggle.querySelector(".opt-off")?.classList.toggle("active", !isOn);
+      toggle.querySelector(".opt-on")?.classList.toggle("active", isOn);
+      if (hidden) hidden.value = isOn ? "on" : "off";
+      persist(isOn);
+      const evt = new CustomEvent("hirex:humanize-change", { detail: { on: isOn } });
+      window.dispatchEvent(evt);
+      document.dispatchEvent(evt);
+      if (!silent) HIREX.toast(isOn ? "🧑‍💼 Humanize Enabled" : "⚙️ Optimize Enabled");
+    };
+
+    const startOn = (localStorage.getItem(HUMANIZE_KEY) ?? "on") === "on";
+    setState(startOn, { silent: true });
+
+    toggle.addEventListener("click", () => setState(!toggle.classList.contains("on")));
+
+    window.addEventListener("storage", (e) => {
+      if (e.key === HUMANIZE_KEY || e.key === HUMANIZE_BOOL) {
+        const on = (localStorage.getItem(HUMANIZE_KEY) ?? "on") === "on";
+        setState(on, { silent: true });
+      }
+    });
+  })();
+
+  /* ============================================================
+     🧭 ACTIVE NAV LINK
+     ============================================================ */
+  document.querySelectorAll(".vnav a").forEach((a) => {
+    const href = a.getAttribute("href") || "";
+    const isRoot = currentPage === "" || currentPage === "/" || currentPage === "index.html";
+    const isActive = href.endsWith(currentPage) || (isRoot && (href === "/" || href.endsWith("/index.html")));
+    if (isActive) {
+      a.classList.add("active-link");
+      a.setAttribute("aria-current", "page");
+    } else {
+      a.classList.remove("active-link");
+      a.removeAttribute("aria-current");
+    }
+  });
+
+  /* ============================================================
+     ✨ SCROLL-IN ANIMATIONS (respects reduced motion)
+     ============================================================ */
+  const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  const animatedEls = document.querySelectorAll("[data-anim], .anim");
+  if (!prefersReducedMotion && animatedEls.length && "IntersectionObserver" in window) {
+    const obs = new IntersectionObserver((entries, o) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-animated");
+          o.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15 });
+    animatedEls.forEach((el) => obs.observe(el));
+  } else {
+    animatedEls.forEach((el) => el.classList.add("is-animated"));
+  }
+
+  /* ============================================================
+     📱 RESPONSIVE SIDEBAR
+     ============================================================ */
+  const sidebar    = document.getElementById("sidebar");
+  const menuToggle = document.getElementById("menuToggle") || document.querySelector("[data-menu-toggle]");
+
+  if (sidebar && menuToggle) {
+    menuToggle.setAttribute("aria-controls", "sidebar");
+    menuToggle.setAttribute("aria-expanded", "false");
+
+    const closeNav = () => {
+      body.classList.remove("nav-open");
+      menuToggle.setAttribute("aria-expanded", "false");
+      sidebar.style.boxShadow = "none";
+    };
+
+    menuToggle.addEventListener("click", () => {
+      const open = body.classList.toggle("nav-open");
+      menuToggle.setAttribute("aria-expanded", String(open));
+      sidebar.style.boxShadow = open ? "0 0 30px rgba(91,208,255,0.25)" : "none";
+    });
+
+    document.addEventListener("click", (e) => {
+      if (body.classList.contains("nav-open") && !sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
+        closeNav();
+      }
+    });
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && body.classList.contains("nav-open")) closeNav();
+    });
+  }
+
+  /* ============================================================
+     ♿ ACCESSIBILITY ENHANCEMENTS
+     ============================================================ */
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") body.classList.add("user-is-tabbing");
+  });
+  window.addEventListener("mousedown", () => body.classList.remove("user-is-tabbing"));
+
+  /* ============================================================
+     🌐 ONLINE / OFFLINE FEEDBACK
+     ============================================================ */
+  window.addEventListener("online",  () => HIREX.toast("✅ Back Online"));
+  window.addEventListener("offline", () => HIREX.toast("⚠️ Offline Mode Active"));
+
+  /* ============================================================
+     🔁 MODEL SELECT (persist + broadcast, optional)
+     ============================================================ */
+  const modelSel = document.getElementById("model");
+  if (modelSel) {
+    const savedModel = localStorage.getItem(MODEL_KEY);
+    if (savedModel) modelSel.value = savedModel;
+    modelSel.addEventListener("change", () => HIREX.setCurrentModel(modelSel.value));
+    window.addEventListener("storage", (e) => {
+      if (e.key === MODEL_KEY && e.newValue && modelSel.value !== e.newValue) {
+        modelSel.value = e.newValue;
+      }
+    });
+  }
+
+  /* ============================================================
+     🧩 LEGACY CLEANUP
+     ============================================================ */
+  (() => {
+    const fileInput = document.getElementById("resume");
+    if (fileInput) {
+      fileInput.disabled = true;
+      fileInput.style.display = "none";
+      fileInput.setAttribute("aria-hidden", "true");
+    }
+  })();
+
+  /* ============================================================
+     ✨ CARD HOVER EFFECTS
+     ============================================================ */
+  document.querySelectorAll(".card").forEach((card) => {
+    card.style.transition = "transform .25s ease, box-shadow .25s ease";
+    card.addEventListener("mouseenter", () => {
+      card.style.transform = "translateY(-4px)";
+      card.style.boxShadow = "0 0 25px rgba(91,208,255,0.2)";
+    });
+    card.addEventListener("mouseleave", () => {
+      card.style.transform = "translateY(0)";
+      card.style.boxShadow = "none";
+    });
+  });
+
+  /* ============================================================
+     🧰 API HELPERS (fixes: avoid spurious AbortController cancels)
+     ============================================================ */
+  window.HIREX.api = window.HIREX.api || {};
+
+  // Core POST that never aborts mid-flight. Optional soft timeout for UI only.
+  window.HIREX.api.postLong = async function postLong(url, { body, headers, softTimeoutMs = 0 } = {}) {
+    const controller = new AbortController(); // kept for compatibility; we don't call abort()
+    const base = window.HIREX.getApiBase();
+    const full = url.startsWith("http") ? url : `${base}${url}`;
+
+    let softTimer = null;
+    if (softTimeoutMs > 0) {
+      // Soft timeout only for a heads-up toast; does NOT cancel the request.
+      softTimer = setTimeout(() => {
+        HIREX.toast("⏳ Still working…");
+        HIREX.debugLog("long_request_soft_timeout", { url, softTimeoutMs });
+      }, softTimeoutMs);
+    }
+
+    try {
+      const res = await fetch(full, {
+        method: "POST",
+        body,
+        headers,
+        signal: controller.signal, // never aborted by us
+        cache: "no-store",
+        credentials: "same-origin",
+        keepalive: false, // keepalive true limits payload; we want full PDFs
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        const err = new Error(`HTTP ${res.status} on ${url}`);
+        err.status = res.status;
+        err.body = text;
+        throw err;
+      }
+
+      const ctype = res.headers.get("content-type") || "";
+      if (ctype.includes("application/json")) return res.json();
+      return res.text();
+    } finally {
+      if (softTimer) clearTimeout(softTimer);
+    }
+  };
+
+  // Convenience: JSON post
+  window.HIREX.api.postJSON = (url, data, opts = {}) =>
+    window.HIREX.api.postLong(url, {
+      body: JSON.stringify(data || {}),
+      headers: { "Content-Type": "application/json" },
+      ...opts
+    });
+
+  /* ============================================================
+     🚀 OPTIMIZE SUBMISSION WIRING (safe defaults)
+     - Tries /api/optimize/run (canonical), then /api/optimize, then /optimize.
+     - No multi-path thrash. No AbortController cancel.
+     ============================================================ */
+  window.HIREX.optimize = window.HIREX.optimize || {};
+  window.HIREX.optimize.submit = async function submitOptimize(formEl) {
+    const useHumanize = HIREX.getHumanizeState();
+    const fd = new FormData(formEl);
+    fd.set("use_humanize", useHumanize ? "true" : "false"); // backend reads bool-ish
+    // alias for older servers that expect both names
+    if (!fd.has("jd_text") && fd.get("job_description")) fd.set("jd_text", fd.get("job_description"));
+    if (!fd.has("job_description") && fd.get("jd_text")) fd.set("job_description", fd.get("jd_text"));
+
+    const tryPaths = ["/api/optimize/run", "/api/optimize", "/optimize"]; // at most two fallbacks
+    let lastErr = null;
+
+    HIREX.debugLog("Submitting optimization", {
+      useHumanize,
+      version: APP_VERSION,
+      origin: location.origin,
+      page: currentPage,
+    });
+
+    for (const path of tryPaths) {
+      try {
+        const json = await HIREX.api.postLong(path, { body: fd, softTimeoutMs: 120000 }); // 2 min soft heads-up
+        HIREX.debugLog("optimize_success", { path, coverage_ratio: json?.coverage_ratio });
+        return json;
+      } catch (e) {
+        lastErr = e;
+        HIREX.debugLog("optimize_path_failed", { path, error: e?.message || String(e) });
+        // try next path once
+      }
+    }
+    throw lastErr || new Error("optimize_failed");
+  };
+
+  // Optional: wire default form if present
+  (function wireOptimizeFormIfPresent() {
+    const form = document.getElementById("optimizeForm");
+    const out  = document.getElementById("optimizeOutput"); // optional div/pre for messages
+    if (!form) return;
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector("[type=submit]");
+      btn && (btn.disabled = true);
+      HIREX.toast("🔧 Optimizing…");
+      HIREX.debugLog("optimize_submit_clicked");
+
+      try {
+        const result = await HIREX.optimize.submit(form);
+        HIREX.toast("✅ Optimized");
+        if (out) {
+          out.textContent = JSON.stringify({
+            company: result?.company || result?.company_name,
+            role: result?.role,
+            coverage: result?.coverage_ratio,
+            optimized_file: result?.optimized?.filename || "",
+            humanized_file: result?.humanized?.filename || "",
+          }, null, 2);
+        }
+        window.dispatchEvent(new CustomEvent("hirex:optimize-success", { detail: result }));
+      } catch (err) {
+        const msg = err?.body || err?.message || String(err);
+        HIREX.toast("❌ Optimization failed");
+        HIREX.debugLog("optimize_failed", { error: msg });
+        if (out) out.textContent = msg;
+        window.dispatchEvent(new CustomEvent("hirex:optimize-fail", { detail: { error: msg } }));
+      } finally {
+        btn && (btn.disabled = false);
+      }
+    });
+  })();
+
+  /* ============================================================
+     ✅ INIT LOG
+     ============================================================ */
+  console.log(
+    "%c⚙️ HIREX ui.js initialized — v2.1.2",
+    "background:#5bd0ff;color:#fff;padding:4px 8px;border-radius:4px;font-weight:bold;"
+  );
+  HIREX.debugLog("UI LOADED", {
+    version: APP_VERSION,
+    page: currentPage,
+    origin: window.location.origin,
+    theme: html.getAttribute("data-theme"),
+    humanize_on: window.HIREX.getHumanizeState(),
+    model: window.HIREX.getCurrentModel(),
+  });
+});
+
+/* FILE: ./static/js/coverletter.js */
+
+/* ============================================================
+   ASTRA • coverletter.js (v2.1.0 — JD-Specific Cover Letter)
+   ------------------------------------------------------------
+   • Reads selected JD+Resume context from localStorage
+   • Submits FormData to /api/coverletter (FastAPI contract)
+   • Optional “Humanize BODY” via global toggle/state
+   • Renders returned LaTeX + PDF (tabs + iframe)
+   • PDF/LaTeX toolbar (copy / download)
+   • Timeout (3m) + Cancel + robust errors
+   • Safe base64 decode, no duplicate listeners
+   • Stores server memory id/path for quick reopen
+   • Auto-populates <select> if page didn’t (defensive)
+   • Restores last cover letter on load via /api/context/get?latest=true
+   Author: Sri Akash Kadali
+   ============================================================ */
+
+document.addEventListener("DOMContentLoaded", () => {
+  const APP_NAME = "ASTRA";
+  const APP_VERSION = "v2.1.0";
+
+  /* ------------------------------------------------------------
+     🌐 Elements (optional-safe)
+  ------------------------------------------------------------ */
+  const selectEl    = document.getElementById("historySelect");
+  const genBtn      = document.getElementById("generate_btn");
+  const statusBadge = document.getElementById("meta_badge");
+
+  const panePdf     = document.getElementById("pane_pdf");
+  const pdfFrame    = document.getElementById("pdf_frame");
+
+  const paneTex     = document.getElementById("pane_tex");
+  const texOut      = document.getElementById("cl-tex-output");
+
+  const paneBody    = document.getElementById("pane_body");
+  const bodyOut     = document.getElementById("body_output");
+
+  /* ------------------------------------------------------------
+     🧠 Runtime helpers
+  ------------------------------------------------------------ */
+  const RT = (window.ASTRA ?? window.HIREX) || {};
+  const debug = (msg, data) => (typeof RT.debugLog === "function" ? RT.debugLog(msg, data) : void 0);
+
+  const getApiBase = () => {
+    try { if (typeof RT.getApiBase === "function") return RT.getApiBase(); } catch {}
+    if (["127.0.0.1", "localhost"].includes(location.hostname)) return "http://127.0.0.1:8000";
+    return location.origin;
+  };
+  const apiBase = getApiBase();
+
+  const toast = (msg, t = 3000) => (RT.toast ? RT.toast(msg, t) : alert(msg));
+  const nowStamp = () => new Date().toISOString().replace(/[:.]/g, "-");
+  const sanitize = (name) => String(name || "file").replace(/[\\/:*?"<>|]+/g, "_").trim() || "file";
+
+  const safeAtob = (b64) => {
+    try {
+      const s = String(b64 || "").trim();
+      const base = s.includes("base64,") ? s.split("base64,")[1] : s;
+      // Handle URL-safe base64 + stray whitespace/newlines
+      const norm = base.replace(/-/g, "+").replace(/_/g, "/").replace(/\s+/g, "");
+      return atob(norm);
+    } catch {
+      return "";
+    }
+  };
+
+  const b64ToBlob = (b64, mime = "application/pdf") => {
+    const bin = safeAtob(b64);
+    if (!bin) return null;
+    return new Blob([Uint8Array.from(bin, (c) => c.charCodeAt(0))], { type: mime });
+  };
+
+  const downloadText = (name, text) => {
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 500);
+  };
+
+  const downloadBlob = (name, blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 500);
+  };
+
+  // Default ON when unset (matches backend default True)
+  const getHumanizeState = () => {
+    try { if (typeof RT.getHumanizeState === "function") return !!RT.getHumanizeState(); } catch {}
+    // support both new and legacy keys
+    const v = localStorage.getItem("hirex_use_humanize");
+    if (v === null) return true;                            // ← default ON
+    if (v === "true" || v === "false") return v === "true";
+    return (localStorage.getItem("hirex-use-humanize") ?? "on") === "on";
+  };
+
+  const getTone = () => {
+    try { if (typeof RT.getTone === "function") return RT.getTone() || "balanced"; } catch {}
+    const el = document.getElementById("toneSelect");
+    return (el && el.value) || "balanced";
+  };
+
+  const getLengthPref = () => {
+    try { if (typeof RT.getCoverLetterLength === "function") return RT.getCoverLetterLength() || "standard"; } catch {}
+    const el = document.getElementById("lengthSelect");
+    return (el && el.value) || "standard";
+  };
+
+  /* ------------------------------------------------------------
+     📦 Context helpers
+  ------------------------------------------------------------ */
+  const readHistory = () => {
+    try { return JSON.parse(localStorage.getItem("hirex_history") || "[]"); }
+    catch { return []; }
+  };
+
+  const pickFromHistory = (index) => {
+    const history = readHistory();
+    return history?.[index] || null;
+  };
+
+  const getFallbackCtx = () => ({
+    jd:        localStorage.getItem("hirex_jd_text") || "",
+    resumeTex: localStorage.getItem("hirex_tex") || "",
+    company:   localStorage.getItem("hirex_company") || "Company",
+    role:      localStorage.getItem("hirex_role") || "Role",
+  });
+
+  const getSelectedContext = () => {
+    const idx = Number(selectEl?.value ?? 0);
+    const item = pickFromHistory(idx);
+    const fallback = getFallbackCtx();
+
+    const selected = (() => {
+      try { return JSON.parse(localStorage.getItem("hirex_selected_cl") || "null"); }
+      catch { return null; }
+    })();
+
+    return {
+      company:   selected?.company    ?? item?.company    ?? fallback.company,
+      role:      selected?.role       ?? item?.role       ?? fallback.role,
+      jd:        selected?.jd_text    ?? item?.jd_text    ?? fallback.jd,
+      resumeTex: selected?.resume_tex ?? item?.resume_tex ?? fallback.resumeTex,
+    };
+  };
+
+  // Defensive: populate the <select> if the HTML page didn't
+  const populateSelectIfEmpty = () => {
+    if (!selectEl) return;
+    if (selectEl.options.length > 0) return; // page already filled it
+
+    const history = readHistory();
+    if (!history.length) {
+      selectEl.innerHTML = "<option disabled selected>No saved resumes</option>";
+      if (genBtn) genBtn.disabled = true;
+      return;
+    }
+
+    // Build rows newest-first but keep value as ORIGINAL index
+    const rows = [...history].map((h, i) => ({ i, ...h })).reverse();
+    selectEl.innerHTML = rows
+      .map((h) => {
+        const comp = (h.company ?? "—").toString().replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]));
+        const role = (h.role ?? "—").toString().replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]));
+        return `<option value="${h.i}">${comp} — ${role}</option>`;
+      })
+      .join("");
+    selectEl.selectedIndex = 0;
+
+    const persistSelection = () => {
+      const raw = history[Number(selectEl.value)] || null;
+      if (raw) localStorage.setItem("hirex_selected_cl", JSON.stringify(raw));
+    };
+    persistSelection();
+    selectEl.addEventListener("change", persistSelection, { once: false });
+  };
+
+  populateSelectIfEmpty();
+
+  /* ------------------------------------------------------------
+     🧱 Build FormData for POST — FastAPI contract
+     jd_text, resume_tex, use_humanize, tone, length
+  ------------------------------------------------------------ */
+  const buildFormData = ({ jd, resumeTex, useHumanize, tone, length }) => {
+    const fd = new FormData();
+    fd.append("jd_text", jd || "");
+    fd.append("resume_tex", (resumeTex || "").trim());
+    fd.append("use_humanize", useHumanize ? "true" : "false");
+    fd.append("tone", tone || "balanced");
+    fd.append("length", length || "standard");
+    return fd;
+  };
+
+  /* ------------------------------------------------------------
+     🚀 POST /api/coverletter with cancel/timeout
+  ------------------------------------------------------------ */
+  const postCoverLetter = async (url, fd, controller) => {
+    const res = await fetch(url, { method: "POST", body: fd, signal: controller.signal });
+    let payload = null;
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    try {
+      payload = ct.includes("json") ? await res.json() : await res.text();
+    } catch {
+      payload = null;
+    }
+    if (!res.ok) {
+      const msg =
+        (payload && (payload.detail || payload.error || payload.message)) ||
+        (typeof payload === "string" && payload) ||
+        `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+    if (typeof payload === "string") {
+      try { return JSON.parse(payload); } catch { throw new Error("Invalid JSON from backend."); }
+    }
+    return payload || {};
+  };
+
+  /* ------------------------------------------------------------
+     🖼 Rendering helpers
+  ------------------------------------------------------------ */
+  const objectUrls = [];
+  let lastPdfUrl = "";
+
+  const urlFromPdfB64 = (b64) => {
+    const blob = b64ToBlob(b64);
+    if (!blob) return "";
+    const url = URL.createObjectURL(blob);
+    objectUrls.push(url);
+    return url;
+  };
+
+  const ensurePdfToolbar = (containerEl) => {
+    if (!containerEl) return null;
+    let bar = containerEl.querySelector(".cl-toolbar");
+    if (bar) return bar;
+
+    bar = document.createElement("div");
+    bar.className = "cl-toolbar";
+    bar.style.display = "flex";
+    bar.style.gap = ".5rem";
+    bar.style.justifyContent = "flex-end";
+    bar.style.margin = ".5rem 0 0";
+
+    const btnPdf = document.createElement("button");
+    btnPdf.id = "cl_dl_pdf";
+    btnPdf.className = "btn accent";
+    btnPdf.textContent = "⬇️ Download PDF";
+
+    const btnTex = document.createElement("button");
+    btnTex.id = "cl_dl_tex";
+    btnTex.className = "btn";
+    btnTex.textContent = "⬇️ Download .tex";
+
+    const btnCopy = document.createElement("button");
+    btnCopy.id = "cl_copy_tex";
+    btnCopy.className = "btn";
+    btnCopy.textContent = "📋 Copy LaTeX";
+
+    bar.append(btnPdf, btnTex, btnCopy);
+    containerEl.prepend(bar);
+    return bar;
+  };
+
+  // ✅ Robust BODY extraction: supports anchored comments and multiline content
+  const extractBodyFromLatex = (tex = "") => {
+    if (!tex) return "";
+
+    // 1) Prefer explicit BODY anchors
+    const anchor = tex.match(
+      /^\s*%[-\s]*BODY-START[-\s]*\s*$([\s\S]*?)^\s*%[-\s]*BODY-END[-\s]*\s*$/im
+    );
+    if (anchor) return anchor[1].trim();
+
+    // 2) Fallback to document environment
+    const docMatch = tex.match(/\\begin\{document\}([\s\S]*?)\\end\{document\}/i);
+    if (docMatch) return docMatch[1].trim();
+
+    // 3) Last resort: strip obvious preamble/comment lines
+    return tex
+      .split("\n")
+      .filter((l) => !/^\\documentclass|^\\usepackage|^%/.test(l.trim()))
+      .join("\n")
+      .trim();
+  };
+
+  const renderOutputs = (data = {}) => {
+    // Backend returns: company, role, tone, use_humanize, tex_string, pdf_base64 (+ paths/ids)
+    const {
+      tex_string = "",
+      pdf_base64 = "",
+      company = "",
+      role = "",
+    } = data;
+
+    // LaTeX
+    if (texOut) {
+      texOut.textContent = tex_string.trim() || "% ⚠️ No LaTeX returned.\n% Try again.";
+    }
+
+    // Body (plain)
+    if (bodyOut) {
+      const body = extractBodyFromLatex(tex_string || "");
+      bodyOut.textContent = (body || "(no body extracted)").trim();
+    }
+
+    // PDF -> iframe
+    if (pdfFrame) {
+      if (pdf_base64) {
+        const url = urlFromPdfB64(pdf_base64);
+        if (url) {
+          // revoke previous to avoid leaks
+          if (lastPdfUrl) { try { URL.revokeObjectURL(lastPdfUrl); } catch {} }
+          lastPdfUrl = url;
+          pdfFrame.src = `${url}#view=FitH`;
+        }
+
+        // Toolbar (use .onclick to avoid duplicate listeners)
+        const bar = ensurePdfToolbar(panePdf || pdfFrame.parentElement);
+        if (bar) {
+          const comp  = sanitize(company || "Company").replace(/\s+/g, "_");
+          const rl    = sanitize(role || "Role").replace(/\s+/g, "_");
+          const stamp = nowStamp();
+          // Match server naming for user download
+          const pdfName = `Sri_${comp}_${rl}_Cover_Letter_${stamp}.pdf`;
+          const texName = `Sri_${comp}_${rl}_Cover_Letter_${stamp}.tex`;
+
+          const btnPdf  = bar.querySelector("#cl_dl_pdf");
+          const btnTex  = bar.querySelector("#cl_dl_tex");
+          const btnCopy = bar.querySelector("#cl_copy_tex");
+
+          if (btnPdf) {
+            btnPdf.onclick = async () => {
+              try {
+                const blob = await fetch(url).then((r) => r.blob());
+                downloadBlob(pdfName, blob);
+              } catch (e) {
+                console.error("[ASTRA] PDF download error:", e);
+                toast("❌ Failed to download PDF.");
+              }
+            };
+          }
+          if (btnTex) {
+            btnTex.onclick = () => {
+              if (!(tex_string || "").trim()) return toast("⚠️ No LaTeX to download!");
+              downloadText(texName, tex_string);
+            };
+          }
+          if (btnCopy) {
+            btnCopy.onclick = async () => {
+              if (!(tex_string || "").trim()) return toast("⚠️ No LaTeX to copy!");
+              try {
+                await navigator.clipboard.writeText(tex_string);
+                toast("✅ LaTeX copied!");
+              } catch (e) {
+                console.error("[ASTRA] Clipboard error:", e);
+                toast("⚠️ Clipboard permission denied.");
+              }
+            };
+          }
+        }
+
+        // Show PDF tab after generation (if tabs exist)
+        document.querySelector('.tab[data-tab="pdf"]')?.click();
+      } else {
+        pdfFrame.removeAttribute("src");
+      }
+    }
+  };
+
+  /* ------------------------------------------------------------
+     💾 Cache results
+  ------------------------------------------------------------ */
+  const cacheResult = (data = {}, fallbackCtx = {}) => {
+    try {
+      const record = {
+        id: Date.now(),
+        company: data.company || fallbackCtx.company || "Company",
+        role: data.role || fallbackCtx.role || "Role",
+        fit_score: data.fit_score ?? null,
+        type: "coverletter",
+        timestamp: new Date().toISOString(),
+        memory_id: data.memory_id || null,
+        memory_path: data.memory_path || data.context_path || null, // ← accept context_path
+        pdf_path: data.pdf_path || null,
+      };
+      const history = JSON.parse(localStorage.getItem("hirex_history") || "[]");
+      history.push(record);
+      localStorage.setItem("hirex_history", JSON.stringify(history));
+
+      if (data.tex_string) localStorage.setItem("hirex_cl_tex", data.tex_string);
+      if (data.pdf_base64) localStorage.setItem("hirex_cl_pdf", data.pdf_base64);
+      localStorage.setItem("hirex_cl_company", record.company);
+      localStorage.setItem("hirex_cl_role", record.role);
+      localStorage.setItem("hirex_cl_version", APP_VERSION);
+      if (record.memory_id) localStorage.setItem("hirex_cl_memory_id", record.memory_id);
+      if (record.memory_path) localStorage.setItem("hirex_cl_memory_path", record.memory_path);
+      if (record.pdf_path) localStorage.setItem("hirex_cl_pdf_path", record.pdf_path);
+    } catch (err) {
+      console.warn("[ASTRA] Cache save failed:", err);
+    }
+  };
+
+  /* ------------------------------------------------------------
+     ✉️ Generate handler
+  ------------------------------------------------------------ */
+  const setStatus = (txt) => { if (statusBadge) statusBadge.textContent = txt; };
+
+  const generateCoverLetter = async () => {
+    const ctx = getSelectedContext();
+    if (!ctx.jd?.trim()) {
+      toast("⚠️ No Job Description found for the selected item.");
+      setStatus("Idle");
+      return;
+    }
+
+    const useHumanize = getHumanizeState();
+    const tone = getTone();
+    const length = getLengthPref();
+
+    setStatus("Generating…");
+    if (genBtn) genBtn.disabled = true;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 180000); // 3 minutes
+    let cancelBtn;
+
+    if (statusBadge && !document.getElementById("cl_cancel_btn")) {
+      cancelBtn = document.createElement("button");
+      cancelBtn.id = "cl_cancel_btn";
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "❌ Cancel";
+      cancelBtn.className = "btn";
+      cancelBtn.style.marginLeft = "0.5rem";
+      statusBadge.insertAdjacentElement("afterend", cancelBtn);
+      cancelBtn.onclick = () => controller.abort();
+    }
+
+    const fd = buildFormData({
+      jd: ctx.jd,
+      resumeTex: ctx.resumeTex || "",
+      useHumanize,
+      tone,
+      length,
+    });
+
+    const endpoint = `${apiBase}/api/coverletter`;
+
+    try {
+      const data = await postCoverLetter(endpoint, fd, controller);
+
+      clearTimeout(timeout);
+      if (cancelBtn) cancelBtn.remove();
+
+      if (!data?.tex_string && !data?.pdf_base64) {
+        throw new Error("Empty cover letter response from backend.");
+      }
+
+      renderOutputs(data);
+      cacheResult(data, ctx);
+      toast(`✅ Cover Letter ready for ${data.company || ctx.company}`);
+      setStatus("Ready");
+    } catch (err) {
+      console.error("[ASTRA] CoverLetter Error:", err);
+      if (err.name === "AbortError") {
+        toast("⚠️ Generation canceled or timed out (3 min).");
+        setStatus("Canceled / Timed out");
+      } else if (/Failed to fetch|NetworkError/i.test(err.message || "")) {
+        toast("🌐 Network error — check FastAPI connection.");
+        setStatus("Network error");
+      } else {
+        toast("❌ " + (err.message || "Unexpected error occurred."));
+        setStatus("Error");
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (document.getElementById("cl_cancel_btn")) document.getElementById("cl_cancel_btn").remove();
+      if (genBtn) genBtn.disabled = false;
+    }
+  };
+
+  /* ------------------------------------------------------------
+     🔘 Wire up Generate button
+  ------------------------------------------------------------ */
+  genBtn?.addEventListener("click", generateCoverLetter);
+
+  /* ------------------------------------------------------------
+     ♻️ Restore last saved cover letter on load (defensive)
+  ------------------------------------------------------------ */
+  (async function loadLatestCoverLetter() {
+    try {
+      const res = await fetch(`${apiBase}/api/context/get?latest=true`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      // Accept multiple shapes
+      const pdfB64 =
+        data.cover_letter_pdf_b64 ||
+        data.pdf_base64 ||
+        (data.cover_letter && data.cover_letter.pdf_b64);
+
+      const tex =
+        data.cover_letter_tex ||
+        data.tex_string ||
+        (data.cover_letter && data.cover_letter.tex);
+
+      if (pdfB64 && pdfFrame) {
+        const url = urlFromPdfB64(pdfB64);
+        if (url) {
+          if (lastPdfUrl) { try { URL.revokeObjectURL(lastPdfUrl); } catch {} }
+          lastPdfUrl = url;
+          pdfFrame.src = `${url}#view=FitH`;
+          document.querySelector('.tab[data-tab="pdf"]')?.click();
+        }
+      }
+      if (tex && texOut) {
+        texOut.textContent = tex;
+        if (bodyOut) {
+          const body = extractBodyFromLatex(tex);
+          bodyOut.textContent = (body || "(no body extracted)").trim();
+        }
+      }
+    } catch {
+      /* non-fatal */
+    }
+  })();
+
+  /* ------------------------------------------------------------
+     🧹 Revoke object URLs on unload
+  ------------------------------------------------------------ */
+  window.addEventListener("beforeunload", () => {
+    objectUrls.forEach((u) => { try { URL.revokeObjectURL(u); } catch {} });
+  });
+
+  /* ------------------------------------------------------------
+     ✅ Init log
+  ------------------------------------------------------------ */
+  console.log(
+    `%c✉️ ${APP_NAME} coverletter.js initialized — ${APP_VERSION}`,
+    "background:#5bd0ff;color:#00131c;padding:4px 8px;border-radius:4px;font-weight:bold;"
+  );
+  debug("COVER LETTER JS LOADED", { app: APP_NAME, version: APP_VERSION, apiBase });
+});
+
+/* FILE: ./static/js/preview.js */
+
+/* ============================================================
+   HIREX • preview.js (v2.1.2 — Memory-Enhanced Resume Viewer)
+   ------------------------------------------------------------
+   Fixes vs 2.1.0:
+   • Clicking a "Recent Job" now ALWAYS loads that job’s assets.
+   • Purges stale localStorage (PDF/TeX) before saving a new context.
+   • Reads nested fields: humanized.tex/pdf_base64, optimized.tex/pdf_base64.
+   • If a field is missing in a context, the old cache is cleared.
+   • Auto-loads latest server context only when nothing local exists.
+   • Properly revokes blob URLs on unload.
+   Author: Sri Akash Kadali
+   ============================================================ */
+
+document.addEventListener("DOMContentLoaded", () => {
+  const APP_VERSION = "v2.1.2";
+
+  /* ------------------------------------------------------------
+     🔧 DOM Elements
+  ------------------------------------------------------------ */
+  const texOutput      = document.getElementById("tex-output");
+  const pdfContainer   = document.getElementById("pdf-container");
+  const btnDownloadTex = document.getElementById("download-tex");
+  const btnCopyTex     = document.getElementById("copy-tex");
+  const fitCircle      = document.getElementById("fitCircle");
+  const fitTierEl      = document.getElementById("fit-tier");
+  const fitRoundsEl    = document.getElementById("fit-rounds");
+  const historyList    = document.getElementById("history-list");
+
+  /* ------------------------------------------------------------
+     🧠 Runtime helpers
+  ------------------------------------------------------------ */
+  const RT = (window.ASTRA ?? window.HIREX) || {};
+  const toast = (msg, t = 3000) => (RT.toast ? RT.toast(msg, t) : alert(msg));
+  const debug = (msg, data) => RT.debugLog?.(msg, data);
+
+  const getApiBase = () => {
+    try { if (typeof RT.getApiBase === "function") return RT.getApiBase(); } catch {}
+    if (["127.0.0.1", "localhost"].includes(location.hostname)) return "http://127.0.0.1:8000";
+    return location.origin;
+  };
+  const apiBase = getApiBase();
+
+  const getTS = () => new Date().toISOString().replace(/[:.]/g, "-");
+  const sanitize = (s) => String(s || "file").replace(/[\\/:*?"<>|]+/g, "_").trim() || "file";
+
+  // Base64 helpers: handle url-safe payloads and padding
+  const normalizeB64 = (b64 = "") => {
+    let x = (b64 || "").trim();
+    const i = x.indexOf("base64,");
+    if (i >= 0) x = x.slice(i + 7);
+    x = x.replace(/[\r\n\s]/g, "").replace(/-/g, "+").replace(/_/g, "/");
+    const pad = x.length % 4;
+    return pad ? x + "=".repeat(4 - pad) : x;
+  };
+  const safeAtob = (b64) => { try { return atob(normalizeB64(b64)); } catch { return ""; } };
+  const b64ToBlob = (b64, mime = "application/pdf") => {
+    const bin = safeAtob(b64);
+    if (!bin) return null;
+    const len = bin.length;
+    const out = new Uint8Array(len);
+    for (let i = 0; i < len; i++) out[i] = bin.charCodeAt(i) & 0xff;
+    return new Blob([out], { type: mime });
+  };
+  const downloadFile = (name, blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a   = Object.assign(document.createElement("a"), { href: url, download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 700);
+  };
+  const downloadText = (name, text) => downloadFile(name, new Blob([text], { type: "text/plain" }));
+
+  /* ------------------------------------------------------------
+     💾 Local Cache Snapshot
+  ------------------------------------------------------------ */
+  let texString         = localStorage.getItem("hirex_tex") || "";
+  let pdfB64            = localStorage.getItem("hirex_pdf") || "";
+  let pdfB64Humanized   = localStorage.getItem("hirex_pdf_humanized") || "";
+  let companyRaw        = localStorage.getItem("hirex_company") || "Company";
+  let roleRaw           = localStorage.getItem("hirex_role") || "Role";
+  const cacheVersion    = localStorage.getItem("hirex_version") || APP_VERSION;
+
+  let company = sanitize(companyRaw).replace(/\s+/g, "_");
+  let role    = sanitize(roleRaw).replace(/\s+/g, "_");
+
+  // Remove stale resume cache before saving a new selection
+  const purgeResumeCache = () => {
+    [
+      "hirex_tex",
+      "hirex_resume_plain",
+      "hirex_resume_text",
+      "hirex_pdf",
+      "hirex_pdf_humanized",
+      // optional fit cache—clear to avoid misleading carry-over
+      "hirex_fit_score",
+      "hirex_rating_history",
+      "hirex_coverage_ratio",
+    ].forEach((k) => localStorage.removeItem(k));
+  };
+
+  /* ------------------------------------------------------------
+     🧭 History Loader (local) + Backend Contexts (dedup newest)
+  ------------------------------------------------------------ */
+  const keyFrom = (obj) => {
+    const k = (obj?.key) ? String(obj.key)
+      : `${obj?.company || ""}__${obj?.role || ""}`;
+    return k.toLowerCase().replace(/\s+/g, "_");
+  };
+
+  const loadLocalHistory = () => {
+    try { return JSON.parse(localStorage.getItem("hirex_history") || "[]"); }
+    catch { return []; }
+  };
+  const history = loadLocalHistory();
+
+  const dedupeLatest = (arr) => {
+    const seen = new Set();
+    const out = [];
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const it = arr[i];
+      const k = keyFrom(it);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ ...it, __origIndex: i, __key: k });
+    }
+    return out; // newest-first
+  };
+
+  const renderHistoryListLocal = () => {
+    if (!historyList) return;
+    if (!Array.isArray(history) || !history.length) return false;
+
+    const latest = dedupeLatest(history);
+    historyList.innerHTML = latest.map((h) => `
+      <li data-source="local" data-index="${h.__origIndex}" data-key="${h.__key}" class="history-item">
+        <div class="history-entry">
+          <strong>${sanitize(h.company || "—")}</strong><br/>
+          <small>${sanitize(h.role || "—")}</small>
+        </div>
+      </li>
+    `).join("");
+    return true;
+  };
+
+  const loadLocalEntry = (index) => {
+    const entry = history[index];
+    if (!entry) return;
+
+    // Purge first so missing fields don't retain old blobs/tex
+    purgeResumeCache();
+
+    localStorage.setItem("hirex_company", entry.company || "Company");
+    localStorage.setItem("hirex_role", entry.role || "Role");
+
+    // Older records may hold inline content; newer rely on server memory.
+    if (entry.tex) localStorage.setItem("hirex_tex", entry.tex);
+    if (entry.pdf) localStorage.setItem("hirex_pdf", entry.pdf);
+    if (entry.pdf_humanized) localStorage.setItem("hirex_pdf_humanized", entry.pdf_humanized);
+
+    // Persist minimal selection for other pages
+    localStorage.setItem("hirex_selected_context", JSON.stringify({
+      key: keyFrom(entry),
+      company: entry.company || "",
+      role: entry.role || "",
+      jd_text: entry.jd_text || entry.jd || "",
+      resume_tex: entry.tex || "",
+      pdf_base64: entry.pdf || "",
+      pdf_base64_humanized: entry.pdf_humanized || "",
+    }));
+
+    localStorage.setItem("hirex_version", APP_VERSION);
+    toast(`📂 Loaded ${entry.company || "—"} — ${entry.role || "—"}`);
+    window.location.reload();
+  };
+
+  // --- Backend context API (aligned to /api/context v2.x) ---
+  const fetchContextList = async (limit = 50) => {
+    try {
+      const res = await fetch(`${apiBase}/api/context/list?limit=${limit}`, { credentials: "same-origin" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const items = Array.isArray(data.items) ? data.items : [];
+      // Dedupe by key (prefer first as most recent)
+      const seen = new Set();
+      const uniq = [];
+      for (const it of items) {
+        const k = keyFrom(it);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        uniq.push({ ...it, __key: k });
+      }
+      return uniq;
+    } catch (e) {
+      console.warn("[HIREX] /api/context/list failed:", e);
+      return [];
+    }
+  };
+
+  const fetchContextByKey = async (key) => {
+    try {
+      const res = await fetch(`${apiBase}/api/context/get?key=${encodeURIComponent(key)}`, {
+        credentials: "same-origin",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (e) {
+      console.warn("[HIREX] /api/context/get?key failed:", e);
+      return null;
+    }
+  };
+
+  const renderHistoryListBackend = async () => {
+    if (!historyList) return;
+    const items = await fetchContextList(50);
+    if (!items.length) return false;
+
+    const frag = document.createDocumentFragment();
+    items.forEach((it) => {
+      const li = document.createElement("li");
+      li.className = "history-item";
+      li.dataset.source = "backend";
+      li.dataset.key = it.__key || keyFrom(it);
+      li.innerHTML = `
+        <div class="history-entry">
+          <strong>${sanitize(it.company || "—")}</strong><br/>
+          <small>${sanitize(it.role || "—")}</small>
+        </div>`;
+      frag.appendChild(li);
+    });
+
+    if (historyList.children.length) {
+      const sep = document.createElement("li");
+      sep.className = "history-sep";
+      sep.innerHTML = `<div class="history-entry muted">— Server Memory —</div>`;
+      historyList.appendChild(sep);
+    }
+
+    historyList.appendChild(frag);
+    return true;
+  };
+
+  // Persist a minimal selected context for cross-pages (Talk, etc.)
+  const persistSelectedContext = (ctx) => {
+    const selected = {
+      key: keyFrom(ctx),
+      company: ctx.company || ctx.company_name || "",
+      role: ctx.role || "",
+      jd_text: ctx.jd_text || ctx.jd || "",
+      resume_tex:
+        (ctx.humanized?.tex) ||
+        ctx.humanized_tex ||
+        (ctx.optimized?.tex) ||
+        ctx.resume_tex ||
+        ctx.tex_string ||
+        "",
+      pdf_base64: ctx.pdf_base64 || ctx.optimized?.pdf_base64 || "",
+      pdf_base64_humanized: ctx.pdf_base64_humanized || ctx.humanized?.pdf_base64 || "",
+    };
+    localStorage.setItem("hirex_selected_context", JSON.stringify(selected));
+    return selected;
+  };
+
+  const loadBackendEntry = async (key) => {
+    const ctx = await fetchContextByKey(key);
+    if (!ctx) return toast("⚠️ Unable to load context from server.");
+
+    // Purge first so missing fields don't retain old blobs/tex
+    purgeResumeCache();
+
+    // Normalize & save across app
+    const companyName = ctx.company || ctx.company_name || "Company";
+    const roleName    = ctx.role || "Role";
+
+    const tex =
+      (ctx.humanized?.tex) ||
+      ctx.humanized_tex ||
+      (ctx.optimized?.tex) ||
+      ctx.resume_tex ||
+      ctx.tex_string ||
+      "";
+
+    const pdfOpt = ctx.pdf_base64 || ctx.optimized?.pdf_base64 || "";
+    const pdfHum = ctx.pdf_base64_humanized || ctx.humanized?.pdf_base64 || "";
+
+    localStorage.setItem("hirex_company", companyName);
+    localStorage.setItem("hirex_role", roleName);
+
+    if (tex) localStorage.setItem("hirex_tex", tex); // keep cleared if absent
+    if (pdfOpt) localStorage.setItem("hirex_pdf", pdfOpt);
+    if (pdfHum) localStorage.setItem("hirex_pdf_humanized", pdfHum);
+
+    // Fit score + history (coverage rounds) if available
+    if (ctx.fit_score != null) {
+      localStorage.setItem("hirex_fit_score", String(ctx.fit_score));
+    } else if (ctx.coverage_ratio != null) {
+      localStorage.setItem("hirex_fit_score", String(Math.round(Number(ctx.coverage_ratio) * 100)));
+      localStorage.setItem("hirex_coverage_ratio", String(ctx.coverage_ratio));
+    }
+    if (Array.isArray(ctx.coverage_history)) {
+      try { localStorage.setItem("hirex_rating_history", JSON.stringify(ctx.coverage_history)); } catch {}
+    }
+
+    if (ctx.jd_text) localStorage.setItem("hirex_jd_text", ctx.jd_text);
+
+    // Persist selection for other pages
+    persistSelectedContext(ctx);
+    localStorage.setItem("hirex_version", APP_VERSION);
+
+    toast(`☁️ Loaded ${companyName} — ${roleName} from server memory`);
+    window.location.reload();
+  };
+
+  if (historyList) {
+    const hadLocal = renderHistoryListLocal();
+    renderHistoryListBackend().then((hadBackend) => {
+      if (!hadLocal && !hadBackend) {
+        historyList.innerHTML =
+          "<li style='color:#888;padding:.5rem;'>No saved resumes yet.</li>";
+      }
+    });
+
+    historyList.addEventListener("click", (e) => {
+      const li = e.target.closest("li.history-item");
+      if (!li) return;
+      if (li.dataset.source === "local") {
+        loadLocalEntry(Number(li.dataset.index));
+      } else if (li.dataset.source === "backend") {
+        loadBackendEntry(li.dataset.key);
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------
+     ⚠️ Version Notice
+  ------------------------------------------------------------ */
+  if (cacheVersion !== APP_VERSION) {
+    console.warn(`[HIREX] Cache version mismatch: ${cacheVersion} ≠ ${APP_VERSION}`);
+    toast("⚠️ Cache from a different version detected — re-optimize recommended.");
+  }
+
+  /* ------------------------------------------------------------
+     🎯 JD Fit Gauge (align with main.js keys)
+  ------------------------------------------------------------ */
+  const computeFit = () => {
+    let ratingScore = (() => {
+      const raw = localStorage.getItem("hirex_fit_score");
+      if (raw == null || raw === "n/a") return NaN;
+      const n = Number(raw);
+      return Number.isFinite(n) ? Math.round(n) : NaN;
+    })();
+
+    let ratingRounds = 0;
+    try {
+      const hist = JSON.parse(localStorage.getItem("hirex_rating_history") || "[]");
+      if (Array.isArray(hist)) ratingRounds = hist.length;
+      if (!Number.isFinite(ratingScore) && hist.length) {
+        const last = hist.at(-1);
+        if (typeof last?.coverage === "number") ratingScore = Math.round(last.coverage * 100);
+      }
+      if (!Number.isFinite(ratingScore)) {
+        const cov = Number(localStorage.getItem("hirex_coverage_ratio"));
+        if (Number.isFinite(cov)) ratingScore = Math.round(cov * 100);
+      }
+    } catch {}
+    return { ratingScore, ratingRounds };
+  };
+
+  const renderFit = () => {
+    const { ratingScore, ratingRounds } = computeFit();
+    if (!fitCircle) return;
+
+    const hasScore = Number.isFinite(ratingScore) && ratingScore >= 0;
+    const tier = hasScore
+      ? ratingScore >= 90 ? "Excellent"
+      : ratingScore >= 75 ? "Strong"
+      : ratingScore >= 60 ? "Moderate"
+      : "Low"
+      : "Awaiting Analysis…";
+
+    fitCircle.dataset.score = hasScore ? String(ratingScore) : "--";
+    fitCircle.style.borderColor = hasScore
+      ? (ratingScore >= 90 ? "#6effa0"
+        : ratingScore >= 75 ? "#5bd0ff"
+        : ratingScore >= 60 ? "#ffc35b"
+        : "#ff6b6b")
+      : "rgba(255,255,255,0.25)";
+
+    if (fitTierEl)   fitTierEl.textContent   = tier;
+    if (fitRoundsEl) fitRoundsEl.textContent = ratingRounds || "--";
+  };
+
+  renderFit();
+
+  /* ------------------------------------------------------------
+     📜 Render LaTeX
+  ------------------------------------------------------------ */
+  if (texOutput) {
+    texOutput.style.background  = "rgba(10,16,32,0.85)";
+    texOutput.style.color       = "#dfe7ff";
+    texOutput.style.whiteSpace  = "pre-wrap";
+    texOutput.textContent = (texString || "").trim()
+      ? texString
+      : "% ⚠️ No optimized LaTeX found.\n% Please re-run optimization from Home or select a saved job.";
+  }
+
+  /* ------------------------------------------------------------
+     📋 Copy / Download LaTeX
+  ------------------------------------------------------------ */
+  btnCopyTex?.addEventListener("click", async () => {
+    if (!(texString || "").trim()) return toast("⚠️ No LaTeX to copy!");
+    try {
+      await navigator.clipboard.writeText(texString);
+      toast("✅ LaTeX copied to clipboard!");
+    } catch {
+      toast("⚠️ Clipboard permission denied.");
+    }
+  });
+
+  btnDownloadTex?.addEventListener("click", () => {
+    if (!(texString || "").trim()) return toast("⚠️ No LaTeX to download!");
+    const name = sanitize(`HIREX_Resume_${company}_${role}_${getTS()}.tex`);
+    downloadText(name, texString);
+    toast("⬇️ Downloading LaTeX file…");
+  });
+
+  /* ------------------------------------------------------------
+     📄 PDF Renderer
+  ------------------------------------------------------------ */
+  const objectUrls = [];
+  const makePdfUrl = (b64) => {
+    const blob = b64ToBlob(b64);
+    if (!blob) return "";
+    const url = URL.createObjectURL(blob);
+    objectUrls.push(url);
+    return url;
+  };
+
+  const createPdfCard = (title, b64, suffix = "") => {
+    const url = makePdfUrl(b64);
+    if (!url) return "";
+    const filename = sanitize(`HIREX_Resume_${company}_${role}${suffix}_${getTS()}.pdf`);
+    return `
+      <div class="pdf-card anim fade">
+        <h3>${title}</h3>
+        <div class="pdf-frame">
+          <iframe src="${url}#view=FitH" loading="lazy" title="${title}"></iframe>
+        </div>
+        <div class="pdf-download">
+          <button class="cta-primary" data-url="${url}" data-filename="${filename}">
+            ⬇️ Download PDF
+          </button>
+        </div>
+      </div>`;
+  };
+
+  const renderPdfs = () => {
+    let html = "";
+    if ((pdfB64 || "").trim())           html += createPdfCard("Optimized Resume", pdfB64);
+    if ((pdfB64Humanized || "").trim())  html += createPdfCard("Humanized Resume (Tone-Refined)", pdfB64Humanized, "_Humanized");
+
+    if (!html) {
+      html = `<p class="muted" style="text-align:center;margin-top:2rem;">
+        ⚠️ No PDF cached — optimize your resume first or pick a saved item on the left.
+      </p>`;
+    }
+
+    if (pdfContainer) pdfContainer.innerHTML = html;
+  };
+
+  renderPdfs();
+
+  pdfContainer?.addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-filename]");
+    if (!btn) return;
+    const { filename, url } = btn.dataset;
+    try {
+      const blob = await fetch(url).then((r) => r.blob());
+      downloadFile(filename, blob);
+    } catch {
+      toast("❌ Failed to download PDF.");
+    }
+  });
+
+  /* ------------------------------------------------------------
+     ✨ Humanize Mode Highlight
+  ------------------------------------------------------------ */
+  const highlightActiveMode = (on) => {
+    const cards = pdfContainer?.querySelectorAll(".pdf-card") || [];
+    cards.forEach((c) => c.classList.remove("preferred"));
+    cards.forEach((c) => {
+      const isHuman = /Humanized/i.test(c.querySelector("h3")?.textContent || "");
+      const prefer  = on ? isHuman : !isHuman;
+      if (prefer) c.classList.add("preferred");
+    });
+  };
+
+  const humanizeOn = (() => {
+    if (typeof RT.getHumanizeState === "function") {
+      try { return !!RT.getHumanizeState(); } catch {}
+    }
+    const storedBool = localStorage.getItem("hirex_use_humanize"); // "true"/"false"
+    if (storedBool === "true" || storedBool === "false") return storedBool === "true";
+    return localStorage.getItem("hirex-use-humanize") === "on";  // legacy "on"/"off"
+  })();
+
+  highlightActiveMode(humanizeOn);
+  window.addEventListener("hirex:humanize-change", (e) =>
+    highlightActiveMode(!!e.detail?.on)
+  );
+
+  /* ------------------------------------------------------------
+     ☁️ Auto-load most recent server memory if nothing local
+     ——— Uses ?latest=1 only when no local PDFs/TeX exist
+  ------------------------------------------------------------ */
+  (async () => {
+    const nothingLocal =
+      !(texString || "").trim() &&
+      !(pdfB64 || "").trim() &&
+      !(pdfB64Humanized || "").trim();
+
+    if (!nothingLocal) return;
+
+    try {
+      const res = await fetch(`${apiBase}/api/context/get?latest=1`, { credentials: "same-origin" });
+      if (res.ok) {
+        const ctx = await res.json();
+
+        // Build normalized assets first
+        const texN =
+          (ctx?.humanized?.tex) ||
+          ctx?.humanized_tex ||
+          (ctx?.optimized?.tex) ||
+          ctx?.resume_tex ||
+          ctx?.tex_string ||
+          "";
+
+        const pdfOptN = ctx?.pdf_base64 || ctx?.optimized?.pdf_base64 || "";
+        const pdfHumN = ctx?.pdf_base64_humanized || ctx?.humanized?.pdf_base64 || "";
+
+        const hasAssets = !!(texN || pdfOptN || pdfHumN);
+        if (ctx && hasAssets) {
+          // Purge first to avoid stale carry-over
+          purgeResumeCache();
+
+          companyRaw = ctx.company || ctx.company_name || companyRaw;
+          roleRaw    = ctx.role || roleRaw;
+          company    = sanitize(companyRaw).replace(/\s+/g, "_");
+          role       = sanitize(roleRaw).replace(/\s+/g, "_");
+
+          texString       = texN;
+          pdfB64          = pdfOptN;
+          pdfB64Humanized = pdfHumN;
+
+          localStorage.setItem("hirex_company", companyRaw);
+          localStorage.setItem("hirex_role", roleRaw);
+          if (texString) localStorage.setItem("hirex_tex", texString);
+          if (pdfB64) localStorage.setItem("hirex_pdf", pdfB64);
+          if (pdfB64Humanized) localStorage.setItem("hirex_pdf_humanized", pdfB64Humanized);
+
+          // Fit score + history
+          if (ctx.fit_score != null) {
+            localStorage.setItem("hirex_fit_score", String(ctx.fit_score));
+          } else if (ctx.coverage_ratio != null) {
+            localStorage.setItem("hirex_fit_score", String(Math.round(Number(ctx.coverage_ratio) * 100)));
+            localStorage.setItem("hirex_coverage_ratio", String(ctx.coverage_ratio));
+          }
+          if (Array.isArray(ctx.coverage_history)) {
+            try { localStorage.setItem("hirex_rating_history", JSON.stringify(ctx.coverage_history)); } catch {}
+          }
+
+          // Persist selection (helpful for Talk page)
+          localStorage.setItem("hirex_selected_context", JSON.stringify({
+            key: keyFrom(ctx),
+            company: companyRaw,
+            role: roleRaw,
+            jd_text: ctx.jd_text || "",
+            resume_tex: texString,
+            pdf_base64: pdfB64,
+            pdf_base64_humanized: pdfB64Humanized,
+          }));
+
+          localStorage.setItem("hirex_version", APP_VERSION);
+
+          // refresh UI parts
+          if (texOutput) texOutput.textContent = texString || texOutput.textContent;
+          renderPdfs();
+          renderFit();
+          highlightActiveMode(humanizeOn);
+          toast("☁️ Loaded latest resume from server memory.");
+        }
+      }
+    } catch (e) {
+      console.warn("[HIREX] Could not fetch latest context:", e);
+    }
+  })();
+
+  /* ------------------------------------------------------------
+     🧹 Cleanup + Init Log
+  ------------------------------------------------------------ */
+  window.addEventListener("beforeunload", () =>
+    objectUrls.forEach((u) => URL.revokeObjectURL(u))
+  );
+
+  console.log(
+    `%c📄 HIREX preview.js initialized — ${APP_VERSION}`,
+    "background:#5bd0ff;color:#fff;padding:4px 8px;border-radius:4px;font-weight:bold;"
+  );
+  debug("PREVIEW PAGE LOADED", {
+    version: APP_VERSION,
+    company: companyRaw,
+    role: roleRaw,
+    historyCount: history.length,
+    hasTex: !!(texString || "").trim(),
+    hasPdf: !!(pdfB64 || "").trim(),
+    hasPdfHumanized: !!(pdfB64Humanized || "").trim(),
+  });
+});
+
+/* FILE: ./static/js/mastermind.js */
+
+/* ============================================================
+   ASTRA • mastermind.js (v2.1.0 — MasterMind Chat Core)
+   ------------------------------------------------------------
+   Features:
+   • Chat assistant powered by /api/mastermind (backend sessions)
+   • Starts/loads sessions; renders history; persists to localStorage
+   • Persona/model selectors (optional); tone control (balanced default)
+   • Typing indicator + typewriter animation (no duplicate bubbles)
+   • Intelligent timeout + graceful offline fallback
+   • Emits history events for dashboard (type: "mastermind")
+   • Works even if some DOM nodes are missing; guards double-binding
+   Author: Sri Akash Kadali
+   ============================================================ */
+
+document.addEventListener("DOMContentLoaded", () => {
+  const APP = "ASTRA";
+  const APP_VERSION = "v2.1.0";
+  const TIMEOUT_MS = 180000; // 3 minutes
+
+  /* ------------------------------------------------------------
+     🌐 DOM References (supports both legacy/new IDs)
+  ------------------------------------------------------------ */
+  const $ = (id) => document.getElementById(id);
+
+  // Chat stream container (new id first, legacy second)
+  const chatBox   = $("chat_stream") || $("chat_box");
+  const chatInput = $("chat_input");
+  const sendBtn   = $("send_btn");
+
+  // Optional controls (exist on mastermind.html)
+  const sessionList   = $("session_list");
+  const newSessionBtn = $("new_session");
+  const refreshBtn    = $("refresh_sessions");
+  const personaSel    = $("persona");
+  const modelSel      = $("model");
+  const toneSel       = $("tone");           // optional (fallback to "balanced")
+  const useContextEl  = $("use_context");    // optional
+
+  /* ------------------------------------------------------------
+     🧠 Runtime helpers
+  ------------------------------------------------------------ */
+  const RT = (window.ASTRA ?? window.HIREX) || {};
+  const toast = (msg, t = 2600) => (RT.toast ? RT.toast(msg, t) : console.info(msg));
+  const debug = (msg, data) => RT.debugLog?.(msg, data);
+
+  const getApiBase = () => {
+    try { if (typeof RT.getApiBase === "function") return RT.getApiBase(); } catch {}
+    return ["127.0.0.1", "localhost"].includes(location.hostname)
+      ? "http://127.0.0.1:8000"
+      : location.origin;
+  };
+  const apiBase = getApiBase();
+
+  const safeHTML = (s = "") =>
+    String(s).replace(/&/g, "&amp;")
+             .replace(/</g, "&lt;")
+             .replace(/>/g, "&gt;")
+             .replace(/\n/g, "<br>");
+
+  const scrollToBottom = () => chatBox?.scrollTo({ top: chatBox.scrollHeight, behavior: "smooth" });
+
+  const persistPref = (key, val) => {
+    try { localStorage.setItem(key, val); } catch {}
+  };
+  const readPref = (key, fallback) => {
+    try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
+  };
+
+  // Restore selector prefs if available
+  if (personaSel) personaSel.value = readPref("astra_mm_persona", personaSel.value || "General");
+  if (modelSel)   modelSel.value   = readPref("astra_mm_model",   modelSel.value   || "gpt-4o-mini");
+  if (toneSel)    toneSel.value    = readPref("astra_mm_tone",    toneSel.value    || "balanced");
+
+  personaSel?.addEventListener("change", () => persistPref("astra_mm_persona", personaSel.value));
+  modelSel?.addEventListener("change",   () => persistPref("astra_mm_model",   modelSel.value));
+  toneSel?.addEventListener("change",    () => persistPref("astra_mm_tone",    toneSel.value));
+
+  /* ------------------------------------------------------------
+     💾 Local session store (mirrors backend session IDs)
+  ------------------------------------------------------------ */
+  const SESS_KEY = "astra_mastermind_sessions_v2";
+  const CURR_KEY = "astra_mm_current_id";
+
+  /** @typedef {{id:string,title:string,createdAt:string,messages:Array<{role:'user'|'assistant',content:string,model?:string,tone?:string,ts?:string}>}} LocalSession */
+
+  /** @returns {LocalSession[]} */
+  const loadSessions = () => {
+    try { return JSON.parse(localStorage.getItem(SESS_KEY) || "[]"); }
+    catch { return []; }
+  };
+  const saveSessions = (sessions) => {
+    try { localStorage.setItem(SESS_KEY, JSON.stringify(sessions)); }
+    catch (e) { console.warn("[ASTRA] Failed to persist sessions:", e); }
+  };
+
+  // Emit events to unified dashboard history
+  const pushHistoryEvent = (meta = {}) => {
+    try {
+      const history = JSON.parse(localStorage.getItem("hirex_history") || "[]");
+      history.push({
+        id: Date.now(),
+        type: "mastermind",
+        timestamp: new Date().toISOString(),
+        persona: personaSel?.value || "General",
+        model: modelSel?.value || "gpt-4o-mini",
+        ...meta,
+      });
+      localStorage.setItem("hirex_history", JSON.stringify(history));
+    } catch {}
+  };
+
+  let sessions = loadSessions();
+  let currentId = localStorage.getItem(CURR_KEY) || "";
+
+  const setCurrent = (id) => {
+    currentId = id;
+    localStorage.setItem(CURR_KEY, id);
+    renderSessionList();
+    renderConversation();
+  };
+
+  const getCurrent = () => sessions.find((s) => s.id === currentId) || null;
+
+  const upsertLocalSession = (id, meta = {}) => {
+    let s = sessions.find((x) => x.id === id);
+    if (!s) {
+      s = {
+        id,
+        title: meta.title || `Session ${sessions.length + 1}`,
+        createdAt: meta.created || new Date().toISOString(),
+        messages: [],
+      };
+      sessions.push(s);
+    } else {
+      if (meta.title)   s.title = meta.title;
+      if (meta.created) s.createdAt = meta.created;
+    }
+    saveSessions(sessions);
+    return s;
+  };
+
+  /* ------------------------------------------------------------
+     🖼️ Renderers — match mastermind.html structure (.msg-row)
+  ------------------------------------------------------------ */
+  const renderRow = (role, html) => {
+    if (!chatBox) return { row: null, bubble: null };
+    const row = document.createElement("div");
+    row.className = "msg-row " + (role === "user" ? "user" : "bot");
+
+    const avatar = document.createElement("div");
+    avatar.className = "avatar";
+    avatar.innerHTML = `<span>${role === "user" ? "🧑" : "🤖"}</span>`;
+
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.innerHTML = html;
+
+    row.append(avatar, bubble);
+    chatBox.append(row);
+    scrollToBottom();
+    return { row, bubble };
+  };
+
+  const renderSessionList = () => {
+    if (!sessionList) return;
+    sessionList.innerHTML = "";
+    sessions.forEach((s) => {
+      const item = document.createElement("div");
+      item.className = "session-item" + (s.id === currentId ? " active" : "");
+      item.textContent = s.title;
+      item.title = new Date(s.createdAt).toLocaleString();
+      item.addEventListener("click", () => setCurrent(s.id));
+      sessionList.appendChild(item);
+    });
+  };
+
+  const renderConversation = () => {
+    if (!chatBox) return;
+    chatBox.innerHTML = "";
+    const s = getCurrent();
+    if (!s) return;
+    s.messages.forEach((m) => renderRow(m.role, safeHTML(m.content)));
+    scrollToBottom();
+  };
+
+  const addMsg = (role, content, extras = {}) => {
+    const s = getCurrent();
+    if (!s) return { row: null, bubble: null };
+    const msg = { role, content, ...extras, ts: new Date().toISOString() };
+    s.messages.push(msg);
+    saveSessions(sessions);
+    return renderRow(role, safeHTML(content));
+  };
+
+  const addTyping = (text = "…thinking…") => {
+    if (!chatBox) return { row: null, bubble: null };
+    const row = document.createElement("div");
+    row.className = "msg-row bot";
+    const avatar = document.createElement("div");
+    avatar.className = "avatar";
+    avatar.innerHTML = "<span>🤖</span>";
+    const bubble = document.createElement("div");
+    bubble.className = "bubble typing";
+    bubble.textContent = text;
+    row.append(avatar, bubble);
+    chatBox.append(row);
+    scrollToBottom();
+    return { row, bubble };
+  };
+
+  const typeWriter = async (fullText, el, speed = 14) => {
+    if (!el) return;
+    el.innerHTML = "";
+    for (const ch of fullText) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, speed));
+      el.innerHTML += safeHTML(ch);
+    }
+  };
+
+  /* ------------------------------------------------------------
+     🌐 Backend API (updated routes)
+     - POST /api/mastermind/start   (FormData: persona, model, purpose)
+     - POST /api/mastermind/chat    (FormData: session_id, prompt, tone, model, persona, temperature[, use_context])
+     - GET  /api/mastermind/history?session_id=...
+     - GET  /api/mastermind/sessions
+  ------------------------------------------------------------ */
+  const apiStartSession = async ({
+    persona = "General",
+    model = "gpt-4o-mini",
+    purpose = "interactive reasoning",
+  } = {}) => {
+    const url = `${apiBase}/api/mastermind/start`;
+    const fd = new FormData();
+    fd.append("persona", persona);
+    fd.append("model", model);
+    fd.append("purpose", purpose);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        body: fd,
+        signal: controller.signal,
+        credentials: "same-origin",
+      });
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const sid = data?.session?.id;
+      const created = data?.session?.created || new Date().toISOString();
+      const title = data?.session?.title || `${persona} Chat`;
+      const s = upsertLocalSession(sid, { title, created });
+      pushHistoryEvent({ session_id: sid, event: "start" });
+      return s;
+    } catch (e) {
+      clearTimeout(timeout);
+      console.warn("[ASTRA] start_session failed:", e);
+      const localId = "local_" + Date.now().toString(36);
+      const s = upsertLocalSession(localId, { title: "Local Session", created: new Date().toISOString() });
+      toast("⚠️ Offline mode: local session created.");
+      pushHistoryEvent({ session_id: localId, event: "start_offline" });
+      return s;
+    }
+  };
+
+  const apiListSessions = async () => {
+    try {
+      const res = await fetch(`${apiBase}/api/mastermind/sessions`, { credentials: "same-origin" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return Array.isArray(data.sessions) ? data.sessions : [];
+    } catch (e) {
+      console.warn("[ASTRA] list_sessions failed:", e);
+      return [];
+    }
+  };
+
+  const apiGetHistory = async (session_id) => {
+    try {
+      const res = await fetch(`${apiBase}/api/mastermind/history?session_id=${encodeURIComponent(session_id)}`, {
+        credentials: "same-origin",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return (data.session && Array.isArray(data.session.messages)) ? data.session.messages : [];
+    } catch (e) {
+      console.warn("[ASTRA] get_history failed:", e);
+      return [];
+    }
+  };
+
+  const apiChat = async ({
+    session_id,
+    prompt,
+    tone = "balanced",
+    model = "gpt-4o-mini",
+    persona = "General",
+    temperature = 0.6,
+    use_context = true,
+  }) => {
+    const url = `${apiBase}/api/mastermind/chat`;
+    const fd = new FormData();
+    fd.append("session_id", session_id);
+    fd.append("prompt", prompt);
+    fd.append("tone", tone);
+    fd.append("model", model);
+    fd.append("persona", persona);
+    fd.append("temperature", String(temperature));
+    fd.append("use_context", use_context ? "true" : "false");
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+    try {
+      debug("MM_CHAT_POST", { session_id, persona, model, tone, version: APP_VERSION });
+      const res = await fetch(url, {
+        method: "POST",
+        body: fd,
+        signal: controller.signal,
+        credentials: "same-origin",
+      });
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return {
+        reply: data.reply ?? "",
+        model: data.model ?? model,
+        tone: data.tone ?? tone,
+        ts: data.timestamp || new Date().toISOString(),
+      };
+    } catch (e) {
+      clearTimeout(timeout);
+      console.warn("[ASTRA] mastermind/chat failed:", e);
+      return {
+        reply: "⚠️ I couldn’t reach MasterMind right now. Please try again shortly.",
+        model: "offline",
+        tone,
+        ts: new Date().toISOString(),
+      };
+    }
+  };
+
+  /* ------------------------------------------------------------
+     🔁 Sync helpers
+  ------------------------------------------------------------ */
+  const syncSessionsFromBackend = async () => {
+    const remote = await apiListSessions(); // [{id, created, persona, message_count}, ...]
+    if (!remote.length) return;
+    remote.forEach((r, idx) =>
+      upsertLocalSession(r.id, {
+        title: r.persona ? `${r.persona} #${idx + 1}` : `Session ${idx + 1}`,
+        created: r.created,
+      })
+    );
+    renderSessionList();
+  };
+
+  const loadHistoryIntoLocal = async (session_id) => {
+    const s = upsertLocalSession(session_id);
+    const history = await apiGetHistory(session_id);
+    if (history.length) {
+      s.messages = history.map((m) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: String(m.content || ""),
+        model: m.model || "",
+        tone: m.tone || "",
+        ts: m.ts || m.timestamp || new Date().toISOString(),
+      }));
+      saveSessions(sessions);
+      if (session_id === currentId) renderConversation();
+    }
+  };
+
+  /* ------------------------------------------------------------
+     🧾 Send flow (update typing bubble instead of adding new)
+  ------------------------------------------------------------ */
+  const doSend = async () => {
+    const text = chatInput?.value?.trim();
+    if (!text) return;
+
+    // Ensure session exists
+    let s = getCurrent();
+    if (!s) {
+      s = await apiStartSession({
+        persona: personaSel?.value || "General",
+        model: modelSel?.value || "gpt-4o-mini",
+      });
+      setCurrent(s.id);
+    }
+
+    // Render + persist user message
+    addMsg("user", text);
+    pushHistoryEvent({ session_id: s.id, event: "user_msg" });
+
+    // Disable UI
+    if (chatInput) { chatInput.value = ""; chatInput.disabled = true; }
+    if (sendBtn)   { sendBtn.disabled  = true; }
+
+    // Typing indicator
+    const typing = addTyping();
+
+    const persona = personaSel?.value || "General";
+    const model   = modelSel?.value || "gpt-4o-mini";
+    const tone    = toneSel?.value || "balanced";
+    const useCtx  = useContextEl ? !!useContextEl.checked : true;
+
+    debug("MM_SEND", { persona, model, text, version: APP_VERSION });
+
+    const { reply, model: usedModel, ts } = await apiChat({
+      session_id: s.id,
+      prompt: text,
+      tone,
+      model,
+      persona,
+      temperature: 0.6,
+      use_context: useCtx,
+    });
+
+    // Replace typing bubble contents (no duplicate DOM)
+    if (typing?.bubble) {
+      typing.bubble.classList.remove("typing");
+      await typeWriter(reply || "⚠️ No response.", typing.bubble, 16);
+    } else {
+      renderRow("assistant", safeHTML(reply || "⚠️ No response."));
+    }
+
+    // Persist assistant message (without adding another bubble)
+    const cur = getCurrent();
+    if (cur) {
+      cur.messages.push({
+        role: "assistant",
+        content: reply || "⚠️ No response.",
+        model: usedModel,
+        tone,
+        ts: ts || new Date().toISOString(),
+      });
+      saveSessions(sessions);
+    }
+    pushHistoryEvent({ session_id: s.id, event: "assistant_msg" });
+
+    // Re-enable UI
+    if (chatInput) { chatInput.disabled = false; chatInput.focus(); }
+    if (sendBtn)   { sendBtn.disabled  = false; }
+  };
+
+  /* ------------------------------------------------------------
+     🧭 Wire up events (guard from double-binding)
+  ------------------------------------------------------------ */
+  if (sendBtn && !sendBtn.dataset.mmBound) {
+    sendBtn.addEventListener("click", doSend);
+    sendBtn.dataset.mmBound = "1";
+  }
+
+  if (chatInput && !chatInput.dataset.mmBound) {
+    chatInput.addEventListener("keydown", (e) => {
+      // Enter to send; Shift+Enter = newline; also allow Ctrl/Cmd+Enter
+      const k = e.key.toLowerCase();
+      if (k === "enter" && (!e.shiftKey || e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        doSend();
+      }
+    });
+    chatInput.dataset.mmBound = "1";
+  }
+
+  if (newSessionBtn && !newSessionBtn.dataset.mmBound) {
+    newSessionBtn.addEventListener("click", async () => {
+      const persona = personaSel?.value || "General";
+      const model   = modelSel?.value || "gpt-4o-mini";
+      const s = await apiStartSession({ persona, model });
+      setCurrent(s.id);
+      toast(`🆕 ${s.title} created`);
+    });
+    newSessionBtn.dataset.mmBound = "1";
+  }
+
+  if (refreshBtn && !refreshBtn.dataset.mmBound) {
+    refreshBtn.addEventListener("click", async () => {
+      await syncSessionsFromBackend();
+      const s = getCurrent();
+      if (s && !s.id.startsWith("local_")) await loadHistoryIntoLocal(s.id);
+      renderSessionList();
+      renderConversation();
+      toast("↻ Sessions refreshed");
+    });
+    refreshBtn.dataset.mmBound = "1";
+  }
+
+  /* ------------------------------------------------------------
+     🚦 Init
+  ------------------------------------------------------------ */
+  (async () => {
+    await syncSessionsFromBackend();
+
+    // If stale currentId points to nowhere, clear it
+    if (currentId && !getCurrent()) {
+      currentId = "";
+      localStorage.removeItem(CURR_KEY);
+    }
+
+    if (!currentId && sessions.length) setCurrent(sessions[0].id);
+    if (!sessions.length) {
+      const s = await apiStartSession({ persona: "General", model: "gpt-4o-mini" });
+      setCurrent(s.id);
+    }
+
+    const cur = getCurrent();
+    if (cur && !cur.id.startsWith("local_")) await loadHistoryIntoLocal(cur.id);
+
+    renderSessionList();
+    renderConversation();
+  })();
+
+  console.log(
+    `%c🤖 ${APP} mastermind.js initialized — ${APP_VERSION}`,
+    "background:#5bd0ff;color:#00121e;padding:4px 8px;border-radius:4px;font-weight:bold;"
+  );
+  debug("MASTER MIND PAGE LOADED", {
+    app: APP, version: APP_VERSION, apiBase,
+    sessions: sessions.length, currentId,
+  });
+});
+
+/* FILE: ./static/js/talk.js */
+
+/* ============================================================
+   HIREX • talk.js (v2.1.4 — Talk to HIREX)
+   ------------------------------------------------------------
+   Connectivity fixes:
+   • Auto-detect & cache working API base (127.0.0.1 ↔ localhost ↔ same-origin)
+   • Health ping on init with timeout + graceful fallbacks
+   • Retries: /api/talk/answer → /api/talk across candidate bases
+   • Robust error parsing (detail/error/message), timeout/cors/mixed-content hints
+   • Model auto-map if a responses-only model is selected
+   • Keeps typewriter, history, dashboard events
+   Author: Sri Akash Kadali
+   ============================================================ */
+
+document.addEventListener("DOMContentLoaded", () => {
+  const APP_VERSION = "v2.1.4";
+  const LS_KEY = "hirex_talk_history";
+  const LS_API_BASE = "hirex_api_base";
+  const MAX_HISTORY = 40;
+  const TIMEOUT_MS = 120000; // 2 minutes
+  const PING_TIMEOUT_MS = 4000;
+  const CANDIDATE_PORTS = [8000]; // extend if you proxy elsewhere
+
+  /* ------------------------------------------------------------
+     🔧 DOM References (support legacy/new IDs)
+  ------------------------------------------------------------ */
+  const form     = document.getElementById("talk-form")  || null;
+  const inputEl  = document.getElementById("talk-input") || document.getElementById("question");
+  const chatEl   = document.getElementById("talk-chat")  || document.getElementById("chat_box");
+  const sendBtn  = document.getElementById("talk-send")  || document.getElementById("send_btn");
+  const clearBtn = document.getElementById("talk-clear") || null;
+  const statusEl = document.getElementById("talk-status")|| document.getElementById("contextStatus");
+  const toneEl   = document.getElementById("talk-tone")  || null; // optional <select>
+
+  /* ------------------------------------------------------------
+     🧠 Utilities
+  ------------------------------------------------------------ */
+  const RT = (window.ASTRA ?? window.HIREX) || {};
+  const toast = (msg, t = 3000) => (RT.toast ? RT.toast(msg, t) : console.info(msg));
+  const debug = (msg, data) => RT.debugLog?.(msg, data);
+  const setStatus = (txt) => { if (statusEl) statusEl.textContent = txt; };
+  const scrollBottom = () => {
+    if (!chatEl) return;
+    try { chatEl.scrollTo({ top: chatEl.scrollHeight, behavior: "smooth" }); }
+    catch { chatEl.scrollTop = chatEl.scrollHeight; }
+  };
+
+  const sanitize = (s) => String(s || "").replace(/[\\/:*?"<>|]+/g, "_").trim();
+  const keyFrom = (company = "", role = "") =>
+    `${sanitize(company).toLowerCase().replace(/\s+/g, "_")}__${sanitize(role).toLowerCase().replace(/\s+/g, "_")}`;
+
+  const getHumanize = () => {
+    try { if (typeof RT.getHumanizeState === "function") return !!RT.getHumanizeState(); } catch {}
+    const a = localStorage.getItem("hirex-use-humanize"); // "on" | "off"
+    const b = localStorage.getItem("hirex_use_humanize"); // "true" | "false"
+    if (a === "on" || a === "off") return a === "on";
+    if (b === "true" || b === "false") return b === "true";
+    return true; // default ON
+  };
+  const getTone = () => (toneEl?.value || "balanced").toLowerCase();
+
+  // --- Model selection: prefer chat-safe default + auto-fix responses-only picks ---
+  const CHAT_SAFE_DEFAULT_MODEL = "gpt-4o-mini";
+  const RESPONSES_ONLY_HINTS = [/^gpt-image/i, /^dall[- ]?e/i, /^whisper/i];
+  const isResponsesOnlyModel = (name) => {
+    if (!name) return false;
+    const n = String(name).trim();
+    return RESPONSES_ONLY_HINTS.some((rx) => rx.test(n));
+  };
+  const chooseModel = () => {
+    const raw =
+      localStorage.getItem("hirex_talk_model") ||
+      localStorage.getItem("hirex_model") ||
+      localStorage.getItem("hirex_default_model") ||
+      (typeof RT.getCurrentModel === "function" ? RT.getCurrentModel() : "") ||
+      "";
+    const model = (raw || "").trim();
+    if (!model) return CHAT_SAFE_DEFAULT_MODEL;
+    return isResponsesOnlyModel(model) ? CHAT_SAFE_DEFAULT_MODEL : model;
+  };
+
+  /* ------------------------------------------------------------
+     💾 Local History
+  ------------------------------------------------------------ */
+  const loadHistory = () => {
+    try {
+      const arr = JSON.parse(localStorage.getItem(LS_KEY) || "[]");
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  };
+  const saveHistory = (hist) => {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(hist.slice(-MAX_HISTORY))); }
+    catch (e) { console.warn("[HIREX] Talk history save failed:", e); }
+  };
+  let history = loadHistory();
+
+  // Unified dashboard history
+  const pushDashboardEvent = (meta = {}) => {
+    try {
+      const h = JSON.parse(localStorage.getItem("hirex_history") || "[]");
+      h.push({ id: Date.now(), type: "talk", timestamp: new Date().toISOString(), ...meta });
+      localStorage.setItem("hirex_history", JSON.stringify(h));
+    } catch {}
+  };
+
+  /* ------------------------------------------------------------
+     🧩 Context
+  ------------------------------------------------------------ */
+  const getSelectedContext = () => {
+    try {
+      const sel =
+        JSON.parse(localStorage.getItem("hirex_selected_context") || "null") ||
+        JSON.parse(localStorage.getItem("hirex_selected_cl") || "null");
+      if (sel && (sel.jd_text || sel.resume_tex || sel.jd)) return sel;
+    } catch {}
+    return {
+      jd_text:      localStorage.getItem("hirex_jd_text") || "",
+      resume_tex:   localStorage.getItem("hirex_tex") || "",
+      resume_plain: localStorage.getItem("hirex_resume_plain") || localStorage.getItem("hirex_resume_text") || "",
+      company:      localStorage.getItem("hirex_company") || "",
+      role:         localStorage.getItem("hirex_role") || "",
+    };
+  };
+  const resolveContextKey = (ctx) => {
+    if (ctx?.key) return String(ctx.key);
+    if (ctx?.company || ctx?.role) return keyFrom(ctx.company || "", ctx.role || "");
+    return "";
+  };
+
+  /* ------------------------------------------------------------
+     🌐 API base discovery with ping
+  ------------------------------------------------------------ */
+  const storedBase = localStorage.getItem(LS_API_BASE) || "";
+  const sameOrigin = location.origin;
+
+  const localhostBases = [];
+  for (const port of CANDIDATE_PORTS) {
+    localhostBases.push(`http://127.0.0.1:${port}`);
+    localhostBases.push(`http://localhost:${port}`);
+  }
+
+  // Meta tag override: <meta name="hirex-api-base" content="http://127.0.0.1:8000">
+  const metaBase = (() => {
+    const meta = document.querySelector('meta[name="hirex-api-base"]');
+    return meta?.getAttribute("content")?.trim() || "";
+  })();
+
+  const candidBases = [
+    storedBase,
+    metaBase,
+    sameOrigin.startsWith("http") ? sameOrigin : "",
+    ...localhostBases,
+  ].filter(Boolean);
+
+  const controllerWithTimeout = (ms) => {
+    const c = new AbortController();
+    const t = setTimeout(() => c.abort(), ms);
+    return { controller: c, cancel: () => clearTimeout(t) };
+  };
+
+  const pingBase = async (base) => {
+    const { controller, cancel } = controllerWithTimeout(PING_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${base}/api/talk/ping`, { signal: controller.signal });
+      cancel();
+      if (!res.ok) return false;
+      const text = await res.text();
+      return /"ok"\s*:\s*true/i.test(text);
+    } catch {
+      cancel();
+      return false;
+    }
+  };
+
+  let apiBase = sameOrigin; // optimistic default if served by backend
+  const pickApiBase = async () => {
+    for (const base of candidBases) {
+      if (!base) continue;
+      if (base.startsWith("https:") && /localhost|127\.0\.0\.1/.test(base)) continue;
+      if (location.protocol === "https:" && base.startsWith("http:") && !/localhost|127\.0\.0\.1/.test(base)) continue;
+      const ok = await pingBase(base);
+      if (ok) {
+        localStorage.setItem(LS_API_BASE, base);
+        return base;
+      }
+    }
+    // Final fallback; reverse proxy setups
+    return sameOrigin;
+  };
+
+  /* ------------------------------------------------------------
+     💬 Rendering
+  ------------------------------------------------------------ */
+  const renderMessage = (role /* 'user' | 'bot' */, text, { trusted = false } = {}) => {
+    if (!chatEl) return null;
+    const msg = document.createElement("div");
+    msg.className = `msg ${role}${role === "bot" ? " ai" : ""}`;
+    if (trusted) msg.innerHTML = text; else msg.textContent = text;
+    chatEl.appendChild(msg);
+    scrollBottom();
+    return msg;
+  };
+
+  const appendTyping = (txt = "Thinking…") => {
+    const el = renderMessage("bot", txt);
+    if (el) el.classList.add("typing");
+    return el;
+  };
+
+  const typeWriter = async (text, target, speed = 17) => {
+    if (!target) return;
+    target.textContent = "";
+    for (const ch of text) {
+      target.textContent += ch;
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, speed));
+    }
+  };
+
+  /* ------------------------------------------------------------
+     🛰️ API core (with retries and fallbacks)
+  ------------------------------------------------------------ */
+  async function askBackend(question, controller, base) {
+    const ctx = getSelectedContext();
+    const chosenModel = chooseModel();
+
+    const payload = {
+      jd_text: ctx?.jd_text || ctx?.jd || "",
+      question,
+      resume_tex: ctx?.resume_tex || "",
+      resume_plain: ctx?.resume_plain || "",
+      tone: getTone(),
+      humanize: getHumanize(),
+      model: chosenModel,
+      context_key: resolveContextKey(ctx) || undefined,
+      context_id: ctx?.id || ctx?.context_id || undefined,
+      title: ctx?.title || undefined,
+      use_latest: true,
+    };
+
+    const tryPost = async (b, path) => {
+      const res = await fetch(`${b}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      const raw = await res.text().catch(() => "");
+      if (!res.ok) {
+        let msg = raw || `HTTP ${res.status}`;
+        try {
+          const j = JSON.parse(raw || "{}");
+          msg = j.detail || j.error || j.message || msg;
+        } catch {}
+        const err = new Error(msg);
+        err.status = res.status;
+        err.base = b;
+        err.path = path;
+        throw err;
+      }
+      return JSON.parse(raw || "{}");
+    };
+
+    const paths = ["/api/talk/answer", "/api/talk"];
+    const bases = Array.from(new Set([base, sameOrigin, ...localhostBases].filter(Boolean)));
+
+    let lastErr;
+    for (const b of bases) {
+      for (const p of paths) {
+        try {
+          const data = await tryPost(b, p);
+          const reply =
+            (typeof data.final_text === "string" && data.final_text.trim()) ||
+            (typeof data.answer === "string" && data.answer.trim()) ||
+            (typeof data.draft_answer === "string" && data.draft_answer.trim()) ||
+            "";
+
+          const usedModel = data.model || chosenModel;
+          debug("Talk API OK", {
+            base: b, path: p, model: usedModel,
+            humanized_requested: payload.humanize,
+            humanized_applied: !!data.humanized,
+            tone: data.tone,
+            context: data.context || {},
+          });
+
+          localStorage.setItem(LS_API_BASE, b);
+
+          return {
+            reply: reply || "⚠️ No response received.",
+            model: usedModel,
+            ctxMeta: data.context || {},
+            humanized: !!data.humanized,
+          };
+        } catch (err) {
+          lastErr = err;
+          if (err.status === 404 || err.status === 405) continue; // try next path
+          break; // try next base
+        }
+      }
+    }
+
+    const m = String(lastErr?.message || "").toLowerCase();
+    if (m.includes("only supported in v1/responses")) {
+      toast("ℹ️ Switched to a chat-safe model (gpt-4o-mini). Try again.");
+      localStorage.setItem("hirex_talk_model", CHAT_SAFE_DEFAULT_MODEL);
+    } else if (location.protocol === "https:" && /http:\/\/(127\.0\.0\.1|localhost)/.test(localStorage.getItem(LS_API_BASE) || "")) {
+      toast("⚠️ Mixed-content blocked: run both UI and backend on the same scheme/host, or use http locally.");
+    } else if (lastErr?.status === 0) {
+      toast("⚠️ Network blocked by CORS or an extension.");
+    } else {
+      toast(`⚠️ Backend error: ${lastErr?.message || "unreachable"}`);
+    }
+    return { reply: "⚠️ Unable to connect to backend.", model: "offline" };
+  }
+
+  /* ------------------------------------------------------------
+     🚀 Send Flow
+  ------------------------------------------------------------ */
+  const sendFlow = async (resolvedBase) => {
+    const text = inputEl?.value?.trim();
+    if (!text) return toast("💬 Please enter a question first.");
+
+    const ctx = getSelectedContext();
+    if (!(ctx?.jd_text || ctx?.jd) || !(ctx?.resume_tex || ctx?.resume_plain)) {
+      console.warn("[HIREX] Missing JD or Resume in local context — backend will attempt latest saved context.");
+    }
+
+    renderMessage("user", text);
+    history.push({ role: "user", content: text });
+    saveHistory(history);
+    pushDashboardEvent({
+      event: "user_msg",
+      company: ctx.company || "",
+      role: ctx.role || "",
+      context_key: resolveContextKey(ctx) || "",
+    });
+
+    if (inputEl) { inputEl.value = ""; inputEl.disabled = true; }
+    if (sendBtn) sendBtn.disabled = true;
+    setStatus("Thinking…");
+
+    const typingEl = appendTyping();
+    const { controller, cancel } = controllerWithTimeout(TIMEOUT_MS);
+
+    let result;
+    try {
+      result = await askBackend(text, controller, resolvedBase);
+    } finally {
+      cancel();
+    }
+
+    const reply = result.reply || "⚠️ No response received.";
+    if (typingEl) {
+      typingEl.classList.remove("typing");
+      await typeWriter(reply, typingEl, result.humanized ? 12 : 17);
+    } else {
+      renderMessage("bot", reply);
+    }
+
+    history.push({ role: "bot", content: reply, model: result.model, humanized: !!result.humanized });
+    saveHistory(history);
+    pushDashboardEvent({
+      event: "assistant_msg",
+      company: ctx.company || "",
+      role: ctx.role || "",
+      context_key: resolveContextKey(ctx) || "",
+    });
+
+    if (inputEl) { inputEl.disabled = false; inputEl.focus(); }
+    if (sendBtn) sendBtn.disabled = false;
+    setStatus("Ready");
+  };
+
+  /* ------------------------------------------------------------
+     🔘 Wiring (form or button)
+  ------------------------------------------------------------ */
+  let ACTIVE_API_BASE = sameOrigin; // will be replaced after ping
+  (async () => {
+    setStatus("Checking backend…");
+
+    try {
+      if (typeof RT.getApiBase === "function") {
+        const fromRT = RT.getApiBase();
+        if (fromRT && await pingBase(fromRT)) {
+          ACTIVE_API_BASE = fromRT;
+          localStorage.setItem(LS_API_BASE, fromRT);
+        } else {
+          ACTIVE_API_BASE = await pickApiBase();
+        }
+      } else {
+        ACTIVE_API_BASE = await pickApiBase();
+      }
+    } catch {
+      ACTIVE_API_BASE = await pickApiBase();
+    }
+
+    const ok = await pingBase(ACTIVE_API_BASE);
+    if (!ok) {
+      toast("⚠️ Backend ping failed, will retry on send.");
+      setStatus("Backend unreachable (will retry)");
+    } else {
+      setStatus("Ready");
+    }
+
+    form?.addEventListener("submit", (e) => { e.preventDefault(); sendFlow(ACTIVE_API_BASE); });
+    sendBtn?.addEventListener("click", () => sendFlow(ACTIVE_API_BASE));
+  })();
+
+  // Ctrl/Cmd + Enter (send), Shift+Enter (newline)
+  inputEl?.addEventListener("keydown", (e) => {
+    const isMac = /Mac|iPhone|iPad/i.test(navigator.platform);
+    const mod = isMac ? e.metaKey : e.ctrlKey;
+    if (mod && e.key.toLowerCase() === "enter") {
+      e.preventDefault();
+      const b = localStorage.getItem(LS_API_BASE) || sameOrigin;
+      sendFlow(b);
+    }
+  });
+
+  /* ------------------------------------------------------------
+     🧹 Clear Chat
+  ------------------------------------------------------------ */
+  clearBtn?.addEventListener("click", () => {
+    if (chatEl) chatEl.innerHTML = "";
+    history = [];
+    saveHistory(history);
+    toast("🧹 Chat cleared.");
+    setStatus("Ready");
+  });
+
+  /* ------------------------------------------------------------
+     ♻️ Restore or Greet
+  ------------------------------------------------------------ */
+  if (chatEl && history.length) {
+    history.forEach((m) => {
+      const role = m.role === "assistant" || m.role === "ai" ? "bot" : (m.role === "bot" ? "bot" : "user");
+      renderMessage(role, m.content, { trusted: false });
+    });
+    scrollBottom();
+  } else if (chatEl) {
+    renderMessage(
+      "bot",
+      "👋 Hi! I’m <b>HIREX</b> — ask any JD-specific or interview question. I’ll answer based on your latest optimized/humanized resume and job description.",
+      { trusted: true }
+    );
+  }
+
+  /* ------------------------------------------------------------
+     🎨 Theme + Humanize Signals
+  ------------------------------------------------------------ */
+  window.addEventListener("hirex:theme-change", (e) =>
+    debug("Talk theme changed", { theme: e.detail?.theme })
+  );
+  window.addEventListener("hirex:humanize-change", (e) =>
+    debug("Talk humanize toggled", { on: e.detail?.on })
+  );
+
+  /* ------------------------------------------------------------
+     ✅ Init Log
+  ------------------------------------------------------------ */
+  console.log(
+    `%c💬 HIREX talk.js initialized — ${APP_VERSION}`,
+    "background:#5bd0ff;color:#fff;padding:4px 8px;border-radius:4px;font-weight:bold;"
+  );
+  const hasCtx = (() => {
+    const c = getSelectedContext();
+    return !!(c && (c.jd_text || c.jd) && (c.resume_tex || c.resume_plain));
+  })();
+  debug("TALK PAGE LOADED", {
+    version: APP_VERSION,
+    historyCount: history.length,
+    humanize: getHumanize(),
+    hasContext: hasCtx,
+    apiBase: localStorage.getItem(LS_API_BASE) || "(auto)",
+    tone: getTone(),
+    model: chooseModel(),
+  });
+});
+
+/* FILE: ./static/js/main.js */
+
+/* ============================================================
+   ASTRA • main.js (v2.1.2 — Unified Frontend Integration)
+   -------------------------------------------------------
+   Handles:
+   • JD submission → FastAPI /api/optimize/run (smart fallback)
+   • Auto-retry with placeholder base_resume_tex on 422
+   • Caches LaTeX / PDFs / JD-fit metrics in localStorage
+   • Saves JD + (optimized/humanized) resume to /api/context/save
+   • Safe Abort + Cancel UI with smooth toast feedback
+   • Keyboard + reset shortcuts
+   • Offline-aware (graceful error handling + no hard deps)
+   • History record includes type: "optimization"
+   Author: Sri Akash Kadali
+   ============================================================ */
+
+document.addEventListener("DOMContentLoaded", () => {
+  const APP_NAME = "ASTRA";
+  const APP_VERSION = "v2.1.2";
+
+  /* ------------------------------------------------------------
+     🔧 Elements
+  ------------------------------------------------------------ */
+  const form = document.getElementById("optimize-form");
+  const jdInput = document.getElementById("jd");
+  const hiddenHumanize = document.getElementById("use_humanize_state");
+
+  /* ------------------------------------------------------------
+     🧠 Utilities
+  ------------------------------------------------------------ */
+  const RT = (window.ASTRA ?? window.HIREX) || {};
+
+  const getApiBase = () => {
+    try { if (typeof RT.getApiBase === "function") return RT.getApiBase(); } catch {}
+    return ["127.0.0.1", "localhost"].includes(location.hostname)
+      ? "http://127.0.0.1:8000"
+      : location.origin;
+  };
+  const apiBase = getApiBase();
+
+  const toast   = (msg, t = 3000) => (RT.toast ? RT.toast(msg, t) : alert(msg));
+  const debug   = (msg, data) => RT.debugLog?.(msg, data);
+  const sanitize = (s) => String(s || "file").replace(/[\\/:*?"<>|]+/g, "_").trim() || "file";
+  const truthy   = (v) => ["on", "true", "1", "yes"].includes(String(v ?? "").toLowerCase());
+
+  const HTTP_TIMEOUT_MS = Number(window.ASTRA_HTTP_TIMEOUT_MS ?? 600000); // 10m default
+
+  const getHumanize = () => {
+    if (hiddenHumanize) return truthy(hiddenHumanize.value);
+    const a = localStorage.getItem("hirex-use-humanize");
+    const b = localStorage.getItem("hirex_use_humanize");
+    if (a === null && b === null) return true; // default ON
+    return truthy(a ?? b);
+  };
+
+  const getActiveModel = () =>
+    localStorage.getItem("hirex_model") ||
+    (typeof RT.getCurrentModel === "function" ? RT.getCurrentModel() : "") ||
+    "gpt-4o-mini";
+
+  const disableForm = (state) => {
+    if (!form) return;
+    Array.from(form.elements).forEach((el) => (el.disabled = state));
+    form.style.opacity = state ? 0.6 : 1;
+  };
+
+  const progressFinish = () => document.dispatchEvent(new Event("hirex-finish"));
+
+  /* ------------------------------------------------------------
+     💾 Cache utilities
+  ------------------------------------------------------------ */
+  const persistResults = (data, useHumanize, jdText) => {
+    try {
+      const score =
+        typeof data.rating_score === "number"
+          ? data.rating_score
+          : typeof data.coverage_ratio === "number"
+          ? Math.round((data.coverage_ratio || 0) * 100)
+          : null;
+
+      const record = {
+        id: Date.now(),
+        company: data.company || data.company_name || "UnknownCompany",
+        role: data.role || "UnknownRole",
+        fit_score: score ?? null,
+        timestamp: new Date().toISOString(),
+        type: "optimization",
+      };
+
+      const history = JSON.parse(localStorage.getItem("hirex_history") || "[]");
+      history.push(record);
+      localStorage.setItem("hirex_history", JSON.stringify(history));
+
+      const kv = {
+        hirex_tex: data.tex_string || "",
+        hirex_pdf: data.pdf_base64 || "",
+        hirex_pdf_humanized: data.pdf_base64_humanized || "",
+        hirex_company: record.company,
+        hirex_role: record.role,
+        hirex_fit_score: score ?? "n/a",
+        hirex_use_humanize: useHumanize ? "true" : "false",
+        hirex_timestamp: record.timestamp,
+        hirex_version: APP_VERSION,
+        hirex_jd_text: jdText || "",
+      };
+      Object.entries(kv).forEach(([k, v]) => localStorage.setItem(k, String(v)));
+      localStorage.setItem("hirex-use-humanize", useHumanize ? "on" : "off");
+
+      debug("✅ Cached optimization results", record);
+    } catch (err) {
+      console.error("[ASTRA] Cache error:", err);
+    }
+  };
+
+  /* ------------------------------------------------------------
+     🧠 Persist context on backend
+  ------------------------------------------------------------ */
+  const saveContextOnBackend = async (data, jdText) => {
+    try {
+      const fd = new FormData();
+      const company = data.company || data.company_name || "";
+      const role = data.role || "";
+      const fit =
+        typeof data.rating_score === "number"
+          ? String(data.rating_score)
+          : typeof data.coverage_ratio === "number"
+          ? String(Math.round((data.coverage_ratio || 0) * 100))
+          : "";
+
+      const humanizedTex =
+        (data.humanized && data.humanized.tex) ||
+        data.humanized_tex ||
+        data.tex_string_humanized ||
+        data.tex_string ||
+        "";
+
+      fd.append("company", company);
+      fd.append("role", role);
+      fd.append("jd_text", jdText || "");
+      fd.append("resume_tex", data.tex_string || "");
+      fd.append("humanized_tex", humanizedTex);
+      fd.append("pdf_base64", data.pdf_base64 || "");
+      fd.append("pdf_base64_humanized", data.pdf_base64_humanized || "");
+      fd.append("model", getActiveModel());
+      fd.append("fit_score", fit);
+
+      const res = await fetch(`${apiBase}/api/context/save`, {
+        method: "POST",
+        body: fd,
+        credentials: "same-origin",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const resp = await res.json().catch(() => ({}));
+      debug("🧷 Context saved", resp);
+    } catch (e) {
+      console.warn("[ASTRA] Context save skipped:", e);
+    }
+  };
+
+  /* ------------------------------------------------------------
+     📄 Placeholder base (for 422)
+  ------------------------------------------------------------ */
+  const addPlaceholderBase = (fd) => {
+    const blob = new Blob(["% USE_SERVER_DEFAULT base_resume.tex\n"], { type: "text/plain" });
+    fd.append("base_resume_tex", blob, "USE_SERVER_DEFAULT.tex");
+    return fd;
+  };
+
+  /* ------------------------------------------------------------
+     🧩 FormData builder
+  ------------------------------------------------------------ */
+  const buildFormData = (jdText, useHumanize) => {
+    const fd = new FormData();
+    fd.append("jd_text", jdText || "");
+    fd.append("use_humanize", useHumanize ? "true" : "false");
+    fd.append("latex_safe", "true");
+    fd.append("model", getActiveModel());
+    // alias for older servers
+    fd.append("job_description", jdText || "");
+    return fd;
+  };
+
+  /* ------------------------------------------------------------
+     ⏱️ Robust fetch with per-request timeout + external cancel
+  ------------------------------------------------------------ */
+  async function fetchWithTimeout(url, options = {}, ms = HTTP_TIMEOUT_MS, externalSignal) {
+    const ctrl = new AbortController();
+
+    const onExternalAbort = () => ctrl.abort(new DOMException("UserCancel", "AbortError"));
+    if (externalSignal) {
+      if (externalSignal.aborted) onExternalAbort();
+      else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+
+    const t = setTimeout(() => ctrl.abort(new DOMException("Timeout", "AbortError")), ms);
+
+    try {
+      const res = await fetch(url, {
+        ...options,
+        headers: { Accept: "application/json", ...(options.headers || {}) },
+        signal: ctrl.signal,
+        credentials: "same-origin",
+        keepalive: true,
+      });
+      return res;
+    } finally {
+      clearTimeout(t);
+      if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
+    }
+  }
+
+  /* ------------------------------------------------------------
+     🌐 Optimize API discovery + fallback
+  ------------------------------------------------------------ */
+  const CANDIDATE_PATHS = [
+    "/api/optimize/run",   // put your real endpoint first
+    "/api/optimize",
+    "/api/optimize/submit",
+    "/api/optimize/jd",
+    "/optimize",
+  ];
+
+  const postOptimize = async (url, fd, externalSignal) => {
+    const res = await fetchWithTimeout(
+      url,
+      { method: "POST", body: fd },
+      HTTP_TIMEOUT_MS,
+      externalSignal
+    );
+    const text = await res.text().catch(() => "");
+    if (!res.ok) {
+      const err = new Error(text || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error("Invalid JSON response from backend.");
+    }
+  };
+
+  const discoverOptimizePath = async () => {
+    try {
+      const spec = await fetchWithTimeout(`${apiBase}/openapi.json`, {}, 15000).then(r => r.json());
+      const paths = Object.keys(spec.paths || {});
+      const hitsApi = paths.filter(p => /optimiz|resume/i.test(p) && p.startsWith("/api/"));
+      const hitsOther = paths.filter(p => /optimiz|resume/i.test(p) && !p.startsWith("/api/"));
+      return [...hitsApi, ...hitsOther][0] || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const tryOnePath = async (path, jd, useHumanize, externalSignal) => {
+    let fd = buildFormData(jd, useHumanize);
+    try {
+      return await postOptimize(`${apiBase}${path}`, fd, externalSignal);
+    } catch (err) {
+      const msg = String(err?.message || "").toLowerCase();
+
+      // mark types for the outer loop
+      if (err?.name === "AbortError") err._isAbort = true;
+      if (/timeout/.test(msg)) err._isTimeout = true;
+
+      // 404 / 405 → not here; let the caller try next without noisy logs
+      if (err.status === 404 || err.status === 405) throw err;
+
+      // 422 requiring base_resume_tex → retry once with placeholder
+      if ((err.status === 422 || /422/.test(msg)) && /base_resume_tex/i.test(msg)) {
+        debug("422 needs base_resume_tex — retrying", { path });
+        fd = buildFormData(jd, useHumanize);
+        addPlaceholderBase(fd);
+        return await postOptimize(`${apiBase}${path}`, fd, externalSignal);
+      }
+
+      // Specific backend misconfig hint
+      if (err.status === 500 && msg.includes("default base resume")) {
+        const e = new Error("Backend missing default base resume (config.DEFAULT_BASE_RESUME).");
+        e.status = 500;
+        throw e;
+      }
+
+      throw err;
+    }
+  };
+
+  const postOptimizeWithFallback = async (jd, useHumanize, externalSignal) => {
+    const cached = localStorage.getItem("hirex_optimize_url");
+    const discovered = await discoverOptimizePath();
+    const order = [cached, discovered, ...CANDIDATE_PATHS]
+      .filter(Boolean)
+      .filter((p, i, a) => a.indexOf(p) === i);
+
+    let lastErr;
+    for (const path of order) {
+      try {
+        const data = await tryOnePath(path, jd, useHumanize, externalSignal);
+        localStorage.setItem("hirex_optimize_url", path);
+        debug("✅ Optimize path selected", { path });
+        return data;
+      } catch (err) {
+        // User canceled → stop immediately
+        if (err?._isAbort) throw err;
+
+        // Timeout → try next path silently
+        if (err?._isTimeout) {
+          debug("⏱️ Timeout — trying next path", { path });
+          lastErr = err;
+          continue;
+        }
+
+        // 404 / 405 → endpoint not present; don't spam logs
+        if (err?.status === 404 || err?.status === 405) {
+          lastErr = err;
+          continue;
+        }
+
+        // Known fatal misconfig → stop early
+        if (err?.status === 500 && /base resume/i.test(String(err.message))) {
+          lastErr = err;
+          break;
+        }
+
+        // Other errors: log once, then try next
+        debug("Path failed — trying next", { path, error: String(err?.message || err) });
+        lastErr = err;
+      }
+    }
+    const e = lastErr || new Error("No optimize endpoint responded successfully. Check /docs for available routes.");
+    e.status = e.status || 404;
+    throw e;
+  };
+
+  /* ------------------------------------------------------------
+     🚀 Submit handler
+  ------------------------------------------------------------ */
+  form?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const jd = jdInput?.value?.trim();
+    const useHumanize = getHumanize();
+    if (!jd) return toast("⚠️ Paste the job description first.");
+
+    disableForm(true);
+    toast("⏳ Optimizing your resume…");
+    debug("Submitting optimization", { useHumanize });
+
+    const userCtrl = new AbortController();
+    let canceled = false;
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.textContent = "❌ Cancel";
+    cancelBtn.className = "cta-secondary";
+    cancelBtn.style.marginTop = "1rem";
+    form.appendChild(cancelBtn);
+    cancelBtn.onclick = () => {
+      canceled = true;
+      userCtrl.abort(new DOMException("UserCancel", "AbortError"));
+      toast("🛑 Optimization canceled.");
+      cancelBtn.remove();
+    };
+
+    try {
+      const data = await postOptimizeWithFallback(jd, useHumanize, userCtrl.signal);
+
+      if (!data?.tex_string && !data?.pdf_base64)
+        throw new Error("Empty or malformed response from backend.");
+
+      persistResults(data, useHumanize, jd);
+      saveContextOnBackend(data, jd);
+
+      const company = sanitize(data.company || data.company_name || "Company");
+      const role = sanitize(data.role || "Role");
+      const score =
+        typeof data.rating_score === "number"
+          ? `${data.rating_score}/100`
+          : typeof data.coverage_ratio === "number"
+          ? `${Math.round((data.coverage_ratio || 0) * 100)}/100`
+          : "n/a";
+
+      toast(`✅ Optimized for ${company} (${role}) — JD Fit ${score}`);
+      setTimeout(() => { if (!canceled) window.location.href = "/preview.html"; }, 1200);
+      progressFinish();
+    } catch (err) {
+      console.error("[ASTRA] Optimization error:", err);
+      const msg = String(err?.message || "");
+      if (err?.name === "AbortError") {
+        toast("⚠️ Request canceled or timed out. Server may still finish.");
+      } else if (/Failed to fetch|NetworkError/i.test(msg)) {
+        toast("🌐 Network error — check FastAPI connection.");
+      } else if (/base resume/i.test(msg)) {
+        toast("📄 Backend missing default base resume (config.DEFAULT_BASE_RESUME).");
+      } else {
+        toast("❌ " + msg);
+      }
+    } finally {
+      disableForm(false);
+      if (cancelBtn.isConnected) cancelBtn.remove();
+    }
+  });
+
+  /* ------------------------------------------------------------
+     🧹 Reset
+  ------------------------------------------------------------ */
+  form?.addEventListener("reset", () => {
+    [
+      "hirex_tex",
+      "hirex_pdf",
+      "hirex_pdf_humanized",
+      "hirex_company",
+      "hirex_role",
+      "hirex_fit_score",
+      "hirex_use_humanize",
+      "hirex-use-humanize",
+      "hirex_timestamp",
+      "hirex_version",
+      "hirex_jd_text",
+    ].forEach((k) => localStorage.removeItem(k));
+    toast("🧹 Cleared form and local cache.");
+  });
+
+  /* ------------------------------------------------------------
+     💡 UX Enhancements
+  ------------------------------------------------------------ */
+  jdInput?.addEventListener("focus", () =>
+    jdInput.scrollIntoView({ behavior: "smooth", block: "center" })
+  );
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.key.toLowerCase() === "enter") form?.requestSubmit();
+  });
+
+  /* ------------------------------------------------------------
+     ✅ Init Log
+  ------------------------------------------------------------ */
+  console.log(
+    `%c⚙️ ${APP_NAME} main.js initialized — ${APP_VERSION}`,
+    "background:#5bd0ff;color:#00121e;padding:4px 8px;border-radius:4px;font-weight:bold;"
+  );
+  debug("MAIN PAGE LOADED", {
+    app: APP_NAME,
+    version: APP_VERSION,
+    apiBase,
+    hasHumanize: getHumanize(),
+    model: getActiveModel(),
+    origin: location.origin,
+  });
+});
+
+/* FILE: ./static/js/superhuman.js */
+
+/* ============================================================
+   HIREX • superhuman.js (v2.1.2 — Humanizer Engine)
+   ------------------------------------------------------------
+   Features:
+   • Sends text (resume, paragraph, or cover letter body)
+     to /api/superhuman/rewrite for tone refinement
+   • Uses AI Humanize API via backend proxy
+   • Supports tone modes (Formal, Balanced, Conversational, Academic, Confident)
+   • Honors global Humanize toggle (skips API when off)
+   • Displays rewritten text side-by-side
+   • Cache: tone + input/output persisted across sessions
+   • Clear control + graceful backend error handling
+   • Persistent global toggle synced across pages
+   • Emits history event (type: "humanize") for dashboard
+   Author: Sri Akash Kadali
+   ============================================================ */
+
+document.addEventListener("DOMContentLoaded", () => {
+  const APP_VERSION = "v2.1.2";
+  const LS_KEY = "hirex_superhuman_cache";
+  const TIMEOUT_MS = 120000;
+  const HUMANIZE_KEY_NEW = "hirex_use_humanize";
+  const HUMANIZE_KEY_OLD = "hirex-use-humanize";
+
+  /* ------------------------------------------------------------
+     🔧 DOM Elements
+  ------------------------------------------------------------ */
+  const inputEl     = document.getElementById("input_text");
+  const modeEl      = document.getElementById("mode");
+  const toneEl      = document.getElementById("tone");
+  const latexSafeEl = document.getElementById("latex_safe");
+  const rewriteBtn  = document.getElementById("rewrite_btn");
+  const clearBtn    = document.getElementById("clear_btn");
+  const statusBadge = document.getElementById("status_badge");
+  const outEl       = document.getElementById("human_output");
+  const toggleEl    = document.getElementById("humanize_toggle");
+
+  /* ------------------------------------------------------------
+     🧩 Utilities
+  ------------------------------------------------------------ */
+  const RT = (window.ASTRA ?? window.HIREX) || {};
+
+  const getApiBase = () => {
+    try { if (typeof RT.getApiBase === "function") return RT.getApiBase(); } catch {}
+    return ["127.0.0.1", "localhost"].includes(location.hostname)
+      ? "http://127.0.0.1:8000"
+      : location.origin;
+  };
+  const apiBase = getApiBase();
+
+  const toast = (msg, t = 3000) => (RT.toast ? RT.toast(msg, t) : alert(msg));
+  const debug = (msg, data) => RT.debugLog?.(msg, data);
+
+  const pushHistoryEvent = (meta = {}) => {
+    try {
+      const history = JSON.parse(localStorage.getItem("hirex_history") || "[]");
+      history.push({
+        id: Date.now(),
+        type: "humanize",
+        timestamp: new Date().toISOString(),
+        tone: toneEl?.value || "balanced",
+        mode: modeEl?.value || "paragraph",
+        ...meta,
+      });
+      localStorage.setItem("hirex_history", JSON.stringify(history));
+    } catch {}
+  };
+
+  /* ------------------------------------------------------------
+     🌐 Global Humanize Toggle
+  ------------------------------------------------------------ */
+  const getHumanizeState = () => {
+    try { if (window.ASTRA?.getHumanizeState) return !!window.ASTRA.getHumanizeState(); } catch {}
+    const v = localStorage.getItem(HUMANIZE_KEY_NEW);
+    if (v === null) return true; // default ON
+    if (v === "true" || v === "false") return v === "true";
+    return (localStorage.getItem(HUMANIZE_KEY_OLD) ?? "on") === "on";
+  };
+
+  const setHumanizeState = (on) => {
+    localStorage.setItem(HUMANIZE_KEY_NEW, on ? "true" : "false");
+    localStorage.setItem(HUMANIZE_KEY_OLD, on ? "on" : "off");
+    updateHumanizeBadge(on);
+    const evt = new CustomEvent("hirex:humanize-change", { detail: { on } });
+    // broadcast to both targets for maximum compatibility
+    window.dispatchEvent(evt);
+    document.dispatchEvent(evt);
+  };
+
+  const updateHumanizeBadge = (on = getHumanizeState()) => {
+    if (!statusBadge) return;
+    statusBadge.textContent = on
+      ? "🟢 Humanize ON"
+      : "⚪ Humanize OFF — showing original text";
+  };
+
+  if (toggleEl) {
+    toggleEl.checked = getHumanizeState();
+    toggleEl.addEventListener("change", () => {
+      setHumanizeState(toggleEl.checked);
+      toast(toggleEl.checked ? "✨ Humanize enabled" : "⛔ Humanize disabled");
+    });
+  }
+
+  updateHumanizeBadge();
+
+  /* ------------------------------------------------------------
+     💾 Cache load / restore
+  ------------------------------------------------------------ */
+  const loadCache = () => {
+    try { return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); }
+    catch { return {}; }
+  };
+
+  const saveCache = (patch) => {
+    try {
+      const prev = loadCache();
+      localStorage.setItem(
+        LS_KEY,
+        JSON.stringify({ ...prev, ...patch, _v: APP_VERSION, _t: Date.now() })
+      );
+    } catch (e) {
+      console.warn("[HIREX] SuperHuman cache save failed:", e);
+    }
+  };
+
+  const setOutputText = (text) => { if (outEl) outEl.textContent = text || ""; };
+
+  // Prefill input from cache or recent selection
+  (() => {
+    const boot = loadCache();
+    if (boot.lastTone && toneEl) toneEl.value = boot.lastTone;
+    if (boot.lastMode && modeEl) modeEl.value = boot.lastMode;
+    if (typeof boot.latexSafe === "boolean" && latexSafeEl) latexSafeEl.checked = boot.latexSafe;
+
+    let seeded = false;
+    if (boot.lastInput && inputEl && !inputEl.value) {
+      inputEl.value = boot.lastInput;
+      seeded = true;
+    }
+    // If not seeded, try currently selected resume text from other pages
+    if (!seeded && inputEl && !inputEl.value) {
+      try {
+        const sel = JSON.parse(localStorage.getItem("hirex_selected_context") || "null");
+        const fallback =
+          localStorage.getItem("hirex_resume_text") ||
+          localStorage.getItem("hirex_resume_plain") ||
+          localStorage.getItem("hirex_tex") ||
+          "";
+        inputEl.value = sel?.resume_tex || fallback || "";
+      } catch {
+        inputEl.value = localStorage.getItem("hirex_tex") || "";
+      }
+    }
+    if (boot.lastOutput) setOutputText(boot.lastOutput);
+  })();
+
+  /* ------------------------------------------------------------
+     🛰️ API Call
+  ------------------------------------------------------------ */
+  const MODE_MAP = { sentence: "paragraph", custom: "paragraph" };
+  const TONE_MAP = new Set(["balanced", "formal", "conversational", "academic", "confident"]);
+
+  const buildPayload = (text, tone, mode, latexSafe) => {
+    const normTone = String(tone || "balanced").toLowerCase();
+    const toneFinal = TONE_MAP.has(normTone) ? normTone : "balanced";
+
+    const rawMode = String(mode || "paragraph").toLowerCase();
+    const modeFinal = ["paragraph", "resume", "coverletter"].includes(rawMode)
+      ? rawMode
+      : (MODE_MAP[rawMode] || "paragraph");
+
+    const hints = [];
+    if (rawMode === "sentence") hints.push("granularity:sentence");
+    if (rawMode === "custom") hints.push("style:custom");
+
+    return { text, tone: toneFinal, mode: modeFinal, latex_safe: !!latexSafe, hints };
+  };
+
+  async function callRewrite(payload, controller) {
+    const url = `${apiBase}/api/superhuman/rewrite`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    const raw = await res.text().catch(() => "");
+    if (!res.ok) {
+      try {
+        const j = JSON.parse(raw || "{}");
+        const msg = j.detail || j.error || j.message || raw || `HTTP ${res.status}`;
+        throw new Error(msg);
+      } catch {
+        throw new Error(raw || `HTTP ${res.status}`);
+      }
+    }
+
+    try { return JSON.parse(raw || "{}"); }
+    catch { throw new Error("Invalid JSON from backend."); }
+  }
+
+  const extractRewritten = (response, originalText) => {
+    // Accept multiple shapes
+    // { rewritten: "..." } | { rewritten: ["...","..."] } | { text: "..." } | { output: "..." }
+    // { result: { text: "..." }} | { outputs: [{text:"..."}] } | { data: { rewritten: "..." } }
+    const r = response?.rewritten ?? response?.data?.rewritten ?? response?.result?.text;
+    if (Array.isArray(r)) return r.join("\n");
+    if (typeof r === "string" && r.trim()) return r;
+
+    const fromOutputs = Array.isArray(response?.outputs) && response.outputs[0]?.text;
+    if (fromOutputs) return String(fromOutputs);
+
+    if (typeof response?.text === "string" && response.text.trim()) return response.text;
+    if (typeof response?.output === "string" && response.output.trim()) return response.output;
+
+    return originalText || "";
+  };
+
+  const setBusy = (busy, msg = "") => {
+    [rewriteBtn, clearBtn, inputEl, modeEl, toneEl, latexSafeEl]
+      .filter(Boolean)
+      .forEach((el) => (el.disabled = !!busy));
+    if (statusBadge) statusBadge.textContent = busy
+      ? (msg || "Working…")
+      : (getHumanizeState() ? "🟢 Ready" : "⚪ Humanize OFF — showing original text");
+  };
+
+  /* ------------------------------------------------------------
+     ⚡ Run Humanize
+  ------------------------------------------------------------ */
+  const runHumanize = async () => {
+    const text = inputEl?.value?.trim() || "";
+    if (!text) return toast("⚠️ Please paste text to refine.");
+
+    const tone = toneEl?.value || "balanced";
+    const mode = modeEl?.value || "paragraph";
+    const latexSafe = !!latexSafeEl?.checked;
+    const humanizeOn = getHumanizeState();
+
+    if (!humanizeOn) {
+      setOutputText(text);
+      saveCache({ lastInput: text, lastOutput: text, lastTone: tone, lastMode: mode, latexSafe });
+      pushHistoryEvent({ event: "show_original" });
+      toast("⚪ Humanize is off — showing original text.");
+      updateHumanizeBadge(false);
+      return;
+    }
+
+    setBusy(true, "Refining…");
+    toast(`⚡ Humanizing in ${tone} tone…`);
+    updateHumanizeBadge(true);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+    try {
+      const payload = buildPayload(text, tone, mode, latexSafe);
+      let response;
+      try {
+        response = await callRewrite(payload, controller);
+      } catch (err) {
+        console.error("[HIREX] SuperHuman fetch failed:", err);
+        toast("⚠️ Backend unreachable — showing original text.");
+        response = { rewritten: text };
+      }
+
+      const humanized = extractRewritten(response, text) || "⚠️ No response received.";
+      setOutputText(humanized);
+      toast("✅ Text refined successfully!");
+      saveCache({ lastInput: text, lastOutput: humanized, lastTone: tone, lastMode: mode, latexSafe });
+      pushHistoryEvent({ event: "rewrite_success" });
+    } catch (err) {
+      if (err.name === "AbortError") toast("⚠️ Request timed out (2 min).");
+      else toast("❌ " + (err.message || "Unexpected error."));
+      console.error("[HIREX] SuperHuman error:", err);
+      pushHistoryEvent({ event: "rewrite_error", error: String(err?.message || err) });
+    } finally {
+      clearTimeout(timer);
+      setBusy(false);
+    }
+  };
+
+  rewriteBtn?.addEventListener("click", runHumanize);
+
+  /* ------------------------------------------------------------
+     🧹 Clear
+  ------------------------------------------------------------ */
+  clearBtn?.addEventListener("click", () => {
+    if (inputEl) inputEl.value = "";
+    setOutputText("");
+    saveCache({ lastInput: "", lastOutput: "", lastTone: toneEl?.value, lastMode: modeEl?.value, latexSafe: !!latexSafeEl?.checked });
+    pushHistoryEvent({ event: "cleared" });
+    toast("🧹 Cleared input and output.");
+    updateHumanizeBadge(getHumanizeState());
+  });
+
+  /* ------------------------------------------------------------
+     ⌨️ Shortcut
+  ------------------------------------------------------------ */
+  inputEl?.addEventListener("keydown", (e) => {
+    const isMac = /Mac|iPhone|iPad/i.test(navigator.platform);
+    const mod = isMac ? e.metaKey : e.ctrlKey;
+    if (mod && e.key.toLowerCase() === "enter") {
+      e.preventDefault();
+      runHumanize();
+    }
+  });
+
+  /* ------------------------------------------------------------
+     🔄 Persist Choices
+  ------------------------------------------------------------ */
+  toneEl?.addEventListener("change", () => saveCache({ lastTone: toneEl.value }));
+  modeEl?.addEventListener("change", () => saveCache({ lastMode: modeEl.value }));
+  latexSafeEl?.addEventListener("change", () => saveCache({ latexSafe: !!latexSafeEl.checked }));
+
+  /* ------------------------------------------------------------
+     ✅ Init Log
+  ------------------------------------------------------------ */
+  console.log(
+    `%c⚡ HIREX superhuman.js initialized — ${APP_VERSION}`,
+    "background:#5bd0ff;color:#00131c;padding:4px 8px;border-radius:4px;font-weight:bold;"
+  );
+  debug("SUPERHUMAN PAGE LOADED", {
+    version: APP_VERSION,
+    apiBase,
+    tone: toneEl?.value,
+    mode: modeEl?.value,
+    humanizeOn: getHumanizeState(),
+  });
+});
+
+/* FILE: ./static/js/dashboard.js */
+
+/* ============================================================
+   ASTRA • dashboard.js (v2.1.0 — Analytics & History Dashboard)
+   ------------------------------------------------------------
+   Features:
+   • Fetches /api/dashboard (summary + trend + history) with timeout
+   • Falls back to /api/dashboard/summary automatically
+   • Renders the Dashboard UI (ids from dashboard.html)
+   • Uses unified localStorage history (hirex_history) as fallback
+   • Caches API data for 12h; works offline from cache
+   • Optional refresh/status elements if present
+   • Safe even if parts of the DOM/Chart.js are missing
+   Author: Sri Akash Kadali
+   ============================================================ */
+
+document.addEventListener("DOMContentLoaded", () => {
+  const APP = "ASTRA";
+  const APP_VERSION = "v2.1.0";
+
+  /* ------------------------------------------------------------
+     🔧 DOM References (optional-safe)
+  ------------------------------------------------------------ */
+  const $ = (id) => document.getElementById(id);
+
+  // Metric counters
+  const elOpt   = $("opt_count");
+  const elCL    = $("cl_count");
+  const elHM    = $("hm_count");
+  const elMM    = $("mm_count");
+  const elTalk  = $("talk_count");
+
+  // Chart canvases
+  const cvs = {
+    optimizations: $("chart_optimizations"),
+    coverletters:  $("chart_coverletters"),
+    superhuman:    $("chart_superhuman"),
+    mastermind:    $("chart_mastermind"),
+    talk:          $("chart_talk"),
+  };
+
+  // Optional elements
+  const refreshBtn = $("dashboard-refresh");
+  const statusBar  = $("dashboard-status");
+
+  /* ------------------------------------------------------------
+     🧠 Utilities
+  ------------------------------------------------------------ */
+  const RT = (window.ASTRA ?? window.HIREX) || {};
+  const debug = (msg, data) => (typeof RT.debugLog === "function" ? RT.debugLog(msg, data) : void 0);
+  const toast = (msg, t = 3000) => (RT.toast ? RT.toast(msg, t) : console.info(msg));
+
+  const getApiBase = () => {
+    try { if (typeof RT.getApiBase === "function") return RT.getApiBase(); } catch {}
+    if (["127.0.0.1", "0.0.0.0", "localhost"].includes(location.hostname)) return "http://127.0.0.1:8000";
+    return location.origin;
+  };
+  const apiBase = getApiBase();
+
+  const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const dayIdx = (d) => (d.getDay() + 6) % 7; // Monday=0
+
+  const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+  const CACHE_KEY_NEW = "astra_dashboard_cache_v2";
+  const CACHE_KEY_OLD = "hirex_dashboard_cache_v2"; // migrate if present
+
+  const loadCache = () => {
+    const read = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
+    let obj = read(CACHE_KEY_NEW) || read(CACHE_KEY_OLD);
+    if (!obj || !obj._cached_at) return null;
+    if (Date.now() - obj._cached_at > CACHE_TTL_MS) {
+      localStorage.removeItem(CACHE_KEY_NEW);
+      localStorage.removeItem(CACHE_KEY_OLD);
+      return null;
+    }
+    // Defensive: shape
+    obj.summary ||= {};
+    obj.trend ||= {};
+    obj.history = Array.isArray(obj.history) ? obj.history : [];
+    return obj;
+  };
+
+  const saveCache = (data) => {
+    try {
+      localStorage.setItem(
+        CACHE_KEY_NEW,
+        JSON.stringify({ ...data, _cached_at: Date.now(), version: APP_VERSION })
+      );
+    } catch (e) {
+      console.warn("[ASTRA] Dashboard cache save failed:", e);
+    }
+  };
+
+  const getLocalHistory = () => {
+    try { return JSON.parse(localStorage.getItem("hirex_history") || "[]"); }
+    catch { return []; }
+  };
+
+  // timeout-friendly fetch
+  async function fetchJSON(url, ms = 10000) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    try {
+      const r = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return await r.json();
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  /* ------------------------------------------------------------
+     📦 Normalize & Fallback shaping
+  ------------------------------------------------------------ */
+  const TYPE_ALIASES = {
+    optimization: new Set(["optimization", "opt", "resume", "resume_optimization", "optimize", "optimized"]),
+    coverletter:  new Set(["coverletter", "cover_letter", "cover-letter", "cl", "coverletter_generated"]),
+    humanize:     new Set(["humanize", "superhuman", "hm"]),
+    mastermind:   new Set(["mastermind", "mm", "chatgpt"]),
+    talk:         new Set(["talk", "qa", "assistant", "talk_to_hirex"]),
+  };
+
+  const pickType = (t = "") => {
+    const key = String(t || "").toLowerCase();
+    for (const [norm, set] of Object.entries(TYPE_ALIASES)) {
+      if (set.has(key)) return norm;
+    }
+    // Heuristic substrings for backend "event" names
+    if (/optimiz/.test(key)) return "optimization";
+    if (/cover.?letter/.test(key)) return "coverletter";
+    if (/superhuman|humanize/.test(key)) return "humanize";
+    if (/mastermind/.test(key)) return "mastermind";
+    if (/talk/.test(key)) return "talk";
+    return key || "unknown";
+  };
+
+  // Ensure history items expose a "type" and "timestamp"
+  const normalizeHistory = (arr = []) =>
+    (Array.isArray(arr) ? arr : []).map((r) => ({
+      ...r,
+      type: r?.type || r?.event || "unknown",
+      timestamp: r?.timestamp || r?.time || r?.ts || new Date().toISOString(),
+    }));
+
+  // Build a Mon..Sun series for a given normalized type
+  const seriesFromHistory = (history, normType) => {
+    const out = Array(7).fill(0);
+    history.forEach((r) => {
+      const t = pickType(r.type);
+      if (t !== normType) return;
+      const d = new Date(r.timestamp);
+      if (isNaN(d)) return;
+      out[dayIdx(d)] += 1;
+    });
+    return out;
+  };
+
+  const countsFromHistory = (history) => {
+    const c = { optimization:0, coverletter:0, humanize:0, mastermind:0, talk:0 };
+    history.forEach((r) => {
+      const t = pickType(r.type);
+      if (t in c) c[t] += 1;
+    });
+    return c;
+  };
+
+  /* ------------------------------------------------------------
+     📊 Renderers (Metrics + Charts)
+  ------------------------------------------------------------ */
+  const activeCharts = {};
+
+  const ensureChart = (canvas, cfgBuilder) => {
+    if (!canvas || !window.Chart) return null;
+    const existing = (Chart.getChart && Chart.getChart(canvas)) || activeCharts[canvas.id];
+    try { existing?.destroy?.(); } catch {}
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    let cfg;
+    try { cfg = cfgBuilder(ctx); } catch { return null; }
+    try {
+      const chart = new Chart(ctx, cfg);
+      activeCharts[canvas.id] = chart;
+      return chart;
+    } catch {
+      return null;
+    }
+  };
+
+  const gradient = (ctx, c1, c2) => {
+    try {
+      const g = ctx.createLinearGradient(0, 0, 0, 300);
+      g.addColorStop(0, c1); g.addColorStop(1, c2);
+      return g;
+    } catch {
+      return c1;
+    }
+  };
+
+  const baseOptions = {
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: "#bbb" }, grid: { color: "rgba(255,255,255,0.05)" } },
+      y: { ticks: { color: "#888" }, grid: { color: "rgba(255,255,255,0.05)" } },
+    },
+  };
+
+  // Helper to read number from multiple possible keys (API/back-compat)
+  const pickNum = (obj, keys, fallback = 0) => {
+    for (const k of keys) {
+      const v = obj?.[k];
+      if (typeof v === "number" && !Number.isNaN(v)) return v;
+      if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) return Number(v);
+    }
+    return fallback;
+  };
+
+  const renderMetrics = (summary = {}, fallbackHistory = []) => {
+    // API (v2 backend) fields:
+    //  optimize_runs, coverletters, superhuman_calls, talk_queries, mastermind_chats
+    const histCounts = countsFromHistory(normalizeHistory(fallbackHistory));
+
+    const opt  = pickNum(summary, ["optimize_runs", "opt_count", "opt", "optimizations"], histCounts.optimization);
+    const cl   = pickNum(summary, ["coverletters", "cl_count"],                       histCounts.coverletter);
+    const hm   = pickNum(summary, ["superhuman_calls", "hm_count", "humanize"],       histCounts.humanize);
+    const mm   = pickNum(summary, ["mastermind_chats", "mm_count"],                   histCounts.mastermind);
+    const talk = pickNum(summary, ["talk_queries", "talk_count"],                     histCounts.talk);
+
+    if (elOpt)  elOpt.textContent  = String(opt);
+    if (elCL)   elCL.textContent   = String(cl);
+    if (elHM)   elHM.textContent   = String(hm);
+    if (elMM)   elMM.textContent   = String(mm);
+    if (elTalk) elTalk.textContent = String(talk);
+  };
+
+  const coerce7 = (arr) => {
+    const a = Array.isArray(arr) ? arr.map((x) => Number(x) || 0) : Array(7).fill(0);
+    if (a.length === 7) return a;
+    const out = Array(7).fill(0);
+    for (let i = 0; i < Math.min(7, a.length); i++) out[i] = a[i];
+    return out;
+  };
+
+  // Accept either API-provided trend arrays or compute from history
+  const renderCharts = (trend = {}, history = []) => {
+    const haveTrend = (k) => Array.isArray(trend?.[k]) && trend[k].length;
+
+    const makeLineCfg = (label, arr, c1, c2) => (ctx) => ({
+      type: "line",
+      data: { labels: dayLabels, datasets: [{
+        label, data: coerce7(arr), borderColor: c1, backgroundColor: gradient(ctx, c1, c2),
+        fill: true, tension: 0.4, pointRadius: 3, pointHoverRadius: 5,
+      }]},
+      options: baseOptions,
+    });
+
+    const makeBarCfg = (label, arr, c1, c2) => (ctx) => ({
+      type: "bar",
+      data: { labels: dayLabels, datasets: [{
+        label, data: coerce7(arr), borderColor: c1, backgroundColor: gradient(ctx, c1, c2),
+      }]},
+      options: baseOptions,
+    });
+
+    const normHist = normalizeHistory(history);
+
+    const sOpt  = haveTrend("optimizations") ? trend.optimizations : seriesFromHistory(normHist, "optimization");
+    const sCL   = haveTrend("coverletters")  ? trend.coverletters  : seriesFromHistory(normHist, "coverletter");
+    const sHM   = haveTrend("superhuman")    ? trend.superhuman    : seriesFromHistory(normHist, "humanize");
+    const sMM   = haveTrend("mastermind")    ? trend.mastermind    : seriesFromHistory(normHist, "mastermind");
+    const sTalk = haveTrend("talk")          ? trend.talk          : seriesFromHistory(normHist, "talk");
+
+    if (!window.Chart) return; // graceful if Chart.js missing
+
+    cvs.optimizations && ensureChart(cvs.optimizations, makeLineCfg("Optimizations", sOpt,  "rgba(91,208,255,0.85)", "rgba(159,120,255,0.30)"));
+    cvs.coverletters  && ensureChart(cvs.coverletters,  makeBarCfg ("Cover Letters", sCL, "rgba(255,184,77,0.85)", "rgba(255,107,107,0.30)"));
+    cvs.superhuman    && ensureChart(cvs.superhuman,    makeLineCfg("Humanize",     sHM, "rgba(121,255,207,0.85)", "rgba(91,208,255,0.30)"));
+    cvs.mastermind    && ensureChart(cvs.mastermind,    makeBarCfg ("MasterMind",   sMM, "rgba(173,91,255,0.85)", "rgba(91,208,255,0.30)"));
+    cvs.talk          && ensureChart(cvs.talk,          makeLineCfg("Talk",         sTalk,"rgba(255,107,107,0.85)","rgba(255,184,77,0.30)"));
+  };
+
+  /* ------------------------------------------------------------
+     🛰️ Fetch + Fallback
+  ------------------------------------------------------------ */
+  function shapeApiData(raw) {
+    // Accept multiple server shapes; prefer explicit fields
+    const summary = raw.summary || raw.totals || raw.counts || raw.metrics || {};
+    const trend   = raw.trend   || raw.series  || {};
+    const history = Array.isArray(raw.history) ? raw.history : [];
+    return { summary, trend, history };
+  }
+
+  async function fetchDashboard() {
+    if (statusBar) statusBar.textContent = "Fetching…";
+    const urls = [
+      `${apiBase}/api/dashboard`,
+      `${apiBase}/api/dashboard/summary`
+    ];
+
+    for (const url of urls) {
+      try {
+        const data = await fetchJSON(url, 10000);
+        const shaped = shapeApiData(data);
+        // Defensive shaping
+        shaped.summary ||= {};
+        shaped.trend   ||= {};
+        shaped.history = Array.isArray(shaped.history) ? shaped.history : [];
+        saveCache(shaped);
+        if (statusBar) statusBar.textContent = `Live ✓  (${apiBase.replace(/^https?:\/\//,"")})`;
+        debug("Dashboard fetch OK", { endpoint: url, history: shaped.history.length });
+        return shaped;
+      } catch (e) {
+        debug("Dashboard endpoint failed", { endpoint: url, error: e?.message });
+      }
+    }
+
+    // If both endpoints failed:
+    console.warn("[ASTRA] Dashboard fetch error — using cache/local");
+    toast("⚠️ Backend unreachable — showing cached data if available.");
+    if (statusBar) statusBar.textContent = "Offline (cached)";
+
+    const cached = loadCache();
+    if (cached) return cached;
+
+    // Final fallback: synthesize from localStorage history
+    const history = normalizeHistory(getLocalHistory());
+    const counts = countsFromHistory(history);
+    const synth = {
+      summary: {
+        optimize_runs:    counts.optimization,
+        coverletters:     counts.coverletter,
+        superhuman_calls: counts.humanize,
+        mastermind_chats: counts.mastermind,
+        talk_queries:     counts.talk,
+      },
+      trend: {
+        optimizations: seriesFromHistory(history, "optimization"),
+        coverletters:  seriesFromHistory(history, "coverletter"),
+        superhuman:    seriesFromHistory(history, "humanize"),
+        mastermind:    seriesFromHistory(history, "mastermind"),
+        talk:          seriesFromHistory(history, "talk"),
+      },
+      history,
+    };
+    return synth;
+  }
+
+  /* ------------------------------------------------------------
+     🔄 Refresh (optional button)
+  ------------------------------------------------------------ */
+  refreshBtn?.addEventListener("click", async () => {
+    refreshBtn.disabled = true;
+    toast("🔄 Refreshing dashboard…");
+    try {
+      const data = await fetchDashboard();
+      renderMetrics(data.summary || {}, data.history || []);
+      renderCharts(data.trend || {}, data.history || []);
+    } finally {
+      refreshBtn.disabled = false;
+    }
+  });
+
+  /* ------------------------------------------------------------
+     🚀 Init: render from cache (if any), then fetch fresh
+  ------------------------------------------------------------ */
+  (async () => {
+    const cached = loadCache();
+    if (cached) {
+      renderMetrics(cached.summary || {}, cached.history || []);
+      renderCharts(cached.trend || {}, cached.history || []);
+      if (statusBar) statusBar.textContent = "Loaded from cache";
+    }
+
+    const fresh = await fetchDashboard();
+    renderMetrics(fresh.summary || {}, fresh.history || []);
+    renderCharts(fresh.trend || {}, fresh.history || []);
+  })();
+
+  /* ------------------------------------------------------------
+     🎨 Event Sync (optional)
+  ------------------------------------------------------------ */
+  window.addEventListener("hirex:theme-change", (e) =>
+    debug("Dashboard theme changed", { theme: e.detail?.theme })
+  );
+  window.addEventListener("hirex:humanize-change", (e) =>
+    debug("Dashboard humanize toggled", { on: e.detail?.on })
+  );
+
+  /* ------------------------------------------------------------
+     🧹 Cleanup
+  ------------------------------------------------------------ */
+  window.addEventListener("beforeunload", () => {
+    Object.values(activeCharts).forEach((ch) => ch?.destroy?.());
+  });
+
+  /* ------------------------------------------------------------
+     ✅ Init Log
+  ------------------------------------------------------------ */
+  console.log(
+    `%c📊 ${APP} dashboard.js initialized — ${APP_VERSION}`,
+    "background:#5bd0ff;color:#00121e;padding:4px 8px;border-radius:4px;font-weight:bold;"
+  );
+  debug("DASHBOARD PAGE LOADED", { app: APP, version: APP_VERSION, apiBase });
+});
