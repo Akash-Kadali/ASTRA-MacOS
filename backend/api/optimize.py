@@ -1,18 +1,16 @@
 """
-Resume optimizer API (FastAPI) — Company-Core + ATS Upgrade
+Resume optimizer API (FastAPI) — ENHANCED VERSION
 
-NEW (per your request):
-- Adds "Company Core Requirements" that are often NOT stated in the JD (e.g., Netflix: Recommender Systems, Search & Ranking, Experimentation/A-B Testing, Spark/Scala).
-- Uses OpenAI (ChatGPT API) to infer and return company core areas + keywords for the target company/role.
-- Injects those company-core keywords into:
-  (1) Experience bullets generation prompts
-  (2) Skills section
-  (3) Coverage computation
-- Enforces: Skills tokens have first character capitalized (even for tricky brand casing).
-
-NOTES:
-- This file is designed to be a drop-in replacement for your current optimize.py.
-- Keeps your existing LaTeX safety, no-quantification guardrails, and 1-page trimming.
+IMPROVEMENTS:
+- Action verb diversity tracking (no repetition)
+- Result phrases without numbers
+- Technical depth indicators
+- Skill progression across experience blocks
+- Believability constraints for intern-level
+- Bullet structure templates
+- Cross-bullet coherence
+- Industry-specific vocabulary
+- Enhanced company context with progression
 """
 
 import base64
@@ -20,6 +18,7 @@ import json
 import re
 import asyncio
 import threading
+import random
 from pathlib import Path
 from typing import List, Tuple, Dict, Iterable, Optional, Set, Any
 
@@ -39,8 +38,8 @@ router = APIRouter(prefix="/api/optimize", tags=["optimize"])
 # --- OpenAI ---
 try:
     from openai import OpenAI
-except Exception:  # pragma: no cover
-    OpenAI = None  # type: ignore
+except Exception:
+    OpenAI = None
 
 _openai_client: Optional["OpenAI"] = None
 _openai_lock = threading.Lock()
@@ -49,7 +48,7 @@ _openai_lock = threading.Lock()
 def get_openai_client() -> "OpenAI":
     global _openai_client
     if OpenAI is None:
-        raise RuntimeError("OpenAI SDK not available. Install `openai` and set OPENAI_API_KEY.")
+        raise RuntimeError("OpenAI SDK not available.")
     if _openai_client is None:
         with _openai_lock:
             if _openai_client is None:
@@ -58,7 +57,308 @@ def get_openai_client() -> "OpenAI":
 
 
 # ============================================================
-# 🔠 PROPER CAPITALIZATION MAP (plus Company Core terms)
+# 💪 ACTION VERB MANAGEMENT - Diversity & Strength
+# ============================================================
+
+ACTION_VERBS = {
+    "development": [
+        "Architected", "Engineered", "Developed", "Built", "Implemented",
+        "Constructed", "Designed", "Created", "Established", "Formulated"
+    ],
+    "research": [
+        "Investigated", "Explored", "Analyzed", "Evaluated", "Validated",
+        "Examined", "Studied", "Researched", "Assessed", "Characterized"
+    ],
+    "optimization": [
+        "Optimized", "Enhanced", "Streamlined", "Accelerated", "Refined",
+        "Improved", "Strengthened", "Advanced", "Elevated", "Augmented"
+    ],
+    "data_work": [
+        "Processed", "Transformed", "Aggregated", "Curated", "Cleaned",
+        "Structured", "Organized", "Consolidated", "Standardized", "Normalized"
+    ],
+    "ml_training": [
+        "Trained", "Fine-tuned", "Calibrated", "Tuned", "Configured",
+        "Parameterized", "Adapted", "Specialized", "Customized", "Fitted"
+    ],
+    "deployment": [
+        "Deployed", "Launched", "Released", "Shipped", "Delivered",
+        "Productionized", "Operationalized", "Integrated", "Provisioned", "Staged"
+    ],
+    "analysis": [
+        "Analyzed", "Diagnosed", "Identified", "Discovered", "Uncovered",
+        "Detected", "Recognized", "Profiled", "Mapped", "Quantified"
+    ],
+    "collaboration": [
+        "Collaborated", "Partnered", "Coordinated", "Facilitated", "Supported",
+        "Contributed", "Assisted", "Engaged", "Interfaced", "Liaised"
+    ],
+    "automation": [
+        "Automated", "Systematized", "Scripted", "Programmed", "Orchestrated",
+        "Scheduled", "Templated", "Codified", "Mechanized", "Streamlined"
+    ],
+    "documentation": [
+        "Documented", "Recorded", "Cataloged", "Annotated", "Detailed",
+        "Specified", "Outlined", "Summarized", "Reported", "Communicated"
+    ]
+}
+
+# Session-level tracking to avoid verb repetition
+_used_verbs_in_session: Set[str] = set()
+
+
+def reset_verb_tracking():
+    """Reset verb tracking for new resume optimization."""
+    global _used_verbs_in_session
+    _used_verbs_in_session.clear()
+
+
+def get_diverse_verb(category: str, fallback: str = "Developed") -> str:
+    """Get a verb that hasn't been used yet in this session."""
+    global _used_verbs_in_session
+    
+    verbs = ACTION_VERBS.get(category, ACTION_VERBS["development"])
+    available = [v for v in verbs if v.lower() not in _used_verbs_in_session]
+    
+    if not available:
+        # Reset category if exhausted
+        for v in verbs:
+            _used_verbs_in_session.discard(v.lower())
+        available = verbs
+    
+    chosen = random.choice(available)
+    _used_verbs_in_session.add(chosen.lower())
+    return chosen
+
+
+def get_verb_categories_for_context(company_type: str) -> List[str]:
+    """Get appropriate verb categories based on company type."""
+    if "research" in company_type.lower():
+        return ["research", "analysis", "development", "documentation"]
+    elif "industry" in company_type.lower():
+        return ["development", "deployment", "optimization", "automation"]
+    else:
+        return ["development", "analysis", "collaboration", "data_work"]
+
+
+# ============================================================
+# 🎯 RESULT PHRASES (Impact without numbers)
+# ============================================================
+
+RESULT_PHRASES = {
+    "performance": [
+        "achieving enhanced model generalization across diverse datasets",
+        "resulting in improved prediction accuracy on held-out test data",
+        "enabling robust performance under varying input conditions",
+        "delivering production-grade model reliability and consistency",
+        "attaining competitive benchmark results against established baselines"
+    ],
+    "efficiency": [
+        "enabling faster experimentation and iteration cycles",
+        "streamlining the end-to-end development workflow significantly",
+        "reducing computational overhead while maintaining output quality",
+        "accelerating model training and evaluation throughput",
+        "improving overall resource utilization and pipeline efficiency"
+    ],
+    "quality": [
+        "ensuring high-quality and reproducible model outputs",
+        "maintaining rigorous quality standards throughout development",
+        "achieving consistent and reliable experimental results",
+        "delivering enterprise-grade code quality and documentation",
+        "meeting stringent production readiness requirements"
+    ],
+    "scalability": [
+        "supporting seamless scaling to larger datasets",
+        "enabling distributed processing capabilities for production workloads",
+        "facilitating efficient handling of increased data volumes",
+        "ensuring system robustness under production-scale demands",
+        "accommodating future growth and extensibility requirements"
+    ],
+    "insight": [
+        "uncovering actionable insights from complex data patterns",
+        "revealing previously hidden correlations and trends",
+        "generating valuable intelligence for downstream applications",
+        "providing data-driven recommendations for model improvements",
+        "enabling informed decision-making through rigorous analysis"
+    ],
+    "collaboration": [
+        "facilitating cross-functional collaboration and knowledge sharing",
+        "enabling seamless integration with existing team workflows",
+        "supporting reproducibility and handoff to other team members",
+        "improving documentation and codebase maintainability",
+        "establishing reusable components for future projects"
+    ]
+}
+
+_used_result_phrases: Set[str] = set()
+
+
+def reset_result_phrase_tracking():
+    """Reset result phrase tracking."""
+    global _used_result_phrases
+    _used_result_phrases.clear()
+
+
+def get_result_phrase(category: str) -> str:
+    """Get a result phrase that hasn't been used."""
+    global _used_result_phrases
+    
+    phrases = RESULT_PHRASES.get(category, RESULT_PHRASES["performance"])
+    available = [p for p in phrases if p not in _used_result_phrases]
+    
+    if not available:
+        _used_result_phrases.clear()
+        available = phrases
+    
+    chosen = random.choice(available)
+    _used_result_phrases.add(chosen)
+    return chosen
+
+
+# ============================================================
+# 🔬 TECHNICAL DEPTH INDICATORS
+# ============================================================
+
+TECHNICAL_DEPTH_PHRASES = {
+    "ml_techniques": [
+        "employing stratified Cross-Validation for robust evaluation",
+        "utilizing Grid Search and Bayesian optimization for Hyperparameter Tuning",
+        "applying advanced Feature Engineering with domain-specific transformations",
+        "implementing custom Data Augmentation strategies for improved generalization",
+        "leveraging Ensemble Methods to combine multiple model predictions",
+        "conducting systematic Ablation Studies to validate design choices"
+    ],
+    "dl_techniques": [
+        "incorporating Batch Normalization and Dropout for regularization",
+        "implementing Learning Rate Scheduling with warm restarts",
+        "utilizing Gradient Clipping to stabilize training dynamics",
+        "applying Transfer Learning with frozen backbone and fine-tuned heads",
+        "employing Attention Mechanisms for improved feature representation",
+        "implementing residual connections for gradient flow optimization"
+    ],
+    "data_techniques": [
+        "implementing comprehensive Data Preprocessing pipelines with validation",
+        "applying Dimensionality Reduction for efficient feature representation",
+        "utilizing robust Outlier Detection and handling strategies",
+        "implementing Missing Value Imputation with multiple strategies",
+        "applying class balancing techniques for imbalanced datasets",
+        "conducting thorough Exploratory Data Analysis for insight generation"
+    ],
+    "mlops_techniques": [
+        "implementing Model Versioning with comprehensive experiment tracking",
+        "establishing CI/CD pipelines for automated model validation",
+        "utilizing containerization with Docker for reproducible deployments",
+        "implementing Feature Store patterns for consistent feature serving",
+        "establishing Model Monitoring dashboards for production oversight",
+        "applying infrastructure-as-code practices for environment management"
+    ],
+    "evaluation_techniques": [
+        "conducting Precision-Recall analysis for classification performance",
+        "implementing comprehensive error analysis and failure mode identification",
+        "utilizing statistical significance testing for model comparisons",
+        "applying Confusion Matrix analysis for multi-class evaluation",
+        "implementing custom evaluation metrics aligned with business objectives",
+        "conducting systematic bias and fairness audits"
+    ]
+}
+
+
+def get_technical_depth_phrase(category: str) -> str:
+    """Get a technical depth phrase for credibility."""
+    phrases = TECHNICAL_DEPTH_PHRASES.get(category, TECHNICAL_DEPTH_PHRASES["ml_techniques"])
+    return random.choice(phrases)
+
+
+# ============================================================
+# 📈 SKILL PROGRESSION FRAMEWORK
+# ============================================================
+
+INTERN_PROGRESSION = {
+    "early": {
+        "scope": ["assisted", "supported", "contributed to", "participated in"],
+        "tasks": ["data preprocessing", "baseline implementation", "literature review", "code documentation"],
+        "autonomy": "under guidance of senior engineers",
+        "complexity": "foundational components"
+    },
+    "mid": {
+        "scope": ["developed", "implemented", "designed", "built"],
+        "tasks": ["model development", "pipeline creation", "experiment execution", "performance analysis"],
+        "autonomy": "with mentorship from team leads",
+        "complexity": "core system components"
+    },
+    "late": {
+        "scope": ["led", "architected", "spearheaded", "owned"],
+        "tasks": ["end-to-end pipeline", "model optimization", "deployment preparation", "technical documentation"],
+        "autonomy": "independently with periodic reviews",
+        "complexity": "production-ready solutions"
+    }
+}
+
+
+def get_progression_context(block_index: int, total_blocks: int = 4) -> Dict[str, Any]:
+    """Get appropriate progression context based on position in experience."""
+    if block_index == 0:
+        return INTERN_PROGRESSION["late"]  # Most recent = most advanced
+    elif block_index == total_blocks - 1:
+        return INTERN_PROGRESSION["early"]  # Oldest = most basic
+    else:
+        return INTERN_PROGRESSION["mid"]
+
+
+# ============================================================
+# 🏭 BELIEVABILITY CONSTRAINTS
+# ============================================================
+
+BELIEVABILITY_RULES = {
+    "intern_appropriate": [
+        "Focus on learning, contribution, and growth",
+        "Avoid claiming sole ownership of major systems",
+        "Use collaborative language when appropriate",
+        "Mention working with senior engineers or mentors",
+        "Focus on specific components rather than entire systems"
+    ],
+    "scope_indicators": {
+        "small": ["component", "module", "feature", "function", "utility"],
+        "medium": ["pipeline", "workflow", "system", "service", "framework"],
+        "large": ["platform", "infrastructure", "architecture", "ecosystem"]
+    },
+    "collaboration_phrases": [
+        "in collaboration with senior engineers",
+        "as part of a cross-functional team",
+        "working closely with research mentors",
+        "under guidance of technical leads",
+        "contributing to team-wide initiatives"
+    ]
+}
+
+
+def get_believability_phrase(scope: str = "medium") -> str:
+    """Get a believability-enhancing phrase."""
+    if random.random() < 0.3:  # 30% chance to add collaboration context
+        return random.choice(BELIEVABILITY_RULES["collaboration_phrases"])
+    return ""
+
+
+# ============================================================
+# 📝 BULLET STRUCTURE TEMPLATES
+# ============================================================
+
+BULLET_TEMPLATES = {
+    "action_object_method_result": "{verb} {object} using {method}, {result}",
+    "action_method_object_result": "{verb} {method}-based {object}, {result}",
+    "action_object_result_method": "{verb} {object} {result} through {method}",
+    "collaborative_action": "{verb} {object} in collaboration with {team}, {result}",
+}
+
+
+def get_bullet_template() -> str:
+    """Get a random bullet template for variety."""
+    templates = list(BULLET_TEMPLATES.values())
+    return random.choice(templates)
+
+
+# ============================================================
+# 🔠 PROPER CAPITALIZATION MAP
 # ============================================================
 
 CAPITALIZATION_MAP: Dict[str, str] = {
@@ -74,9 +374,8 @@ CAPITALIZATION_MAP: Dict[str, str] = {
     "matplotlib": "Matplotlib", "seaborn": "Seaborn", "plotly": "Plotly", "opencv": "OpenCV",
     "hugging face": "Hugging Face", "huggingface": "Hugging Face", "transformers": "Transformers",
     "xgboost": "XGBoost", "lightgbm": "LightGBM", "catboost": "CatBoost",
-    # Enforce "first letter capital" rule for skills: "SpaCy" (not "spaCy")
-    "spacy": "SpaCy",
-    "nltk": "NLTK", "gensim": "Gensim", "fastai": "FastAI", "jax": "JAX", "flax": "Flax",
+    "spacy": "SpaCy", "nltk": "NLTK", "gensim": "Gensim", "fastai": "FastAI", 
+    "jax": "JAX", "flax": "Flax",
 
     # Cloud & DevOps
     "aws": "AWS", "gcp": "GCP", "azure": "Azure", "docker": "Docker", "kubernetes": "Kubernetes",
@@ -95,10 +394,7 @@ CAPITALIZATION_MAP: Dict[str, str] = {
     "jupyter": "Jupyter", "vscode": "VS Code", "intellij": "IntelliJ", "vim": "Vim",
     "mlflow": "MLflow", "wandb": "W&B", "weights & biases": "Weights & Biases",
     "airflow": "Airflow", "kafka": "Kafka", "spark": "Spark", "hadoop": "Hadoop",
-    "databricks": "Databricks",
-    # Enforce first-letter-cap for skill tokens
-    "dbt": "Dbt",
-    "prefect": "Prefect", "dagster": "Dagster",
+    "databricks": "Databricks", "dbt": "Dbt", "prefect": "Prefect", "dagster": "Dagster",
     "grafana": "Grafana", "prometheus": "Prometheus", "datadog": "Datadog",
 
     # Web Frameworks
@@ -116,7 +412,7 @@ CAPITALIZATION_MAP: Dict[str, str] = {
     "bert": "BERT", "gpt": "GPT", "llm": "LLM", "llms": "LLMs",
     "transformer": "Transformer", "transformers": "Transformers",
     "attention mechanism": "Attention Mechanism", "self-attention": "Self-Attention",
-    "fine-tuning": "Fine-tuning", "transfer learning": "Transfer Learning",
+    "fine-tuning": "Fine-Tuning", "transfer learning": "Transfer Learning",
     "feature engineering": "Feature Engineering", "hyperparameter tuning": "Hyperparameter Tuning",
     "cross-validation": "Cross-Validation", "gradient descent": "Gradient Descent",
     "backpropagation": "Backpropagation", "batch normalization": "Batch Normalization",
@@ -161,7 +457,7 @@ CAPITALIZATION_MAP: Dict[str, str] = {
     "offline evaluation": "Offline Evaluation",
     "distributed systems": "Distributed Systems",
     "system design": "System Design",
-    "large-scale data": "Large-scale Data",
+    "large-scale data": "Large-Scale Data",
     "stream processing": "Stream Processing",
     "batch processing": "Batch Processing",
     "feature store": "Feature Store",
@@ -175,8 +471,7 @@ CAPITALIZATION_MAP: Dict[str, str] = {
     "oauth": "OAuth", "jwt": "JWT", "ssl": "SSL", "tls": "TLS", "https": "HTTPS",
     "tcp": "TCP", "udp": "UDP", "http": "HTTP", "websocket": "WebSocket",
     "gpu": "GPU", "cpu": "CPU", "tpu": "TPU", "cuda": "CUDA", "cudnn": "CuDNN",
-    # Enforce first-letter-cap for skill tokens
-    "ios": "IOS", "macos": "MacOS",
+    "ios": "iOS", "macos": "MacOS",
 }
 
 
@@ -214,33 +509,189 @@ def fix_skill_capitalization(skill: str) -> str:
     if skill_lower in CAPITALIZATION_MAP:
         return CAPITALIZATION_MAP[skill_lower]
 
-    # Try fixing within the skill first, then enforce first-letter cap.
     out = fix_capitalization(skill)
     out = _ensure_first_letter_capital(out)
     return out
 
 
 # ============================================================
-# 🏢 Company Core Expectations (target employer, not necessarily in JD)
+# 🏢 ENHANCED Company Context with Progression & Vocabulary
 # ============================================================
 
-# Small fallback seed map (used only if GPT fails or returns empty).
+COMPANY_CONTEXTS = {
+    "ayar labs": {
+        "type": "industry_internship",
+        "domain": "ML/AI in Semiconductor Industry",
+        "context": "Silicon photonics company where ML/AI is applied across semiconductor workflow for yield prediction, process optimization, and quality assurance.",
+        "technical_vocabulary": [
+            "yield prediction", "process optimization", "wafer inspection",
+            "defect classification", "signal integrity", "test data analysis",
+            "equipment health monitoring", "production forecasting", "quality metrics"
+        ],
+        "ml_projects": [
+            "ML-based yield prediction using manufacturing sensor data and process parameters",
+            "Predictive maintenance system for semiconductor fabrication equipment health",
+            "Automated defect classification pipeline for wafer inspection quality control",
+            "Time-series forecasting model for production capacity planning optimization",
+            "Feature engineering framework for high-dimensional semiconductor test data"
+        ],
+        "believable_tasks": [
+            "Data Preprocessing", "Feature Engineering", "Model Training", "Hyperparameter Tuning",
+            "Cross-Validation", "Model Evaluation", "Pipeline Development", "Data Visualization",
+            "Statistical Analysis", "Experiment Tracking", "Model Deployment", "Batch Inference"
+        ],
+        "progression_tasks": {
+            "early": ["data cleaning", "EDA", "baseline models", "documentation"],
+            "mid": ["feature engineering", "model development", "pipeline creation"],
+            "late": ["model optimization", "deployment prep", "production integration"]
+        }
+    },
+    "indian institute of technology indore": {
+        "type": "research_internship",
+        "domain": "ML/AI Research",
+        "context": "Premier research institution conducting cutting-edge ML/AI research with focus on novel architectures and optimization methods.",
+        "technical_vocabulary": [
+            "state-of-the-art", "baseline comparison", "ablation study",
+            "benchmark evaluation", "novel architecture", "convergence analysis",
+            "generalization capability", "theoretical foundation", "empirical validation"
+        ],
+        "ml_projects": [
+            "Research on efficient Neural Network architectures for resource-constrained deployment",
+            "Investigation of Transfer Learning techniques for cross-domain adaptation",
+            "Development of novel Attention Mechanisms for improved sequence modeling",
+            "Empirical study of optimization algorithms for Deep Learning convergence",
+            "Research on model compression and knowledge distillation techniques"
+        ],
+        "believable_tasks": [
+            "Literature Review", "Baseline Implementation", "Experiment Design", "Ablation Studies",
+            "Benchmark Evaluation", "Result Analysis", "Technical Writing", "Paper Reproduction"
+        ],
+        "progression_tasks": {
+            "early": ["literature survey", "baseline reproduction", "data preparation"],
+            "mid": ["experiment design", "systematic evaluation", "ablation studies"],
+            "late": ["novel contributions", "paper writing", "presentation"]
+        }
+    },
+    "iit indore": {
+        "type": "research_internship",
+        "domain": "ML/AI Research",
+        "context": "Premier research institution conducting ML/AI research.",
+        "technical_vocabulary": [
+            "state-of-the-art", "baseline comparison", "ablation study",
+            "benchmark evaluation", "novel architecture"
+        ],
+        "ml_projects": [
+            "Novel Neural Network architecture research",
+            "Transfer Learning and Domain Adaptation studies",
+            "Attention mechanisms and Transformer variants"
+        ],
+        "believable_tasks": [
+            "Literature Review", "Baseline Implementation", "Experiment Design", "Ablation Studies"
+        ],
+        "progression_tasks": {
+            "early": ["literature survey", "baseline reproduction"],
+            "mid": ["experiment design", "evaluation"],
+            "late": ["novel contributions", "documentation"]
+        }
+    },
+    "national institute of technology jaipur": {
+        "type": "research_internship",
+        "domain": "Applied ML Research",
+        "context": "Engineering institution focusing on practical ML applications to real-world problems.",
+        "technical_vocabulary": [
+            "practical application", "real-world dataset", "engineering constraints",
+            "system integration", "performance benchmarking", "scalability analysis",
+            "robustness testing", "deployment considerations"
+        ],
+        "ml_projects": [
+            "Applied Machine Learning for time-series forecasting in engineering systems",
+            "Development of anomaly detection methods for industrial monitoring applications",
+            "Classification system for pattern recognition in sensor data streams",
+            "Ensemble methods research for improved prediction reliability",
+            "Feature selection study for high-dimensional engineering datasets"
+        ],
+        "believable_tasks": [
+            "Data Collection", "Data Cleaning", "Exploratory Analysis", "Feature Extraction",
+            "Model Selection", "Training Pipelines", "Error Analysis", "Documentation"
+        ],
+        "progression_tasks": {
+            "early": ["data collection", "preprocessing", "EDA"],
+            "mid": ["model implementation", "evaluation", "iteration"],
+            "late": ["optimization", "documentation", "handoff"]
+        }
+    },
+    "nit jaipur": {
+        "type": "research_internship",
+        "domain": "Applied ML Research",
+        "context": "Engineering institution focusing on practical ML applications.",
+        "technical_vocabulary": [
+            "practical application", "real-world dataset", "engineering constraints"
+        ],
+        "ml_projects": [
+            "Time-series analysis and forecasting models",
+            "Anomaly detection for industrial systems",
+            "Regression models for engineering tasks"
+        ],
+        "believable_tasks": [
+            "Data Collection", "Data Cleaning", "Exploratory Analysis", "Feature Extraction"
+        ],
+        "progression_tasks": {
+            "early": ["data collection", "preprocessing"],
+            "mid": ["model implementation", "evaluation"],
+            "late": ["optimization", "documentation"]
+        }
+    }
+}
+
+
+def get_company_context(company_name: str) -> Dict[str, Any]:
+    name_lower = (company_name or "").lower().strip()
+    for key, ctx in COMPANY_CONTEXTS.items():
+        if key in name_lower or name_lower in key:
+            return ctx
+    return {
+        "type": "internship",
+        "domain": "ML/AI",
+        "context": "Technical internship applying Machine Learning and Data Science.",
+        "technical_vocabulary": ["model development", "data analysis", "pipeline"],
+        "ml_projects": ["ML Model Development", "Data Pipeline Creation"],
+        "believable_tasks": ["Model Development", "Data Analysis", "Testing", "Documentation"],
+        "progression_tasks": {
+            "early": ["learning", "documentation"],
+            "mid": ["implementation", "testing"],
+            "late": ["optimization", "delivery"]
+        }
+    }
+
+
+# ============================================================
+# 🏢 Company Core Expectations (target employer)
+# ============================================================
+
 COMPANY_CORE_FALLBACKS: Dict[str, Dict[str, Any]] = {
     "netflix": {
-        "core_areas": ["Recommender Systems", "Search & Ranking", "Experimentation", "Large-scale Data"],
+        "core_areas": ["Recommender Systems", "Search & Ranking", "Experimentation", "Large-Scale Data"],
         "core_keywords": ["Recommender Systems", "Search & Ranking", "A/B Testing", "Spark", "Scala", "Data Pipelines", "Offline Evaluation"],
     },
     "google": {
         "core_areas": ["System Design", "Scalability", "Distributed Systems", "Experimentation"],
-        "core_keywords": ["System Design", "Distributed Systems", "Scalability", "A/B Testing", "Data Structures", "Algorithms", "Code Quality"],
+        "core_keywords": ["System Design", "Distributed Systems", "Scalability", "A/B Testing", "Data Structures", "Algorithms"],
     },
     "meta": {
-        "core_areas": ["Experimentation", "Ranking", "Large-scale Data", "Distributed Systems"],
+        "core_areas": ["Experimentation", "Ranking", "Large-Scale Data", "Distributed Systems"],
         "core_keywords": ["A/B Testing", "Ranking", "Distributed Systems", "Spark", "Data Pipelines", "Online Experimentation"],
     },
     "amazon": {
         "core_areas": ["Scalability", "Distributed Systems", "Operational Excellence", "Data-driven Decisions"],
-        "core_keywords": ["Distributed Systems", "Scalability", "System Design", "Monitoring", "On-call", "Data Pipelines"],
+        "core_keywords": ["Distributed Systems", "Scalability", "System Design", "Monitoring", "Data Pipelines"],
+    },
+    "microsoft": {
+        "core_areas": ["Cloud Computing", "Distributed Systems", "AI/ML", "Product Development"],
+        "core_keywords": ["Azure", "Distributed Systems", "Machine Learning", "System Design", "Cloud Architecture"],
+    },
+    "apple": {
+        "core_areas": ["Privacy-Preserving ML", "On-Device ML", "User Experience", "System Optimization"],
+        "core_keywords": ["On-Device ML", "Privacy", "Core ML", "System Optimization", "User Experience"],
     },
 }
 
@@ -252,22 +703,18 @@ async def extract_company_core_requirements(
     target_role: str,
     jd_text: str,
 ) -> Dict[str, Any]:
-    """
-    Uses ChatGPT API to infer company expectations NOT always in the JD.
-    Returns: {"core_areas":[...], "core_keywords":[...], "notes":"..."}
-    """
+    """Uses ChatGPT API to infer company expectations NOT always in the JD."""
     ckey = (target_company or "").strip().lower()
     rkey = (target_role or "").strip().lower()
     cache_key = f"{ckey}__{rkey}"
     if cache_key in _company_core_cache:
         return _company_core_cache[cache_key]
 
-    # If company name is missing/too generic, return general SWE/ML expectations.
     if not ckey or ckey in {"company", "unknown"}:
         out = {
             "core_areas": ["System Design", "Experimentation", "Distributed Systems"],
             "core_keywords": ["System Design", "Distributed Systems", "A/B Testing", "Data Pipelines", "Scalability"],
-            "notes": "Generic big-tech expectations used because company name was not detected reliably.",
+            "notes": "Generic big-tech expectations used.",
         }
         _company_core_cache[cache_key] = out
         return out
@@ -289,10 +736,9 @@ async def extract_company_core_requirements(
         "- Return STRICT JSON ONLY in this format:\n"
         f"{json_schema}\n"
         "- core_areas: 3-6 high-level areas (2-4 words each).\n"
-        "- core_keywords: 8-14 resume-friendly skills/topics/tools commonly expected at this company for this role family.\n"
+        "- core_keywords: 8-14 resume-friendly skills/topics/tools commonly expected.\n"
         "- Do NOT invent proprietary internal tool names.\n"
-        "- Keep tokens short (1-4 words).\n"
-        "- If the company is Netflix, prioritize Recommender Systems, Search & Ranking, Experimentation/A-B Testing, Large-scale Data (Spark/Scala).\n\n"
+        "- Keep tokens short (1-4 words).\n\n"
         "JD (for context only; do not restrict to it):\n"
         f"{jd_text[:2500]}"
     )
@@ -303,7 +749,6 @@ async def extract_company_core_requirements(
         core_kw = data.get("core_keywords", []) or []
         notes = (data.get("notes", "") or "").strip()
 
-        # Sanitize + normalize
         def _clean_list(lst: Iterable[Any]) -> List[str]:
             out_list: List[str] = []
             seen: Set[str] = set()
@@ -345,94 +790,6 @@ async def extract_company_core_requirements(
 
 
 # ============================================================
-# 🏢 Company Context - Candidate experience companies (your existing logic)
-# ============================================================
-
-COMPANY_CONTEXTS = {
-    "ayar labs": {
-        "type": "industry_internship",
-        "domain": "ML/AI in Semiconductor Industry",
-        "context": "Silicon photonics company where ML/AI is applied across the semiconductor workflow.",
-        "ml_projects": [
-            "ML-based yield prediction for photonic chip manufacturing",
-            "Predictive maintenance models for semiconductor fabrication equipment",
-            "Signal integrity analysis using statistical learning methods",
-            "Process parameter optimization using ML regression models",
-            "Automated quality inspection using pattern recognition",
-        ],
-        "believable_tasks": [
-            "Data Preprocessing", "Feature Engineering", "Model Training", "Hyperparameter Tuning",
-            "Cross-Validation", "Model Evaluation", "Pipeline Development", "Data Visualization",
-        ],
-    },
-    "indian institute of technology indore": {
-        "type": "research_internship",
-        "domain": "ML/AI Research",
-        "context": "Premier Indian engineering institute conducting ML/AI research.",
-        "ml_projects": [
-            "Novel Neural Network architecture research",
-            "Optimization algorithm development for Deep Learning",
-            "Attention mechanisms and Transformer variants",
-        ],
-        "believable_tasks": [
-            "Literature Review", "Baseline Implementation", "Experiment Design", "Ablation Studies",
-            "Benchmark Evaluation", "Result Analysis",
-        ],
-    },
-    "iit indore": {
-        "type": "research_internship",
-        "domain": "ML/AI Research",
-        "context": "Premier Indian engineering institute conducting ML/AI research.",
-        "ml_projects": [
-            "Novel Neural Network architecture research",
-            "Transfer Learning and Domain Adaptation studies",
-            "Attention mechanisms and Transformer variants",
-        ],
-        "believable_tasks": ["Literature Review", "Baseline Implementation", "Experiment Design", "Ablation Studies"],
-    },
-    "national institute of technology jaipur": {
-        "type": "research_internship",
-        "domain": "Applied ML Research",
-        "context": "Premier Indian engineering institute conducting applied ML research.",
-        "ml_projects": [
-            "Time series analysis and forecasting models",
-            "Anomaly detection for industrial systems",
-            "Regression models for engineering prediction tasks",
-        ],
-        "believable_tasks": [
-            "Data Collection", "Data Cleaning", "Exploratory Analysis", "Feature Extraction",
-            "Model Selection", "Training Pipelines", "Error Analysis",
-        ],
-    },
-    "nit jaipur": {
-        "type": "research_internship",
-        "domain": "Applied ML Research",
-        "context": "Premier Indian engineering institute conducting applied ML research.",
-        "ml_projects": [
-            "Time series analysis and forecasting models",
-            "Anomaly detection for industrial systems",
-            "Regression models for engineering tasks",
-        ],
-        "believable_tasks": ["Data Collection", "Data Cleaning", "Exploratory Analysis", "Feature Extraction"],
-    },
-}
-
-
-def get_company_context(company_name: str) -> Dict[str, Any]:
-    name_lower = (company_name or "").lower().strip()
-    for key, ctx in COMPANY_CONTEXTS.items():
-        if key in name_lower or name_lower in key:
-            return ctx
-    return {
-        "type": "internship",
-        "domain": "ML/AI",
-        "context": "Technical internship applying Machine Learning and Data Science.",
-        "ml_projects": ["ML Model Development", "Data Pipeline Creation"],
-        "believable_tasks": ["Model Development", "Data Analysis", "Testing", "Documentation"],
-    }
-
-
-# ============================================================
 # 🔒 LaTeX-safe utils
 # ============================================================
 
@@ -446,7 +803,6 @@ UNICODE_NORM = {
     "→": "->", "⇒": "=>", "↔": "<->", "×": "x", "°": " degrees ",
     "\u00A0": " ", "\uf0b7": "-", "\x95": "-",
 }
-
 
 _FALLBACK_TAG_RE = re.compile(r"^\[LOCAL-FALLBACK:[^\]]+\]\s*", re.IGNORECASE)
 
@@ -529,10 +885,16 @@ def _strip_quantification(text: str) -> str:
 
 MIN_BULLET_WORDS = 18
 MAX_BULLET_WORDS = 24
+IDEAL_BULLET_WORDS = 21
 
 
 def get_word_count(text: str) -> int:
     return len((text or "").split())
+
+
+def is_valid_bullet_length(text: str) -> bool:
+    count = get_word_count(text)
+    return MIN_BULLET_WORDS <= count <= MAX_BULLET_WORDS
 
 
 def adjust_bullet_length(text: str) -> str:
@@ -586,12 +948,12 @@ def replace_resume_items(block: str, replacements: List[str]) -> str:
     if not items:
         return block
     if len(replacements) < len(items):
-        replacements = replacements + [None] * (len(items) - len(replacements))  # type: ignore
+        replacements = replacements + [None] * (len(items) - len(replacements))
     out: List[str] = []
     last = 0
     for (start, open_b, close_b, end), newtxt in zip(items, replacements):
         out.append(block[last:open_b + 1])
-        out.append(newtxt if newtxt is not None else block[open_b + 1:close_b])  # type: ignore
+        out.append(newtxt if newtxt is not None else block[open_b + 1:close_b])
         out.append(block[close_b:end])
         last = end
     out.append(block[last:])
@@ -620,10 +982,6 @@ def _json_from_text(text: str, default: Any):
 
 
 async def gpt_json(prompt: str, temperature: float = 0.0, model: str = "gpt-4o-mini") -> dict:
-    """
-    Async wrapper around sync OpenAI client.
-    Uses response_format=json_object when supported (fallback safe).
-    """
     client = get_openai_client()
     kwargs: Dict[str, Any] = {
         "model": model,
@@ -632,7 +990,6 @@ async def gpt_json(prompt: str, temperature: float = 0.0, model: str = "gpt-4o-m
         "timeout": 120,
     }
 
-    # Try strict JSON mode if SDK/model supports it.
     try:
         kwargs["response_format"] = {"type": "json_object"}
         resp = client.chat.completions.create(**kwargs)
@@ -645,7 +1002,7 @@ async def gpt_json(prompt: str, temperature: float = 0.0, model: str = "gpt-4o-m
 
 
 # ============================================================
-# 🧠 JD Analysis - Keywords with PROPER CAPITALIZATION
+# 🧠 JD Analysis
 # ============================================================
 
 async def extract_company_role(jd_text: str) -> Tuple[str, str]:
@@ -787,7 +1144,7 @@ def replace_relevant_coursework_distinct(body_tex: str, courses: List[str], max_
 
 
 # ============================================================
-# 🧱 Skills Section - Flat format with Capitalization Enforcement
+# 🧱 Skills Section
 # ============================================================
 
 def render_skills_section_flat(skills: List[str]) -> str:
@@ -834,7 +1191,7 @@ async def replace_skills_section(body_tex: str, skills: List[str]) -> str:
 
 
 # ============================================================
-# 📝 Bullet Generation (JD + Company Core)
+# 📝 ENHANCED Bullet Generation with All Improvements
 # ============================================================
 
 async def generate_credible_bullets(
@@ -847,19 +1204,37 @@ async def generate_credible_bullets(
     should_use_keywords: List[str],
     responsibilities: List[str],
     used_keywords: Set[str],
+    block_index: int,
+    total_blocks: int = 4,
     num_bullets: int = 3,
 ) -> Tuple[List[str], Set[str]]:
     """
-    Generate resume bullets for a specific EXPERIENCE entry, aligned to:
-      - JD keywords
-      - Target-company "core expectations"
+    Generate ENHANCED resume bullets with:
+    - Action verb diversity
+    - Technical depth indicators
+    - Result phrases without numbers
+    - Skill progression
+    - Believability constraints
     """
     exp_context = get_company_context(experience_company)
+    progression = get_progression_context(block_index, total_blocks)
+    
+    # Get diverse verb categories for this company type
+    verb_categories = get_verb_categories_for_context(exp_context.get("type", "internship"))
+    suggested_verbs = [get_diverse_verb(cat) for cat in verb_categories[:3]]
+    
+    # Get technical depth phrase
+    tech_depth = get_technical_depth_phrase("ml_techniques")
+    
+    # Get result phrase
+    result_phrase = get_result_phrase("performance")
+    
+    # Get believability phrase
+    believability = get_believability_phrase()
 
     available_must = [fix_skill_capitalization(k) for k in must_use_keywords if k.lower() not in used_keywords][:6]
     available_should = [fix_skill_capitalization(k) for k in should_use_keywords if k.lower() not in used_keywords][:4]
 
-    # Company-core (target employer) injection
     core_pool = [fix_skill_capitalization(k) for k in (company_core_keywords or [])]
     core_pool = [k for k in core_pool if k.lower() not in used_keywords][:6]
 
@@ -871,41 +1246,70 @@ async def generate_credible_bullets(
 
     core_focus_str = ", ".join(core_pool[:4]) if core_pool else ""
     core_rule = (
-        f"- Across the {num_bullets} bullets, naturally include at least one of these target-company core areas: {core_focus_str}\n"
+        f"- Naturally include target-company core areas: {core_focus_str}\n"
         if core_focus_str else ""
     )
 
-    prompt = f"""Write EXACTLY {num_bullets} resume bullet points for a candidate's experience at "{experience_company}",
+    # Get company-specific vocabulary
+    tech_vocab = exp_context.get("technical_vocabulary", [])
+    vocab_str = ", ".join(tech_vocab[:5]) if tech_vocab else ""
+
+    prompt = f"""Write EXACTLY {num_bullets} HIGHLY CREDIBLE resume bullet points for an INTERN at "{experience_company}",
 tailored for applying to "{target_company}" ({target_role}).
 
-CRITICAL REQUIREMENTS:
-1. Each bullet MUST be 18-22 words.
-2. Each bullet MUST use 2-3 items from this list: {keywords_str}
-3. Use strong action verbs, past tense, and credible intern-level scope.
-4. NO numbers (no digits, percentages, counts, timelines).
-5. Keep it truthful-sounding: describe tasks/approaches, not fabricated metrics.
-6. Use correct capitalization for skills (PyTorch, Spark, A/B Testing, System Design).
+🎯 CRITICAL REQUIREMENTS FOR CREDIBILITY:
 
-TARGET COMPANY CORE EXPECTATIONS (often not in JD):
+1. LENGTH: Each bullet MUST be EXACTLY 18-22 words (count carefully!)
+
+2. SKILLS TO USE: Each bullet MUST naturally integrate 2-3 skills from: {keywords_str}
+
+3. ACTION VERBS: Use these strong, varied verbs (one per bullet, no repetition):
+   - Suggested: {', '.join(suggested_verbs)}
+   - Avoid: "Worked on", "Helped with", "Was responsible for"
+
+4. TECHNICAL DEPTH: Show HOW you did things, not just WHAT:
+   - Example technique reference: "{tech_depth}"
+   - Include specific methodologies, not vague claims
+
+5. RESULT LANGUAGE (NO NUMBERS): End with impact phrases like:
+   - "{result_phrase}"
+   - Avoid any digits, percentages, or quantified metrics
+
+6. BELIEVABILITY FOR INTERN LEVEL:
+   - Scope: {progression['scope'][0]} / {progression['scope'][1]} level work
+   - Autonomy: {progression['autonomy']}
+   - Task complexity: {progression['complexity']}
+   {f'- Collaboration: {believability}' if believability else ''}
+
+7. DOMAIN VOCABULARY: Use industry terms naturally:
+   - Company domain: {exp_context['domain']}
+   - Relevant terms: {vocab_str}
+
 {core_rule}
 
-EXPERIENCE CONTEXT (the company on the resume):
-- Type: {exp_context['type']}
+EXPERIENCE CONTEXT:
+- Company Type: {exp_context['type']}
 - Domain: {exp_context['domain']}
-- Context: {exp_context['context']}
 
 JOB RESPONSIBILITIES TO ALIGN WITH:
 {resp_str}
 
-JOB DESCRIPTION (for alignment):
-{jd_text[:2000]}
+GOOD BULLET EXAMPLES (18-22 words, technical depth, no numbers):
+- "Engineered PyTorch classification pipeline with stratified Cross-Validation and Hyperparameter Tuning, achieving robust generalization across imbalanced semiconductor datasets."
+- "Developed automated Feature Engineering framework using Pandas and Scikit-learn, enabling consistent data transformation for downstream Machine Learning models."
+- "Implemented TensorFlow model training workflow with experiment tracking via MLflow, facilitating reproducible research and systematic performance comparison."
 
-Return STRICT JSON:
-{{"bullets": ["bullet1", "bullet2", "bullet3"]}}
+BAD BULLET EXAMPLES (avoid these):
+- "Worked on machine learning projects." (too vague, no depth)
+- "Improved model accuracy by 25%." (has numbers)
+- "Responsible for data analysis tasks." (passive, no action verb)
+
+Return STRICT JSON with EXACTLY {num_bullets} bullets:
+{{"bullets": ["bullet1 (18-22 words)", "bullet2 (18-22 words)", "bullet3 (18-22 words)"]}}
 """
 
     try:
-        data = await gpt_json(prompt, temperature=0.2)
+        data = await gpt_json(prompt, temperature=0.25)
         bullets = data.get("bullets", []) or []
 
         cleaned: List[str] = []
@@ -926,12 +1330,16 @@ Return STRICT JSON:
                     if kw.lower() in b.lower():
                         newly_used.add(kw.lower())
 
-        # Pad if needed (fallback bullets ~20 words; no numbers)
+        # Enhanced fallback bullets with proper structure
         while len(cleaned) < num_bullets:
-            kw1 = fix_skill_capitalization(keywords_for_block[len(cleaned) % max(1, len(keywords_for_block))]) if keywords_for_block else "Python"
-            kw2 = fix_skill_capitalization(keywords_for_block[(len(cleaned) + 1) % max(1, len(keywords_for_block))]) if len(keywords_for_block) > 1 else "Data Analysis"
+            idx = len(cleaned)
+            verb = get_diverse_verb(verb_categories[idx % len(verb_categories)])
+            kw1 = fix_skill_capitalization(keywords_for_block[idx % max(1, len(keywords_for_block))]) if keywords_for_block else "Python"
+            kw2 = fix_skill_capitalization(keywords_for_block[(idx + 1) % max(1, len(keywords_for_block))]) if len(keywords_for_block) > 1 else "Machine Learning"
+            
             fallback = (
-                f"Implemented {kw1}-based workflow with {kw2} practices to support cross-functional research goals, improving reliability and maintainability of deliverables."
+                f"{verb} {kw1}-based analytical workflow with {kw2} integration, "
+                f"enabling systematic evaluation and improved reproducibility for research deliverables."
             )
             fallback = fix_capitalization(fallback)
             cleaned.append(latex_escape_text(fallback))
@@ -947,7 +1355,7 @@ Return STRICT JSON:
 
 
 # ============================================================
-# 🔄 Experience Rewriter - ALIGNED with JD + Company Core
+# 🔄 Experience Rewriter
 # ============================================================
 
 async def rewrite_experience_with_skill_alignment(
@@ -958,6 +1366,10 @@ async def rewrite_experience_with_skill_alignment(
     target_role: str,
     company_core_keywords: List[str],
 ) -> Tuple[str, Set[str]]:
+    # Reset tracking for new resume
+    reset_verb_tracking()
+    reset_result_phrase_tracking()
+    
     must_have = jd_info.get("must_have", []) or []
     should_have = jd_info.get("should_have", []) or []
     responsibilities = jd_info.get("responsibilities", []) or []
@@ -994,7 +1406,7 @@ async def rewrite_experience_with_skill_alignment(
 
             rebuilt.append(section[i:a])
 
-            # Candidate experience company (heuristic by block index)
+            # Candidate experience company
             if block_index == 0:
                 exp_company = "Ayar Labs"
             elif block_index == 1:
@@ -1015,7 +1427,6 @@ async def rewrite_experience_with_skill_alignment(
             end_should = min(start_should + should_per_block, len(should_have))
             block_should = should_have[start_should:end_should]
 
-            # Add a couple of target-company core keywords as "should" (spread across blocks)
             core_slice = company_core_keywords[(block_index * 2):(block_index * 2 + 3)] if company_core_keywords else []
             block_should = list(dict.fromkeys(block_should + core_slice))
 
@@ -1029,6 +1440,8 @@ async def rewrite_experience_with_skill_alignment(
                 should_use_keywords=block_should,
                 responsibilities=responsibilities,
                 used_keywords=exp_used_keywords,
+                block_index=block_index,
+                total_blocks=num_blocks,
                 num_bullets=3,
             )
 
@@ -1055,7 +1468,7 @@ async def rewrite_experience_with_skill_alignment(
 
 
 # ============================================================
-# ✨ Humanize using API (unchanged)
+# ✨ Humanize using API
 # ============================================================
 
 async def humanize_experience_bullets(tex_content: str) -> str:
@@ -1233,7 +1646,7 @@ def compute_coverage(tex_content: str, keywords: List[str]) -> Dict[str, Any]:
 
 
 # ============================================================
-# 🚀 Main Optimizer (now includes company-core expectations)
+# 🚀 Main Optimizer
 # ============================================================
 
 async def optimize_resume(
@@ -1243,24 +1656,22 @@ async def optimize_resume(
     target_role: str,
     extra_keywords: Optional[str] = None,
 ) -> Tuple[str, Dict[str, Any]]:
-    log_event("🟨 [OPTIMIZE] Starting with Company-Core + capitalization + length fixes")
+    log_event("🟨 [OPTIMIZE] Starting ENHANCED optimization with credibility features")
 
     # 1) JD keywords
     jd_info = await extract_keywords_with_priority(jd_text)
 
-    # 2) Company-core expectations (NOT necessarily in JD)
+    # 2) Company-core expectations
     company_core = await extract_company_core_requirements(target_company, target_role, jd_text)
     core_keywords = [fix_skill_capitalization(k) for k in (company_core.get("core_keywords", []) or [])]
 
-    # Merge into coverage targets + (softly) should-have pool
-    # Keep JD must/should/nice intact; add company-core as a separate list + extend all_keywords.
     jd_info["company_core_keywords"] = core_keywords
     all_keywords = list(jd_info.get("all_keywords", []) or [])
     for k in core_keywords:
         if k and k.lower() not in [x.lower() for x in all_keywords]:
             all_keywords.append(k)
 
-    # 3) Extra keywords (user override) merged into coverage + skills
+    # 3) Extra keywords
     extra_list: List[str] = []
     if extra_keywords:
         for token in re.split(r"[,\n;]+", extra_keywords):
@@ -1287,7 +1698,7 @@ async def optimize_resume(
     body = replace_relevant_coursework_distinct(body, courses, max_per_line=8)
     log_event("✅ [COURSEWORK] Updated")
 
-    # 7) Rewrite experience with JD + company-core influence
+    # 7) Rewrite experience with enhanced bullet generation
     body, exp_used_keywords = await rewrite_experience_with_skill_alignment(
         body,
         jd_text,
@@ -1296,9 +1707,9 @@ async def optimize_resume(
         target_role=target_role,
         company_core_keywords=core_keywords,
     )
-    log_event(f"✅ [EXPERIENCE] {len(exp_used_keywords)} keywords used")
+    log_event(f"✅ [EXPERIENCE] {len(exp_used_keywords)} keywords used with enhanced credibility")
 
-    # 8) Skills section: include experience-used + must + nice + company-core + extra
+    # 8) Skills section
     skills_list: List[str] = [fix_skill_capitalization(k) for k in exp_used_keywords]
 
     for kw in jd_info.get("must_have", []) or []:
@@ -1322,12 +1733,12 @@ async def optimize_resume(
             skills_list.append(kw_fixed)
 
     body = await replace_skills_section(body, skills_list)
-    log_event(f"✅ [SKILLS] {len(skills_list)} skills (includes company-core)")
+    log_event(f"✅ [SKILLS] {len(skills_list)} skills")
 
     # 9) Merge back
     final_tex = _merge_tex(preamble, body)
 
-    # 10) Coverage includes JD + company-core + extra
+    # 10) Coverage
     coverage = compute_coverage(final_tex, all_keywords)
     log_event(f"📊 [COVERAGE] {coverage['ratio']:.1%}")
 
@@ -1378,10 +1789,8 @@ async def optimize_endpoint(
             raw_tex = default_path.read_text(encoding="utf-8")
             log_event(f"📄 Using default base: {default_path}")
 
-        # Extract target company/role from JD
         target_company, target_role = await extract_company_role(jd_text)
 
-        # Run optimization (now includes company-core)
         optimized_tex, info = await optimize_resume(
             raw_tex,
             jd_text,
@@ -1410,7 +1819,7 @@ async def optimize_endpoint(
             debug_path.write_text(final_tex, encoding="utf-8")
             raise HTTPException(status_code=500, detail=f"LaTeX compilation failed: {str(e)}")
 
-        # Trim optimized if needed
+        # Trim if needed
         cur_pdf_bytes = pdf_bytes_optimized
         pages = _pdf_page_count(cur_pdf_bytes)
         trim_count = 0
