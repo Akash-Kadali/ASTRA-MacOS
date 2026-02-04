@@ -151,7 +151,7 @@ HUMANIZE_MAIL = _clean_env(
     or os.getenv("AI_HUMANIZE_MAIL")
     or os.getenv("HUMANIZE_API_MAIL")
     or os.getenv("AIHUMANIZE_MAIL")
-    or "kadali18@terpmail.umd.edu"
+    or "kadali18@umd.edu"
 )
 
 # ✅ Default to using Humanize everywhere (can be overridden in .env)

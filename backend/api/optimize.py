@@ -1,5 +1,5 @@
 """
-Resume optimizer API (FastAPI) — ENHANCED VERSION
+Resume optimizer API (FastAPI) — ENHANCED VERSION (NO HUMANIZE)
 
 IMPROVEMENTS:
 - Action verb diversity tracking (no repetition)
@@ -11,6 +11,7 @@ IMPROVEMENTS:
 - Cross-bullet coherence
 - Industry-specific vocabulary
 - Enhanced company context with progression
+NOTE: Humanization has been completely removed from this version.
 """
 
 import base64
@@ -23,7 +24,6 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Iterable, Optional, Set, Any
 
 # --- third-party ---
-import httpx
 from fastapi import APIRouter, UploadFile, Form, File, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -802,10 +802,8 @@ UNICODE_NORM = {
     "–": "-", "—": "-", "−": "-", "•": "-", "·": "-", "●": "-",
     "→": "->", "⇒": "=>", "↔": "<->", "×": "x", "°": " degrees ",
     "\u00A0": " ", "\uf0b7": "-", "\x95": "-",
+
 }
-
-_FALLBACK_TAG_RE = re.compile(r"^\[LOCAL-FALLBACK:[^\]]+\]\s*", re.IGNORECASE)
-
 
 def latex_escape_text(s: str) -> str:
     if not s or not isinstance(s, str):
@@ -1468,93 +1466,6 @@ async def rewrite_experience_with_skill_alignment(
 
 
 # ============================================================
-# ✨ Humanize using API
-# ============================================================
-
-async def humanize_experience_bullets(tex_content: str) -> str:
-    log_event("🟨 [HUMANIZE] Starting via superhuman API")
-
-    async def _humanize_block(block: str) -> str:
-        items = find_resume_items(block)
-        if not items:
-            return block
-
-        plain_texts: List[str] = []
-        for (_s, open_b, close_b, _e) in items:
-            inner = block[open_b + 1:close_b]
-            txt = strip_all_macros_keep_text(inner)
-            plain_texts.append(txt[:1000].strip())
-
-        async def rewrite_one(text: str, idx: int) -> str:
-            api_base = (getattr(config, "API_BASE_URL", "") or "http://127.0.0.1:8000").rstrip("/")
-            url = f"{api_base}/api/superhuman/rewrite"
-            payload = {"text": text, "mode": "resume", "tone": "balanced", "latex_safe": True}
-
-            for _attempt in range(2):
-                try:
-                    async with httpx.AsyncClient(timeout=2000.0) as client:
-                        r = await client.post(url, json=payload)
-                    if r.status_code == 200:
-                        data = r.json()
-                        rew = (data.get("rewritten") or "").strip()
-                        rew = _FALLBACK_TAG_RE.sub("", rew).replace("\n", " ").strip()
-                        if rew:
-                            rew = fix_capitalization(rew)
-                            if _has_any_quantification(rew):
-                                rew = _strip_quantification(rew)
-                            rew = adjust_bullet_length(rew)
-                            return latex_escape_text(rew)
-                except Exception:
-                    await asyncio.sleep(0.4)
-
-            text2 = fix_capitalization(text)
-            if _has_any_quantification(text2):
-                text2 = _strip_quantification(text2)
-            return latex_escape_text(text2)
-
-        sem = asyncio.Semaphore(5)
-
-        async def lim(i: int, t: str) -> str:
-            async with sem:
-                return await rewrite_one(t, i)
-
-        humanized = await asyncio.gather(*[lim(i, t) for i, t in enumerate(plain_texts, 1)])
-        return replace_resume_items(block, humanized)
-
-    for sec_name in ["Experience", "Projects"]:
-        pat = section_rx(sec_name)
-        out: List[str] = []
-        pos = 0
-        for m in pat.finditer(tex_content):
-            out.append(tex_content[pos:m.start()])
-            section = m.group(1)
-            s_tag, e_tag = r"\resumeItemListStart", r"\resumeItemListEnd"
-            rebuilt: List[str] = []
-            i = 0
-            while True:
-                a = section.find(s_tag, i)
-                if a < 0:
-                    rebuilt.append(section[i:])
-                    break
-                b = section.find(e_tag, a)
-                if b < 0:
-                    rebuilt.append(section[i:])
-                    break
-                rebuilt.append(section[i:a])
-                block = section[a:b]
-                block = await _humanize_block(block)
-                rebuilt.append(block)
-                rebuilt.append(section[b:b + len(e_tag)])
-                i = b + len(e_tag)
-            out.append("".join(rebuilt))
-            pos = m.end()
-        out.append(tex_content[pos:])
-        tex_content = "".join(out)
-
-    return tex_content
-
-
-# ============================================================
 # 📄 PDF Helpers
 # ============================================================
 
@@ -1753,7 +1664,7 @@ async def optimize_resume(
 
 
 # ============================================================
-# 🚀 API Endpoint
+# 🚀 API Endpoint (NO HUMANIZE)
 # ============================================================
 
 @router.post("/")
@@ -1761,12 +1672,13 @@ async def optimize_resume(
 @router.post("/submit")
 async def optimize_endpoint(
     jd_text: str = Form(...),
-    use_humanize: bool = Form(True),
+    use_humanize: bool = Form(False),  # Parameter kept for API compatibility but ignored
     base_resume_tex: Optional[UploadFile] = File(None),
     extra_keywords: Optional[str] = Form(None),
 ):
     try:
-        use_humanize = True if getattr(config, "HUMANIZE_DEFAULT_ON", True) else use_humanize
+        # HUMANIZE IS COMPLETELY DISABLED - ignore the parameter
+        _ = use_humanize  # Explicitly ignore
 
         jd_text = (jd_text or "").strip()
         if not jd_text:
@@ -1839,43 +1751,11 @@ async def optimize_endpoint(
         optimized_tex_final = cur_tex
         pdf_bytes_optimized = cur_pdf_bytes
 
-        # HUMANIZED PDF
-        pdf_bytes_humanized: Optional[bytes] = None
-        humanized_tex: Optional[str] = None
-        did_humanize = False
         coverage = info["coverage"]
-
-        if use_humanize:
-            log_event("🟨 [HUMANIZE] Starting via API")
-            did_humanize = True
-
-            humanized_tex = await humanize_experience_bullets(optimized_tex_final)
-
-            humanized_rendered = render_final_tex(humanized_tex)
-            try:
-                pdf_bytes_humanized = compile_latex_safely(humanized_rendered)
-            except Exception as e:
-                log_event(f"⚠️ [COMPILE] Humanized failed: {e}")
-                pdf_bytes_humanized = None
-
-            if pdf_bytes_humanized:
-                h_pages = _pdf_page_count(pdf_bytes_humanized)
-                h_trim = 0
-                while h_pages > 1 and h_trim < MAX_TRIMS:
-                    humanized_tex, removed = remove_one_achievement_bullet(humanized_tex)
-                    if not removed:
-                        humanized_tex, removed = remove_last_bullet_from_sections(humanized_tex, ("Projects", "Experience"))
-                    if not removed:
-                        break
-                    h_trim += 1
-                    humanized_rendered = render_final_tex(humanized_tex)
-                    pdf_bytes_humanized = compile_latex_safely(humanized_rendered)
-                    h_pages = _pdf_page_count(pdf_bytes_humanized)
 
         # Save files
         paths = build_output_paths(target_company, target_role)
         opt_path = paths["optimized"]
-        hum_path = paths["humanized"]
         saved_paths: List[str] = []
 
         if pdf_bytes_optimized:
@@ -1883,12 +1763,6 @@ async def optimize_endpoint(
             opt_path.write_bytes(pdf_bytes_optimized)
             saved_paths.append(str(opt_path))
             log_event(f"💾 [SAVE] Optimized → {opt_path}")
-
-        if did_humanize and pdf_bytes_humanized:
-            hum_path.parent.mkdir(parents=True, exist_ok=True)
-            hum_path.write_bytes(pdf_bytes_humanized)
-            saved_paths.append(str(hum_path))
-            log_event(f"💾 [SAVE] Humanized → {hum_path}")
 
         return JSONResponse({
             "company_name": target_company,
@@ -1906,20 +1780,21 @@ async def optimize_endpoint(
                 "pdf_b64": base64.b64encode(pdf_bytes_optimized or b"").decode("ascii"),
                 "filename": str(opt_path) if pdf_bytes_optimized else "",
             },
+            # Humanized fields kept for API compatibility but empty
             "humanized": {
-                "tex": render_final_tex(humanized_tex) if (did_humanize and humanized_tex) else "",
-                "pdf_b64": base64.b64encode(pdf_bytes_humanized or b"").decode("ascii") if (did_humanize and pdf_bytes_humanized) else "",
-                "filename": str(hum_path) if (did_humanize and pdf_bytes_humanized) else "",
+                "tex": "",
+                "pdf_b64": "",
+                "filename": "",
             },
             "tex_string": render_final_tex(optimized_tex_final),
             "pdf_base64": base64.b64encode(pdf_bytes_optimized or b"").decode("ascii"),
-            "pdf_base64_humanized": base64.b64encode(pdf_bytes_humanized or b"").decode("ascii") if (did_humanize and pdf_bytes_humanized) else None,
+            "pdf_base64_humanized": None,
             "saved_paths": saved_paths,
             "coverage_ratio": coverage["ratio"],
             "coverage_present": coverage["present"],
             "coverage_missing": coverage["missing"],
             "coverage_history": [],
-            "did_humanize": did_humanize,
+            "did_humanize": False,  # Always False now
             "extra_keywords": info.get("jd_info", {}).get("extra_keywords", []),
             "skills_list": info.get("skills_list", []),
         })
