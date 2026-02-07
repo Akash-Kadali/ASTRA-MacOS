@@ -1,13 +1,13 @@
 # ============================================================
-#  HIREX v3.1.0 — KILLER Cover Letter Generation
+#  HIREX v3.2.0 — Authentic Cover Letter Generation
 #  ------------------------------------------------------------
 #  KEY UPGRADES:
-#   • ASTONISHING company-specific opening hooks
+#   • Genuine company-specific opening hooks
 #   • NO academic mentions (GPA, graduation, coursework)
-#   • Deep product knowledge signals
-#   • Recent news/initiative references
-#   • Problem-aware hooks that show insider understanding
-#   • Recruiter-stopping first sentences
+#   • Natural product knowledge signals
+#   • Professional tone without hyperbole
+#   • Authentic insider understanding
+#   • No forced "recruiter-stopping" language
 # ============================================================
 
 from __future__ import annotations
@@ -68,224 +68,224 @@ _DISABLE_SHARED_INJECTOR = True
 
 
 # ============================================================
-# 🎯 ASTONISHING COMPANY-SPECIFIC HOOKS
+# 🎯 COMPANY-SPECIFIC HOOKS (Natural, not forced)
 # ============================================================
 
 COMPANY_KILLER_HOOKS = {
     "netflix": {
         "product_insights": [
-            "The way Netflix's recommendation engine surfaced 'Stranger Things' to me before it became a phenomenon showed me the power of personalization at scale",
-            "I've studied how Netflix's A/B testing framework drives decisions on everything from thumbnail images to entire UI redesigns",
-            "Netflix's 2023 shift to an ad-supported tier while maintaining personalization quality is exactly the ML challenge I want to solve",
-            "The technical blog post on how Netflix reduced streaming rebuffer rates using predictive prefetching changed how I think about ML in production"
+            "Netflix's recommendation engine personalizing content for 230M+ subscribers demonstrates ML at scale",
+            "The technical challenge of A/B testing across Netflix's entire product surface interests me",
+            "Netflix's shift to an ad-supported tier while maintaining personalization quality represents an interesting ML challenge",
+            "Netflix's work on streaming quality optimization shows strong technical execution"
         ],
         "insider_knowledge": [
-            "Netflix's 'context not control' philosophy mirrors how I've built my most successful ML systems",
-            "The challenge of maintaining recommendation quality across 230M+ subscribers while expanding into gaming is fascinating",
-            "Netflix's experimentation platform running thousands of A/B tests simultaneously is the scale I want to work at"
+            "Netflix's 'context not control' culture aligns with how I approach building systems",
+            "The challenge of maintaining recommendation quality while expanding into new verticals is compelling",
+            "Netflix's experimentation platform running thousands of tests simultaneously represents the scale I want to work at"
         ],
         "recent_moves": [
-            "Netflix's expansion into live events and gaming presents new personalization challenges",
-            "The password-sharing crackdown combined with ad-tier launch shows Netflix is optimizing for sustainable growth"
+            "Netflix's expansion into gaming presents new personalization challenges",
+            "The focus on sustainable growth through multiple revenue streams shows strategic thinking"
         ]
     },
     "google": {
         "product_insights": [
-            "When Google Search started answering my queries with AI-generated summaries, I recognized the massive infrastructure challenge behind it",
-            "I've traced how Google's PageRank evolved into the ML-powered ranking system that now processes billions of queries",
-            "The Gemini integration across Google products represents a system design challenge at unprecedented scale"
+            "Google Search's integration of AI-generated summaries represents a significant infrastructure challenge",
+            "The evolution from PageRank to modern ML-powered ranking systems is technically fascinating",
+            "Gemini's integration across Google products demonstrates complex system design"
         ],
         "insider_knowledge": [
-            "Google's culture of 'launch and iterate' while maintaining reliability for billions of users is the balance I strive for",
-            "The technical rigor of Google's design doc culture has influenced how I approach system architecture",
-            "Google's commitment to responsible AI development, especially after the Gemini launch learnings, aligns with my values"
+            "Google's 'launch and iterate' culture while maintaining reliability for billions resonates with me",
+            "The technical rigor of Google's design doc culture influences how I approach architecture",
+            "Google's commitment to responsible AI development aligns with my values"
         ],
         "recent_moves": [
-            "Google's response to the AI search disruption by integrating Gemini shows strategic technical execution",
-            "The Cloud growth trajectory competing with AWS while leveraging AI differentiation is compelling"
+            "Google's AI search integration shows strategic technical execution",
+            "Cloud's growth trajectory competing with AWS is compelling"
         ]
     },
     "meta": {
         "product_insights": [
-            "Watching Meta's Feed ranking evolve from chronological to ML-driven engagement optimization taught me about recommendation systems at scale",
-            "The technical challenge of Reels competing with TikTok's algorithm while serving different user intents is fascinating",
-            "Meta's integrity systems detecting misinformation across billions of posts daily is the ML scale I want to work at"
+            "Meta's Feed ranking evolution from chronological to ML-driven shows recommendation systems at scale",
+            "The technical challenge of Reels competing with different user intents is interesting",
+            "Meta's integrity systems at billions-of-posts scale represent significant ML challenges"
         ],
         "insider_knowledge": [
-            "Meta's 'Move Fast' culture combined with the responsibility of serving 3B+ users requires exactly the balance I bring",
-            "The PyTorch ecosystem that Meta open-sourced has been central to my ML work",
-            "Meta's pivot from metaverse investment to AI-first strategy shows adaptive technical leadership"
+            "Meta's 'Move Fast' culture balanced with responsibility for 3B+ users is compelling",
+            "The PyTorch ecosystem Meta open-sourced has been valuable to my work",
+            "Meta's AI-first strategy shows technical adaptability"
         ],
         "recent_moves": [
-            "Threads reaching 100M users in days showed Meta's infrastructure can scale anything",
-            "The Llama model releases democratizing AI while Meta builds commercial applications is strategic"
+            "Threads' rapid growth demonstrated Meta's infrastructure capabilities",
+            "Llama model releases show commitment to advancing the field"
         ]
     },
     "amazon": {
         "product_insights": [
-            "Amazon's 'Customers who bought this' changed e-commerce, and I've studied how that simple UX hides sophisticated ML",
-            "The technical challenge of same-day delivery optimization across millions of products is operations research at its finest",
-            "AWS's ability to serve both startups and enterprises with the same infrastructure is product-market fit I admire"
+            "Amazon's recommendation systems hiding sophisticated ML behind simple UX is elegant",
+            "The optimization challenges of same-day delivery across millions of products is compelling",
+            "AWS serving both startups and enterprises demonstrates strong platform design"
         ],
         "insider_knowledge": [
-            "Amazon's 'working backwards' from the customer aligns perfectly with how I approach ML system design",
-            "The two-pizza team structure enabling Amazon's pace of innovation is how I've seen the best teams operate",
-            "Amazon's leadership principle of 'Dive Deep' matches my belief that technical leaders must understand implementation details"
+            "Amazon's 'working backwards' approach aligns with how I think about system design",
+            "The two-pizza team structure enabling innovation pace is interesting",
+            "Amazon's 'Dive Deep' principle matches my belief in understanding implementation details"
         ],
         "recent_moves": [
-            "AWS Bedrock making foundation models accessible shows Amazon's platform-first thinking",
-            "Amazon's healthcare expansion with One Medical acquisition opens new ML applications"
+            "AWS Bedrock making foundation models accessible shows platform thinking",
+            "Healthcare expansion opens new ML application areas"
         ]
     },
     "microsoft": {
         "product_insights": [
-            "Copilot's integration across Microsoft 365 represents the largest AI deployment in enterprise software history",
-            "Azure's growth from distant third to genuine AWS competitor shows execution at scale",
-            "The GitHub Copilot accuracy improvements I've tracked show Microsoft's ML iteration velocity"
+            "Copilot's integration across Microsoft 365 represents significant AI deployment at scale",
+            "Azure's growth trajectory shows strong execution",
+            "GitHub Copilot's accuracy improvements demonstrate ML iteration velocity"
         ],
         "insider_knowledge": [
-            "Microsoft's 'growth mindset' transformation under Satya Nadella created the culture I want to join",
-            "The OpenAI partnership giving Microsoft AI leadership while Google scrambled was strategic brilliance",
-            "Microsoft's ability to ship AI features to enterprise customers who actually pay is unique"
+            "Microsoft's 'growth mindset' transformation created an appealing culture",
+            "The OpenAI partnership positioning Microsoft in AI leadership was strategic",
+            "Microsoft's enterprise AI deployment represents unique challenges"
         ],
         "recent_moves": [
-            "Copilot becoming the unified AI interface across all Microsoft products is ambitious UX",
-            "The Activision acquisition combined with AI for gaming opens new technical frontiers"
+            "Copilot becoming unified across products shows ambitious vision",
+            "Gaming expansion with AI opens new technical areas"
         ]
     },
     "apple": {
         "product_insights": [
-            "Apple Intelligence running ML models on-device while maintaining privacy is the technical constraint I find most interesting",
-            "The Neural Engine evolution from A11 to M-series shows Apple's decade-long ML silicon investment",
-            "Face ID's ability to work across lighting conditions with zero cloud dependency is elegant ML engineering"
+            "Apple Intelligence running ML on-device while maintaining privacy is a compelling technical constraint",
+            "The Neural Engine evolution shows long-term ML silicon investment",
+            "Face ID working across conditions with zero cloud dependency is elegant engineering"
         ],
         "insider_knowledge": [
-            "Apple's obsession with privacy-preserving ML aligns with my belief that user trust is non-negotiable",
-            "The vertical integration allowing Apple to optimize ML from silicon to software is unique",
-            "Apple's 'say no to 1000 things' philosophy producing focused products resonates with my approach"
+            "Apple's privacy-first ML approach aligns with my values around user trust",
+            "Vertical integration enabling ML optimization from silicon to software is unique",
+            "Apple's focused product philosophy resonates with my approach"
         ],
         "recent_moves": [
-            "Vision Pro's spatial computing ML challenges are the next frontier I want to explore",
-            "Apple Intelligence's delayed rollout shows they prioritize quality over speed"
+            "Vision Pro's spatial computing presents interesting ML challenges",
+            "Apple Intelligence's quality-first rollout shows principled execution"
         ]
     },
     "stripe": {
         "product_insights": [
-            "Stripe's API design is so elegant that it became the standard all fintech APIs are measured against",
-            "The fraud detection challenge of approving good transactions instantly while blocking fraud at scale is ML I understand",
-            "Stripe Atlas enabling company formation globally shows infrastructure thinking beyond payments"
+            "Stripe's API design became the standard for fintech APIs",
+            "The fraud detection challenge of instant approval while blocking fraud is interesting ML",
+            "Stripe Atlas shows infrastructure thinking beyond core payments"
         ],
         "insider_knowledge": [
-            "Stripe's written culture where ideas win based on rigor, not seniority, is where I thrive",
-            "The 'increase the GDP of the internet' mission is ambitious enough to attract my commitment",
-            "Stripe's developer-first approach building products that engineers love to integrate matches my values"
+            "Stripe's written culture where ideas win on merit appeals to me",
+            "The 'increase GDP of the internet' mission is compelling",
+            "Stripe's developer-first approach building products engineers love matches my values"
         ],
         "recent_moves": [
-            "Stripe's embedded finance push making every platform a fintech company expands the problem space",
-            "The revenue recognition and tax products show Stripe solving the entire financial stack"
+            "Embedded finance expansion broadens the problem space",
+            "Revenue recognition products show end-to-end financial stack vision"
         ]
     },
     "airbnb": {
         "product_insights": [
-            "Airbnb's search ranking balancing guest preferences with host fairness is a multi-objective optimization I find fascinating",
-            "The pricing suggestions helping hosts optimize revenue while maintaining platform trust is elegant ML",
-            "Trust & Safety detecting problematic listings across millions of properties globally is scale I want to work at"
+            "Airbnb's search ranking balancing guest and host fairness is interesting multi-objective optimization",
+            "Smart Pricing helping hosts while maintaining platform trust is elegant ML",
+            "Trust and Safety at scale across millions of properties is compelling"
         ],
         "insider_knowledge": [
-            "Airbnb's 'Belong Anywhere' mission creating genuine human connection through technology resonates with me",
-            "The design-driven culture where engineers and designers collaborate deeply produces better products",
-            "Airbnb's transparent culture with open financials builds the trust I value in organizations"
+            "Airbnb's 'Belong Anywhere' mission resonates with me",
+            "The design-driven culture producing better products is appealing",
+            "Airbnb's transparent culture builds trust"
         ],
         "recent_moves": [
-            "Airbnb Experiences expansion beyond stays diversifies the ML challenges",
-            "The AI trip planning features hint at Airbnb becoming a travel intelligence platform"
+            "Experiences expansion diversifies the ML challenges",
+            "AI trip planning hints at broader platform vision"
         ]
     },
     "uber": {
         "product_insights": [
-            "Uber's marketplace balancing rider wait times with driver earnings in real-time is optimization at massive scale",
-            "The ETA prediction accuracy improvements I've tracked show ML iteration at city-scale",
-            "Surge pricing's ability to balance supply and demand dynamically is economics and ML combined"
+            "Uber's marketplace balancing wait times and earnings in real-time is optimization at scale",
+            "ETA prediction accuracy improvements show ML iteration",
+            "Dynamic pricing balancing supply and demand combines economics and ML"
         ],
         "insider_knowledge": [
-            "Uber's reliability at global scale during peak events like NYE shows infrastructure I want to build",
-            "The transition from growth-at-all-costs to profitable operations required technical efficiency I admire",
-            "Uber's multi-modal future combining rides, delivery, and freight is a platform play I find compelling"
+            "Uber's global-scale reliability during peak events shows strong infrastructure",
+            "The transition to profitable operations required technical efficiency",
+            "Uber's multi-modal future is a compelling platform play"
         ],
         "recent_moves": [
-            "Uber's advertising business leveraging rider attention is a new revenue ML challenge",
-            "The autonomous vehicle partnerships show Uber preparing for the next transportation era"
+            "Advertising business represents new ML challenges",
+            "Autonomous vehicle partnerships show forward thinking"
         ]
     },
     "linkedin": {
         "product_insights": [
-            "LinkedIn's job matching connecting 1B+ professionals with opportunities is ML with real-world career impact",
-            "The Feed ranking balancing professional content with engagement is harder than consumer social",
-            "Skills-based hiring replacing credential-based hiring is a mission I believe in"
+            "LinkedIn's job matching at scale has real career impact",
+            "Feed ranking balancing professional content with engagement is challenging",
+            "Skills-based hiring replacing credentials is a worthy mission"
         ],
         "insider_knowledge": [
-            "LinkedIn's 'Members First' philosophy in a Microsoft-owned entity shows maintained independence",
-            "The Economic Graph vision of mapping the global economy's skills and opportunities is ambitious",
-            "LinkedIn Learning's integration with job skills gaps is education meeting employment"
+            "LinkedIn's 'Members First' philosophy is compelling",
+            "The Economic Graph vision is ambitious",
+            "LinkedIn Learning integration with skills gaps is interesting"
         ],
         "recent_moves": [
-            "LinkedIn's AI-powered job descriptions and outreach tools are changing recruiting",
-            "The creator monetization push makes LinkedIn a professional media platform"
+            "AI-powered job tools are changing recruiting",
+            "Creator monetization expands the platform"
         ]
     },
     "spotify": {
         "product_insights": [
-            "Discover Weekly's ability to surface music I didn't know I'd love is ML personalization at its best",
-            "The audio ML challenges of understanding podcasts, music, and audiobooks differently is fascinating",
-            "Spotify's collaborative filtering at scale with 500M+ users sets the standard for recommendations"
+            "Discover Weekly's personalization is ML done well",
+            "Audio ML challenges across music, podcasts, and audiobooks are interesting",
+            "Collaborative filtering at 500M+ users is impressive scale"
         ],
         "insider_knowledge": [
-            "Spotify's squad model giving teams autonomy while maintaining product coherence is organizational design I admire",
-            "The artist-friendly stance while building a sustainable business shows stakeholder balance",
-            "Spotify's data-informed but not data-driven culture leaves room for creative product decisions"
+            "Spotify's squad model balancing autonomy with coherence is good organizational design",
+            "The artist-friendly stance while building sustainable business shows balance",
+            "Data-informed but not data-driven culture leaves room for creativity"
         ],
         "recent_moves": [
-            "AI DJ creating personalized radio shows is the next evolution of music personalization",
-            "Audiobooks expansion competing with Audible diversifies the content ML challenges"
+            "AI DJ represents next evolution of personalization",
+            "Audiobooks expansion diversifies content challenges"
         ]
     },
     "databricks": {
         "product_insights": [
-            "The Lakehouse architecture solving the data warehouse vs. data lake debate is elegant technical vision",
-            "MLflow becoming the standard for ML experiment tracking shows open-source-first strategy working",
-            "Unity Catalog solving data governance across the entire data lifecycle is ambitious"
+            "The Lakehouse architecture is elegant technical vision",
+            "MLflow becoming the standard shows successful open-source strategy",
+            "Unity Catalog's data governance scope is ambitious"
         ],
         "insider_knowledge": [
-            "Databricks' open-source DNA with Delta Lake and MLflow builds genuine community trust",
-            "The 'data + AI' positioning as distinct from pure cloud vendors is clear differentiation",
-            "Databricks' technical leadership publishing research while building products is rare"
+            "Databricks' open-source DNA builds genuine community",
+            "The 'data plus AI' positioning is clear differentiation",
+            "Publishing research while building products is valuable"
         ],
         "recent_moves": [
-            "The Mosaic ML acquisition shows Databricks building the full AI stack",
-            "Serverless compute removing infrastructure management overhead accelerates adoption"
+            "Mosaic ML acquisition shows full AI stack vision",
+            "Serverless compute reduces friction"
         ]
     },
     "snowflake": {
         "product_insights": [
-            "Snowflake's consumption-based pricing aligning vendor success with customer value is smart economics",
-            "Data sharing without copying data is a technical achievement enabling new business models",
-            "Snowpark bringing code to data instead of data to code shows architectural thinking"
+            "Snowflake's consumption pricing aligns incentives well",
+            "Data sharing without copying enables new business models",
+            "Snowpark bringing code to data shows architectural thinking"
         ],
         "insider_knowledge": [
-            "Snowflake's engineering excellence producing performance improvements every release builds trust",
-            "The Data Cloud vision of connecting data across organizations is ambitious infrastructure",
-            "Snowflake's customer obsession reflected in NPS scores is culture I want to join"
+            "Snowflake's engineering excellence in performance is notable",
+            "The Data Cloud vision is ambitious infrastructure",
+            "Customer obsession reflected in NPS is cultural strength"
         ],
         "recent_moves": [
-            "Native apps on Snowflake creating a data application ecosystem expands the platform",
-            "The AI/ML features competing with Databricks show strategic expansion"
+            "Native apps create interesting ecosystem",
+            "AI/ML features show strategic expansion"
         ]
     }
 }
 
 
 def get_killer_hook(company: str, hook_type: str = "product_insights") -> str:
-    """Get a company-specific killer opening hook."""
+    """Get a company-specific opening hook."""
     company_lower = company.lower().strip()
     
     for key, hooks in COMPANY_KILLER_HOOKS.items():
@@ -664,7 +664,7 @@ def _debullettify_and_dedash(text: str) -> str:
 
 def _postprocess_body(text: str) -> str:
     text = secure_tex_input(text or "")
-    text = _strip_academic_content(text)  # NEW: Remove academic content
+    text = _strip_academic_content(text)
     text = _strip_star_labels(text)
     text = _normalize_body_whitespace(text)
     text = _debullettify_and_dedash(text)
@@ -809,7 +809,7 @@ async def extract_company_role(jd_text: str) -> Tuple[str, str]:
 
 
 # ============================================================
-# 📝 KILLER COVER LETTER DRAFTING
+# 📝 AUTHENTIC COVER LETTER DRAFTING
 # ============================================================
 
 _LENGTH_BANDS = {"short": (120, 180), "standard": (200, 300), "long": (320, 420)}
@@ -819,7 +819,8 @@ _BUZZ_BANNED = [
     "results-driven", "fast-paced", "leverage synergies", "mission inspires me",
     "innovative work", "perfect fit", "dream job", "always wanted to",
     "since childhood", "grateful for any opportunity", "humbly request",
-    "excited to apply", "thrilled", "honored", "privileged"
+    "excited to apply", "thrilled", "honored", "privileged", "astonish",
+    "astonishing", "blown away", "game-changer", "revolutionary"
 ]
 
 _ACADEMIC_BANNED = [
@@ -909,12 +910,11 @@ async def draft_killer_cover_body(
     resume_highlights: Dict[str, Any],
 ) -> str:
     """
-    Generate a KILLER cover letter with:
-    - ASTONISHING company-specific opening
+    Generate a compelling, authentic cover letter with:
+    - Genuine company-specific opening
     - NO academic mentions
-    - Deep product/technical knowledge
-    - Insider terminology
-    - Compelling narrative
+    - Professional experience focus
+    - Natural, authentic tone
     """
     
     tone = (tone or "balanced").strip().lower()
@@ -924,104 +924,88 @@ async def draft_killer_cover_body(
     
     has_resume = bool((resume_text or "").strip())
     
-    # Get KILLER opening hook
+    # Tone guidance
+    tone_guidance = {
+        "confident": "confident and direct, but not arrogant",
+        "balanced": "professional yet conversational",
+        "humble": "genuine and thoughtful",
+        "conversational": "natural and authentic"
+    }.get(tone, "professional yet conversational")
+    
+    # Get company-specific elements (optional, not forced)
     killer_hook = get_killer_hook(company, "product_insights")
     insider_hook = get_killer_hook(company, "insider_knowledge")
-    recent_hook = get_killer_hook(company, "recent_moves")
-    
-    # Extract JD keywords
-    jd_terms = list(_extract_terms(jd_text or ""))[:30]
-    
-    # Get company-specific elements
     culture_keywords = company_intel.get("culture_keywords", [])
     tech_focus = company_intel.get("tech_focus", [])
-    insider_terms = company_intel.get("insider_terminology", [])
     products = company_intel.get("products_to_reference", [])
     unique_challenges = company_intel.get("unique_challenges", [])
     business_impact = company_intel.get("business_impact", "")
     team_name = company_intel.get("team_name", "")
     
-    # Get resume highlights (professional only)
+    # Resume highlights (professional only)
     top_achievements = resume_highlights.get("top_achievements", [])
     technical_skills = resume_highlights.get("technical_skills", [])
     quantified_results = resume_highlights.get("quantified_results", [])
     
-    # Get role-specific value props
-    value_props = get_value_propositions(role)
-    
-    # Get technical depth signals
-    tech_depth = get_technical_depth_signals(role, jd_terms)
-    
     length_hint = {
-        "short": "Target 150-180 words in 2 tight paragraphs.",
+        "short": "Target 150-180 words in 2 paragraphs.",
         "standard": "Target 220-280 words in 3 paragraphs.",
         "long": "Target 350-400 words in 3-4 paragraphs.",
     }[length]
     
-    # Build the KILLER prompt
-    sys_prompt = f"""You are writing a KILLER cover letter that will make the recruiter at {company} stop and think "This person REALLY knows us."
+    sys_prompt = f"""You are writing an authentic, compelling cover letter for {company}.
 
-YOUR MISSION: Write an opening so compelling that the recruiter reads the entire letter. Make them think "We NEED to interview this person."
+TONE: {tone_guidance}
 
-🎯 KILLER OPENING HOOKS (use ONE of these as inspiration for your opening):
-{killer_hook if killer_hook else "Create a specific, impressive hook about " + company}
+GOAL: Write naturally, demonstrating genuine understanding of {company} and connecting your experience to their needs.
 
-💡 INSIDER KNOWLEDGE (weave naturally):
-{insider_hook if insider_hook else "Show you understand " + company + "'s unique challenges"}
-
-📈 RECENT COMPANY MOVES:
-{recent_hook if recent_hook else "Reference " + company + "'s recent strategic direction"}
-
-🏢 COMPANY INTELLIGENCE:
-- Culture values: {', '.join(culture_keywords[:3]) if culture_keywords else 'excellence'}
+💡 COMPANY CONTEXT (reference naturally if relevant):
+- Culture: {', '.join(culture_keywords[:3]) if culture_keywords else 'professional excellence'}
 - Tech focus: {', '.join(tech_focus[:3]) if tech_focus else 'modern technology'}
-- Products to reference: {', '.join(products[:3]) if products else company + ' products'}
-- Insider terms: {', '.join(insider_terms[:4]) if insider_terms else 'none'}
-- Challenges: {', '.join(unique_challenges[:2]) if unique_challenges else 'scaling'}
-- Business impact: {business_impact or 'driving key initiatives'}
+- Products: {', '.join(products[:3]) if products else company + ' products'}
+{f'- Inspiration: {killer_hook}' if killer_hook else ''}
+{f'- Culture insight: {insider_hook}' if insider_hook else ''}
 {f'- Team: {team_name}' if team_name else ''}
+{f'- Business impact: {business_impact}' if business_impact else ''}
 
-💪 CANDIDATE STRENGTHS (PROFESSIONAL ONLY - NO ACADEMICS):
-- Work achievements: {'; '.join(top_achievements[:3]) if top_achievements else 'strong technical background'}
-- Technical skills: {', '.join(technical_skills[:6]) if technical_skills else 'relevant skills'}
-- Quantified results: {'; '.join(quantified_results[:2]) if quantified_results else 'measurable impact'}
+💪 YOUR STRENGTHS (WORK EXPERIENCE ONLY):
+- Achievements: {'; '.join(top_achievements[:2]) if top_achievements else 'strong background'}
+- Skills: {', '.join(technical_skills[:5]) if technical_skills else 'relevant technical skills'}
+- Results: {'; '.join(quantified_results[:2]) if quantified_results else 'measurable impact'}
 
-REQUIRED STRUCTURE:
+STRUCTURE:
 
-PARAGRAPH 1 - THE ASTONISHING HOOK (3-4 sentences):
-- Start with a SPECIFIC, IMPRESSIVE statement about {company} that shows deep knowledge
-- Reference a specific product, feature, technical decision, or company initiative
-- Show you understand THEIR unique challenges, not generic industry challenges
-- Make the recruiter think "How does this person know so much about us?"
+PARAGRAPH 1 - Opening (3-4 sentences):
+- Why this role at {company} genuinely interests you
+- Reference something specific about their work (if you know it)
+- Connect your background naturally
+- Be specific but AUTHENTIC - no forced insider knowledge
 
-PARAGRAPH 2 - PROOF OF VALUE (4-5 sentences):
-- Lead with your STRONGEST work achievement
-- Connect your experience DIRECTLY to their needs
-- Include specific technical accomplishments from WORK (not school)
-- Show HOW you solved problems, not just what you did
-- Demonstrate ownership and measurable impact
+PARAGRAPH 2 - Evidence (4-5 sentences):
+- Your strongest relevant achievement from WORK
+- How your experience relates to their needs
+- Specific technical accomplishments (not academic)
+- Demonstrate problem-solving and impact
 
-PARAGRAPH 3 - FORWARD VALUE + CLOSE (3-4 sentences):
-- Preview specific contributions in first 30-60-90 days
-- Reference their specific challenges/goals
-- Show cultural fit through actions, not words
-- End with confident ask for conversation
+PARAGRAPH 3 - Forward + Close (3 sentences):
+- What you'd contribute
+- Confident but not presumptuous close
+- Express interest in conversation
 
-⛔ ABSOLUTE RULES - NEVER VIOLATE:
-1. NO ACADEMIC CONTENT: No GPA, graduation year, coursework, degree dates, university names (unless for research work)
-2. NO CLICHÉS: "passionate", "excited", "team player", "fast-paced", "perfect fit", "dream job"
-3. NO BEGGING: "grateful for opportunity", "hope you'll consider", "humbly", "honored"
-4. NO GENERIC STATEMENTS: Everything must be specific to {company}
-5. PROFESSIONAL EXPERIENCE ONLY: All proof must come from work/projects, not academics
-6. {length_hint}
-7. First-person singular, confident but not arrogant
+RULES:
+1. NO academic content (GPA, graduation, coursework, university)
+2. Be specific but AUTHENTIC - no fake insider knowledge
+3. {length_hint}
+4. Natural tone - write like explaining interest to a colleague
+5. No clichés: "passionate", "dream job", "perfect fit", "excited", "astonishing"
+6. Professional experience only
+7. First-person singular, confident but humble
 8. Use "and" not "&", no em-dashes
-9. Every sentence must provide value - no filler
 
-OUTPUT: Just the body paragraphs, no salutation or signature.
+OUTPUT: Just body paragraphs, no salutation/signature.
 """
 
-    user_prompt = f"""Write the KILLER cover letter body for:
+    user_prompt = f"""Write the cover letter body for:
 
 ROLE: {role}
 COMPANY: {company}
@@ -1029,35 +1013,28 @@ COMPANY: {company}
 JOB DESCRIPTION:
 {jd_text[:4000]}
 
-RESUME (for PROFESSIONAL experience reference only):
-{resume_text[:4000] if has_resume else 'Focus on JD requirements and general professional capability.'}
+{"RESUME (professional experience):" if has_resume else ""}
+{resume_text[:4000] if has_resume else "Focus on general professional capability aligned with JD."}
 
-Remember: 
-- The opening must ASTONISH the recruiter with your knowledge of {company}
-- NO academic content (GPA, graduation, coursework)
-- Only reference WORK experience and projects
+Write naturally and authentically. Be specific where you can, general where you must.
 """
 
-    # Generate the draft
     draft = await chat_text(sys_prompt, user_prompt, model=_DRAFT_MODEL)
-    
-    # Clean and validate
     body = _clean_text_local(draft)
     
-    # Validate and repair
-    body = await _validate_and_repair_killer(
+    # Validate and repair if needed
+    body = await _validate_and_repair_authentic(
         body, company, role, jd_text, resume_text,
         company_intel, resume_highlights, length, tone
     )
     
-    # Final shaping
     body = _shape_paragraphs(body, length)
     body = _enforce_word_band_local(body, length)
     
     return _postprocess_body(body)
 
 
-async def _validate_and_repair_killer(
+async def _validate_and_repair_authentic(
     body: str,
     company: str,
     role: str,
@@ -1069,7 +1046,7 @@ async def _validate_and_repair_killer(
     tone: str,
     max_repairs: int = 2
 ) -> str:
-    """Validate and repair the cover letter for quality."""
+    """Validate and repair the cover letter for quality (softened validation)."""
     
     issues = []
     body_lower = body.lower()
@@ -1077,7 +1054,7 @@ async def _validate_and_repair_killer(
     # Check for banned clichés
     for cliche in _BUZZ_BANNED:
         if cliche.lower() in body_lower:
-            issues.append(f"Contains banned cliché: '{cliche}'")
+            issues.append(f"Contains cliché: '{cliche}'")
     
     # Check for academic content
     for academic in _ACADEMIC_BANNED:
@@ -1088,28 +1065,24 @@ async def _validate_and_repair_killer(
     if company.lower() not in body_lower:
         issues.append("Company name not mentioned")
     
-    # Check for specific product/feature reference
+    # Soft check for product/feature reference (not required, just suggested)
     products = company_intel.get("products_to_reference", [])
     product_mentioned = any(p.lower() in body_lower for p in products if p)
-    if products and not product_mentioned:
-        issues.append(f"No specific product reference (mention: {', '.join(products[:3])})")
+    if products and not product_mentioned and len(products) > 0:
+        log_event("cover_letter_suggestion", {
+            "suggestion": f"Consider mentioning: {', '.join(products[:2])}"
+        })
     
-    # Check for technical specificity
-    tech_terms = company_intel.get("jd_tech_stack", []) + company_intel.get("tech_focus", [])
-    tech_mentioned = sum(1 for t in tech_terms if t.lower() in body_lower)
-    if tech_mentioned < 2:
-        issues.append("Insufficient technical specificity")
-    
-    # Check opening is company-specific (not generic)
-    first_sentence = body.split('.')[0] if body else ""
-    if company.lower() not in first_sentence.lower():
-        issues.append("Opening sentence doesn't mention company - needs company-specific hook")
+    # Check opening mentions company
+    first_para = body.split('\n\n')[0] if body else ""
+    if company.lower() not in first_para.lower():
+        issues.append("Opening paragraph should mention company")
     
     # Check for forward-looking content
     if not re.search(r"\b(first|initial|early|would|will|contribute|drive|bring)\b", body_lower):
         issues.append("Missing forward-looking value statement")
     
-    # Repair if needed
+    # Only repair if there are actual issues
     if issues and max_repairs > 0:
         repair_prompt = f"""Rewrite this cover letter to fix these issues:
 {chr(10).join(f'- {i}' for i in issues)}
@@ -1120,23 +1093,22 @@ Current draft:
 CRITICAL REQUIREMENTS:
 - Company: {company}
 - Role: {role}
-- Opening sentence MUST mention {company} with a specific insight
-- Mention specific products/features: {', '.join(products[:3]) if products else company + ' products'}
-- Include specific technologies: {', '.join(tech_terms[:5])}
+- Opening paragraph should mention {company} naturally
 - NO academic content (GPA, graduation, coursework, university)
-- NO clichés (passionate, excited, dream job, etc.)
-- Add forward-looking contribution preview
+- NO clichés (passionate, excited, dream job, astonishing, etc.)
+- Add forward-looking contribution if missing
 - Keep it {length} length
+- Maintain natural, authentic tone
 
 Return only the improved body paragraphs.
 """
         try:
             repaired = await chat_text(
-                "You are fixing a cover letter to make it more compelling and specific.",
+                "You are improving a cover letter to be more authentic and professional.",
                 repair_prompt,
                 model=_DRAFT_MODEL
             )
-            return await _validate_and_repair_killer(
+            return await _validate_and_repair_authentic(
                 _clean_text_local(repaired),
                 company, role, jd_text, resume_text,
                 company_intel, resume_highlights, length, tone,
@@ -1162,7 +1134,6 @@ async def humanize_text(body_text: str, tone: str) -> str:
         r.raise_for_status()
         data = r.json()
         result = data.get("rewritten") or data.get("text") or body_text
-        # Strip academic content after humanization too
         return _strip_academic_content(result)
     except Exception as e:
         log_event("superhuman_handoff_fail", {"error": str(e)})
@@ -1188,13 +1159,25 @@ def _fill_header_fields(
         return _latex_escape_light(secure_tex_input(v or ""))
 
     subst = {
-        "COMPANY": company, "ROLE": role, "CANDIDATE_NAME": candidate,
-        "NAME": candidate, "DATE": date_str, "EMAIL": email,
-        "PHONE": phone, "CITYSTATE": citystate,
+        "COMPANY": company, 
+        "ROLE": role, 
+        "CANDIDATE_NAME": candidate,
+        "NAME": candidate, 
+        "DATE": date_str, 
+        "EMAIL": email,
+        "PHONE": phone, 
+        "CITYSTATE": citystate if citystate else "",
     }
+    
     for k, v in subst.items():
-        tex = tex.replace(f"{{{{{k}}}}}", esc(v))
-        tex = tex.replace(f"%<<{k}>>%", esc(v))
+        # Skip empty values to avoid showing placeholder text
+        if v or k in ["COMPANY", "ROLE", "CANDIDATE_NAME", "DATE"]:
+            tex = tex.replace(f"{{{{{k}}}}}", esc(v))
+            tex = tex.replace(f"%<<{k}>>%", esc(v))
+        else:
+            # Remove placeholders for empty optional fields
+            tex = tex.replace(f"{{{{{k}}}}}", "")
+            tex = tex.replace(f"%<<{k}>>%", "")
 
     patterns = {
         r"(\\def\\Company\{)(.*?)(\})": company,
@@ -1238,7 +1221,7 @@ def inject_body_into_template(base_tex: str, body_tex: str) -> str:
 
 
 # ============================================================
-# 🚀 MAIN ENDPOINT - KILLER VERSION
+# 🚀 MAIN ENDPOINT - AUTHENTIC VERSION
 # ============================================================
 
 @router.post("")
@@ -1250,15 +1233,15 @@ async def generate_coverletter(
     length: str = Form("standard"),
 ):
     """
-    Generate a KILLER cover letter that astonishes recruiters.
+    Generate an authentic, compelling cover letter.
     
     Features:
-    - ASTONISHING company-specific opening hooks
+    - Genuine company-specific opening hooks
     - NO academic content (GPA, graduation, coursework)
-    - Deep product/technical knowledge signals
-    - Insider terminology that impresses
-    - Company-specific insights in first sentence
-    - Professional experience only
+    - Professional experience focus
+    - Natural, conversational tone
+    - Company-specific insights without hyperbole
+    - No forced "insider knowledge"
     """
     
     if not (config.OPENAI_API_KEY or "").strip():
@@ -1274,14 +1257,14 @@ async def generate_coverletter(
     company_intel = await extract_deep_company_intel(jd_text, company, role)
     log_event("company_intel_extracted", {
         "company": company,
-        "killer_hooks_available": bool(get_killer_hook(company)),
+        "hooks_available": bool(get_killer_hook(company)),
         "insider_terms_count": len(company_intel.get("insider_terminology", []))
     })
 
     # Step 3: Extract resume highlights (professional only)
     resume_highlights = await extract_resume_highlights(resume_tex)
 
-    # Step 4: Generate KILLER cover letter body
+    # Step 4: Generate authentic cover letter body
     body_text = await draft_killer_cover_body(
         jd_text=jd_text,
         resume_text=resume_tex,
@@ -1310,7 +1293,7 @@ async def generate_coverletter(
     candidate = getattr(config, "CANDIDATE_NAME", "Sri Akash Kadali")
     applicant_email = getattr(config, "APPLICANT_EMAIL", "kadali18@umd.edu")
     applicant_phone = getattr(config, "APPLICANT_PHONE", "+1 240-726-9356")
-    applicant_city = getattr(config, "APPLICANT_CITYSTATE", "College Park, Maryland")
+    applicant_city = getattr(config, "APPLICANT_CITYSTATE", "")  # Empty by default
 
     base_tex = _fill_header_fields(
         base_tex,
@@ -1367,7 +1350,7 @@ async def generate_coverletter(
             "culture_keywords": company_intel.get("culture_keywords", []),
             "tech_focus": company_intel.get("tech_focus", []),
             "insider_terms": company_intel.get("insider_terminology", [])[:5],
-            "killer_hook_used": bool(get_killer_hook(company)),
+            "hook_used": bool(get_killer_hook(company)),
         },
         "cover_letter": {
             "tex": final_tex,
@@ -1387,7 +1370,7 @@ async def generate_coverletter(
         "tone": tone,
         "length": length,
         "humanized": use_humanize,
-        "killer_hook_used": bool(get_killer_hook(company)),
+        "hook_used": bool(get_killer_hook(company)),
         "chars": len(body_text),
     })
 
@@ -1405,7 +1388,7 @@ async def generate_coverletter(
             "culture_keywords": company_intel.get("culture_keywords", [])[:3],
             "tech_focus": company_intel.get("tech_focus", [])[:3],
             "insider_terms": company_intel.get("insider_terminology", [])[:3],
-            "killer_hook_available": bool(get_killer_hook(company)),
+            "hook_available": bool(get_killer_hook(company)),
         },
         "id": context_key,
         "memory_id": context_key,

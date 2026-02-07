@@ -1,17 +1,25 @@
 """
-Resume optimizer API (FastAPI) — ENHANCED VERSION (NO HUMANIZE)
+Resume optimizer API (FastAPI) — ENHANCED VERSION v3.0
 
-IMPROVEMENTS:
-- Action verb diversity tracking (no repetition)
-- Result phrases without numbers
-- Technical depth indicators
-- Skill progression across experience blocks
-- Believability constraints for intern-level
-- Bullet structure templates
-- Cross-bullet coherence
-- Industry-specific vocabulary
-- Enhanced company context with progression
-NOTE: Humanization has been completely removed from this version.
+IMPROVEMENTS OVER v2:
+- ✨ GPT-based IDEAL CANDIDATE PROFILING (implicit JD requirements)
+- ✨ TOP-3 IMPLICIT REQUIREMENTS the job DEFINITELY wants
+- ✨ RANKED IMPORTANCE of all bullet points
+- ✨ 8 bullets from resume keywords + 4 bullets from ideal candidate insights
+- ✨ NO keyword used twice across any bullet
+- ✨ GPT-based capitalization (no hardcoded map)
+- ✨ GPT-based company context (no hardcoded company map)
+- ✨ GPT-based skill validation (removes PhD, MS, random words)
+- ✨ Selective quantification: 4 numbers across 12 bullets (positions 2,6,7,10)
+- ✨ UNIQUE NUMBER TRACKING — never repeats same number
+- ✨ Action verb diversity tracking (no repetition across all 12)
+- ✨ Result phrases without numbers
+- ✨ Technical depth indicators
+- ✨ Skill progression across experience blocks
+- ✨ Believability constraints for intern-level
+- ✨ Bullet structure templates
+- ✨ Cross-bullet coherence
+- ✨ Industry-specific vocabulary via GPT
 """
 
 import base64
@@ -57,82 +65,283 @@ def get_openai_client() -> "OpenAI":
 
 
 # ============================================================
-# 💪 ACTION VERB MANAGEMENT - Diversity & Strength
+# 🧠 GPT Helper
+# ============================================================
+
+def _json_from_text(text: str, default: Any):
+    m = re.search(r"\{[\s\S]*\}", text or "")
+    if not m:
+        return default
+    try:
+        return json.loads(m.group(0))
+    except Exception:
+        return default
+
+
+async def gpt_json(prompt: str, temperature: float = 0.0, model: str = "gpt-4o-mini") -> dict:
+    client = get_openai_client()
+    kwargs: Dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+        "timeout": 120,
+    }
+    try:
+        kwargs["response_format"] = {"type": "json_object"}
+        resp = client.chat.completions.create(**kwargs)
+    except TypeError:
+        kwargs.pop("response_format", None)
+        resp = client.chat.completions.create(**kwargs)
+
+    content = (resp.choices[0].message.content or "").strip()
+    return _json_from_text(content or "{}", {})
+
+
+# ============================================================
+# 🎲 REALISTIC NUMBER GENERATION WITH UNIQUE TRACKING
+# ============================================================
+
+_used_numbers_by_category: Dict[str, Set[str]] = {
+    "percent": set(), "count": set(), "metric": set(), "comparison": set()
+}
+_quantified_bullet_positions: Set[int] = set()
+
+
+def reset_number_tracking():
+    global _used_numbers_by_category, _quantified_bullet_positions
+    _used_numbers_by_category = {
+        "percent": set(), "count": set(), "metric": set(), "comparison": set()
+    }
+    _quantified_bullet_positions.clear()
+
+
+def generate_messy_decimal(min_val: float, max_val: float, decimal_places: int = 2) -> float:
+    for _ in range(50):
+        num = random.uniform(min_val, max_val)
+        rounded = round(num, decimal_places)
+        if decimal_places == 2:
+            last_digit = int((rounded * 100) % 10)
+        elif decimal_places == 1:
+            last_digit = int((rounded * 10) % 10)
+        else:
+            last_digit = int(rounded % 10)
+        if last_digit % 2 != 0:
+            return rounded
+    return round(min_val, decimal_places)
+
+
+def generate_messy_number(category: str, jd_context: str = "") -> str:
+    global _used_numbers_by_category
+    for attempt in range(100):
+        formatted = ""
+        if category == "percent":
+            if "accuracy" in jd_context.lower() or "precision" in jd_context.lower():
+                base = random.randint(11, 29)
+            else:
+                base = random.randint(7, 89)
+            if random.random() < 0.6:
+                decimal = generate_messy_decimal(base, base + 0.99, 2)
+                formatted = f"{decimal}%"
+            else:
+                if base % 2 == 0:
+                    base += 1
+                formatted = f"{base}%"
+        elif category == "count":
+            base = random.choice([random.randint(567, 9999), random.randint(10000, 99999)])
+            if base % 2 == 0:
+                base += 1
+            if base >= 10000:
+                formatted = f"{base // 1000}K+"
+            elif base >= 1000:
+                formatted = f"{base:,}"
+            else:
+                formatted = str(base)
+        elif category == "metric":
+            metric_name = random.choice(["F1 score", "precision", "recall", "accuracy"])
+            value = generate_messy_decimal(0.73, 0.97, 2)
+            formatted = f"{metric_name} of {value}"
+        elif category == "comparison":
+            if "accuracy" in jd_context.lower():
+                start = random.randint(51, 67)
+                improvement = random.randint(17, 33)
+            else:
+                start = random.randint(41, 79)
+                improvement = random.randint(11, 29)
+            if start % 2 == 0:
+                start += 1
+            if improvement % 2 == 0:
+                improvement += 1
+            end = min(99, start + improvement)
+            if end % 2 == 0:
+                end -= 1
+            formatted = f"from {start}% to {end}%"
+
+        if formatted and formatted not in _used_numbers_by_category[category]:
+            _used_numbers_by_category[category].add(formatted)
+            log_event(f"🎲 [NUMBER-{category.upper()}] Generated: {formatted}")
+            return formatted
+
+    fallback = f"{random.randint(13, 87)}%"
+    _used_numbers_by_category[category].add(fallback)
+    return fallback
+
+
+QUANTIFICATION_TEMPLATES = {
+    "percent_improvement": [
+        "improving {metric} by {value}",
+        "achieving {value} enhancement in {metric}",
+        "boosting {metric} performance by {value}",
+        "elevating {metric} through {value} improvement",
+    ],
+    "count_scale": [
+        "processing {value} data samples daily",
+        "analyzing {value} records for pattern detection",
+        "handling {value} concurrent model predictions",
+        "evaluating {value} feature combinations systematically",
+    ],
+    "metric_achievement": [
+        "attaining {value} on validation datasets",
+        "reaching {value} across diverse test scenarios",
+        "delivering {value} in production deployment",
+        "securing {value} during rigorous evaluation",
+    ],
+    "comparison_hero": [
+        "improving model accuracy {value} through systematic hyperparameter optimization",
+        "enhancing prediction reliability {value} via ensemble methodology",
+        "accelerating inference speed {value} using optimized architecture",
+        "increasing system throughput {value} with distributed processing",
+    ],
+}
+
+
+def generate_quantified_phrase(category: str, jd_context: str = "") -> str:
+    templates = QUANTIFICATION_TEMPLATES.get(category, QUANTIFICATION_TEMPLATES["percent_improvement"])
+    template = random.choice(templates)
+    if category == "percent_improvement":
+        metric = random.choice(["accuracy", "precision", "throughput", "efficiency"])
+        value = generate_messy_number("percent", jd_context)
+        return template.format(metric=metric, value=value)
+    elif category == "count_scale":
+        value = generate_messy_number("count", jd_context)
+        return template.format(value=value)
+    elif category == "metric_achievement":
+        value = generate_messy_number("metric", jd_context)
+        return template.format(value=value)
+    elif category == "comparison_hero":
+        value = generate_messy_number("comparison", jd_context)
+        return template.format(value=value)
+    return template
+
+
+# Quantified positions: absolute bullet index 0-11
+QUANTIFIED_POSITIONS = [1, 5, 6, 9]  # Positions 2, 6, 7, 10 (0-indexed)
+HERO_POSITIONS = [1, 5]
+
+
+def reset_quantification_tracking():
+    reset_number_tracking()
+
+
+def get_quantification_category(bullet_position: int, jd_context: str = "") -> Optional[str]:
+    if bullet_position not in QUANTIFIED_POSITIONS:
+        return None
+    category_map = {
+        1: "comparison_hero",
+        5: "comparison_hero",
+        6: "count_scale",
+        9: "metric_achievement",
+    }
+    if bullet_position == 1 and "accuracy" not in jd_context.lower():
+        return "percent_improvement"
+    return category_map.get(bullet_position, None)
+
+
+def should_quantify_bullet(bullet_position: int) -> bool:
+    return bullet_position in QUANTIFIED_POSITIONS
+
+
+# ============================================================
+# 💪 ACTION VERB MANAGEMENT — NO REPETITION ACROSS ALL 12 BULLETS
 # ============================================================
 
 ACTION_VERBS = {
     "development": [
         "Architected", "Engineered", "Developed", "Built", "Implemented",
-        "Constructed", "Designed", "Created", "Established", "Formulated"
+        "Constructed", "Designed", "Created", "Established", "Formulated",
+        "Programmed", "Prototyped", "Assembled",
     ],
     "research": [
         "Investigated", "Explored", "Analyzed", "Evaluated", "Validated",
-        "Examined", "Studied", "Researched", "Assessed", "Characterized"
+        "Examined", "Studied", "Researched", "Assessed", "Characterized",
+        "Scrutinized", "Probed",
     ],
     "optimization": [
         "Optimized", "Enhanced", "Streamlined", "Accelerated", "Refined",
-        "Improved", "Strengthened", "Advanced", "Elevated", "Augmented"
+        "Improved", "Strengthened", "Advanced", "Elevated", "Augmented",
+        "Amplified", "Intensified",
     ],
     "data_work": [
         "Processed", "Transformed", "Aggregated", "Curated", "Cleaned",
-        "Structured", "Organized", "Consolidated", "Standardized", "Normalized"
+        "Structured", "Organized", "Consolidated", "Standardized", "Normalized",
+        "Synthesized", "Compiled",
     ],
     "ml_training": [
         "Trained", "Fine-tuned", "Calibrated", "Tuned", "Configured",
-        "Parameterized", "Adapted", "Specialized", "Customized", "Fitted"
+        "Parameterized", "Adapted", "Specialized", "Customized", "Fitted",
+        "Conditioned", "Adjusted",
     ],
     "deployment": [
         "Deployed", "Launched", "Released", "Shipped", "Delivered",
-        "Productionized", "Operationalized", "Integrated", "Provisioned", "Staged"
+        "Productionized", "Operationalized", "Integrated", "Provisioned", "Staged",
+        "Rolled-out", "Instituted",
     ],
     "analysis": [
         "Analyzed", "Diagnosed", "Identified", "Discovered", "Uncovered",
-        "Detected", "Recognized", "Profiled", "Mapped", "Quantified"
+        "Detected", "Recognized", "Profiled", "Mapped", "Quantified",
+        "Interpreted", "Dissected",
     ],
     "collaboration": [
         "Collaborated", "Partnered", "Coordinated", "Facilitated", "Supported",
-        "Contributed", "Assisted", "Engaged", "Interfaced", "Liaised"
+        "Contributed", "Assisted", "Engaged", "Interfaced", "Liaised",
+        "Cooperated", "Unified",
     ],
     "automation": [
         "Automated", "Systematized", "Scripted", "Programmed", "Orchestrated",
-        "Scheduled", "Templated", "Codified", "Mechanized", "Streamlined"
+        "Scheduled", "Templated", "Codified", "Mechanized", "Streamlined",
+        "Roboticized", "Computerized",
     ],
     "documentation": [
         "Documented", "Recorded", "Cataloged", "Annotated", "Detailed",
-        "Specified", "Outlined", "Summarized", "Reported", "Communicated"
-    ]
+        "Specified", "Outlined", "Summarized", "Reported", "Communicated",
+        "Chronicled", "Transcribed",
+    ],
 }
 
-# Session-level tracking to avoid verb repetition
-_used_verbs_in_session: Set[str] = set()
+_used_verbs_global: Set[str] = set()
 
 
 def reset_verb_tracking():
-    """Reset verb tracking for new resume optimization."""
-    global _used_verbs_in_session
-    _used_verbs_in_session.clear()
+    global _used_verbs_global
+    _used_verbs_global.clear()
 
 
 def get_diverse_verb(category: str, fallback: str = "Developed") -> str:
-    """Get a verb that hasn't been used yet in this session."""
-    global _used_verbs_in_session
-    
+    global _used_verbs_global
     verbs = ACTION_VERBS.get(category, ACTION_VERBS["development"])
-    available = [v for v in verbs if v.lower() not in _used_verbs_in_session]
-    
+    available = [v for v in verbs if v.lower() not in _used_verbs_global]
     if not available:
-        # Reset category if exhausted
-        for v in verbs:
-            _used_verbs_in_session.discard(v.lower())
-        available = verbs
-    
-    chosen = random.choice(available)
-    _used_verbs_in_session.add(chosen.lower())
+        all_verbs = [v for cat in ACTION_VERBS.values() for v in cat]
+        available = [v for v in all_verbs if v.lower() not in _used_verbs_global]
+    if not available:
+        chosen = fallback
+    else:
+        chosen = random.choice(available)
+    _used_verbs_global.add(chosen.lower())
+    log_event(f"✅ [VERB] Selected: {chosen} (Total used: {len(_used_verbs_global)}/12)")
     return chosen
 
 
 def get_verb_categories_for_context(company_type: str) -> List[str]:
-    """Get appropriate verb categories based on company type."""
     if "research" in company_type.lower():
         return ["research", "analysis", "development", "documentation"]
     elif "industry" in company_type.lower():
@@ -151,65 +360,60 @@ RESULT_PHRASES = {
         "resulting in improved prediction accuracy on held-out test data",
         "enabling robust performance under varying input conditions",
         "delivering production-grade model reliability and consistency",
-        "attaining competitive benchmark results against established baselines"
+        "attaining competitive benchmark results against established baselines",
     ],
     "efficiency": [
         "enabling faster experimentation and iteration cycles",
         "streamlining the end-to-end development workflow significantly",
         "reducing computational overhead while maintaining output quality",
         "accelerating model training and evaluation throughput",
-        "improving overall resource utilization and pipeline efficiency"
+        "improving overall resource utilization and pipeline efficiency",
     ],
     "quality": [
         "ensuring high-quality and reproducible model outputs",
         "maintaining rigorous quality standards throughout development",
         "achieving consistent and reliable experimental results",
         "delivering enterprise-grade code quality and documentation",
-        "meeting stringent production readiness requirements"
+        "meeting stringent production readiness requirements",
     ],
     "scalability": [
         "supporting seamless scaling to larger datasets",
         "enabling distributed processing capabilities for production workloads",
         "facilitating efficient handling of increased data volumes",
         "ensuring system robustness under production-scale demands",
-        "accommodating future growth and extensibility requirements"
+        "accommodating future growth and extensibility requirements",
     ],
     "insight": [
         "uncovering actionable insights from complex data patterns",
         "revealing previously hidden correlations and trends",
         "generating valuable intelligence for downstream applications",
         "providing data-driven recommendations for model improvements",
-        "enabling informed decision-making through rigorous analysis"
+        "enabling informed decision-making through rigorous analysis",
     ],
     "collaboration": [
         "facilitating cross-functional collaboration and knowledge sharing",
         "enabling seamless integration with existing team workflows",
         "supporting reproducibility and handoff to other team members",
         "improving documentation and codebase maintainability",
-        "establishing reusable components for future projects"
-    ]
+        "establishing reusable components for future projects",
+    ],
 }
 
 _used_result_phrases: Set[str] = set()
 
 
 def reset_result_phrase_tracking():
-    """Reset result phrase tracking."""
     global _used_result_phrases
     _used_result_phrases.clear()
 
 
 def get_result_phrase(category: str) -> str:
-    """Get a result phrase that hasn't been used."""
     global _used_result_phrases
-    
     phrases = RESULT_PHRASES.get(category, RESULT_PHRASES["performance"])
     available = [p for p in phrases if p not in _used_result_phrases]
-    
     if not available:
         _used_result_phrases.clear()
         available = phrases
-    
     chosen = random.choice(available)
     _used_result_phrases.add(chosen)
     return chosen
@@ -226,7 +430,7 @@ TECHNICAL_DEPTH_PHRASES = {
         "applying advanced Feature Engineering with domain-specific transformations",
         "implementing custom Data Augmentation strategies for improved generalization",
         "leveraging Ensemble Methods to combine multiple model predictions",
-        "conducting systematic Ablation Studies to validate design choices"
+        "conducting systematic Ablation Studies to validate design choices",
     ],
     "dl_techniques": [
         "incorporating Batch Normalization and Dropout for regularization",
@@ -234,7 +438,7 @@ TECHNICAL_DEPTH_PHRASES = {
         "utilizing Gradient Clipping to stabilize training dynamics",
         "applying Transfer Learning with frozen backbone and fine-tuned heads",
         "employing Attention Mechanisms for improved feature representation",
-        "implementing residual connections for gradient flow optimization"
+        "implementing residual connections for gradient flow optimization",
     ],
     "data_techniques": [
         "implementing comprehensive Data Preprocessing pipelines with validation",
@@ -242,7 +446,7 @@ TECHNICAL_DEPTH_PHRASES = {
         "utilizing robust Outlier Detection and handling strategies",
         "implementing Missing Value Imputation with multiple strategies",
         "applying class balancing techniques for imbalanced datasets",
-        "conducting thorough Exploratory Data Analysis for insight generation"
+        "conducting thorough Exploratory Data Analysis for insight generation",
     ],
     "mlops_techniques": [
         "implementing Model Versioning with comprehensive experiment tracking",
@@ -250,7 +454,7 @@ TECHNICAL_DEPTH_PHRASES = {
         "utilizing containerization with Docker for reproducible deployments",
         "implementing Feature Store patterns for consistent feature serving",
         "establishing Model Monitoring dashboards for production oversight",
-        "applying infrastructure-as-code practices for environment management"
+        "applying infrastructure-as-code practices for environment management",
     ],
     "evaluation_techniques": [
         "conducting Precision-Recall analysis for classification performance",
@@ -258,13 +462,12 @@ TECHNICAL_DEPTH_PHRASES = {
         "utilizing statistical significance testing for model comparisons",
         "applying Confusion Matrix analysis for multi-class evaluation",
         "implementing custom evaluation metrics aligned with business objectives",
-        "conducting systematic bias and fairness audits"
-    ]
+        "conducting systematic bias and fairness audits",
+    ],
 }
 
 
 def get_technical_depth_phrase(category: str) -> str:
-    """Get a technical depth phrase for credibility."""
     phrases = TECHNICAL_DEPTH_PHRASES.get(category, TECHNICAL_DEPTH_PHRASES["ml_techniques"])
     return random.choice(phrases)
 
@@ -278,29 +481,28 @@ INTERN_PROGRESSION = {
         "scope": ["assisted", "supported", "contributed to", "participated in"],
         "tasks": ["data preprocessing", "baseline implementation", "literature review", "code documentation"],
         "autonomy": "under guidance of senior engineers",
-        "complexity": "foundational components"
+        "complexity": "foundational components",
     },
     "mid": {
         "scope": ["developed", "implemented", "designed", "built"],
         "tasks": ["model development", "pipeline creation", "experiment execution", "performance analysis"],
         "autonomy": "with mentorship from team leads",
-        "complexity": "core system components"
+        "complexity": "core system components",
     },
     "late": {
         "scope": ["led", "architected", "spearheaded", "owned"],
         "tasks": ["end-to-end pipeline", "model optimization", "deployment preparation", "technical documentation"],
         "autonomy": "independently with periodic reviews",
-        "complexity": "production-ready solutions"
-    }
+        "complexity": "production-ready solutions",
+    },
 }
 
 
 def get_progression_context(block_index: int, total_blocks: int = 4) -> Dict[str, Any]:
-    """Get appropriate progression context based on position in experience."""
     if block_index == 0:
-        return INTERN_PROGRESSION["late"]  # Most recent = most advanced
+        return INTERN_PROGRESSION["late"]
     elif block_index == total_blocks - 1:
-        return INTERN_PROGRESSION["early"]  # Oldest = most basic
+        return INTERN_PROGRESSION["early"]
     else:
         return INTERN_PROGRESSION["mid"]
 
@@ -310,187 +512,122 @@ def get_progression_context(block_index: int, total_blocks: int = 4) -> Dict[str
 # ============================================================
 
 BELIEVABILITY_RULES = {
-    "intern_appropriate": [
-        "Focus on learning, contribution, and growth",
-        "Avoid claiming sole ownership of major systems",
-        "Use collaborative language when appropriate",
-        "Mention working with senior engineers or mentors",
-        "Focus on specific components rather than entire systems"
-    ],
-    "scope_indicators": {
-        "small": ["component", "module", "feature", "function", "utility"],
-        "medium": ["pipeline", "workflow", "system", "service", "framework"],
-        "large": ["platform", "infrastructure", "architecture", "ecosystem"]
-    },
     "collaboration_phrases": [
         "in collaboration with senior engineers",
         "as part of a cross-functional team",
         "working closely with research mentors",
         "under guidance of technical leads",
-        "contributing to team-wide initiatives"
+        "contributing to team-wide initiatives",
     ]
 }
 
 
 def get_believability_phrase(scope: str = "medium") -> str:
-    """Get a believability-enhancing phrase."""
-    if random.random() < 0.3:  # 30% chance to add collaboration context
+    if random.random() < 0.3:
         return random.choice(BELIEVABILITY_RULES["collaboration_phrases"])
     return ""
 
 
 # ============================================================
-# 📝 BULLET STRUCTURE TEMPLATES
+# 🔠 GPT-BASED CAPITALIZATION (replaces hardcoded map)
 # ============================================================
 
-BULLET_TEMPLATES = {
-    "action_object_method_result": "{verb} {object} using {method}, {result}",
-    "action_method_object_result": "{verb} {method}-based {object}, {result}",
-    "action_object_result_method": "{verb} {object} {result} through {method}",
-    "collaborative_action": "{verb} {object} in collaboration with {team}, {result}",
-}
+_capitalization_cache: Dict[str, str] = {}
 
 
-def get_bullet_template() -> str:
-    """Get a random bullet template for variety."""
-    templates = list(BULLET_TEMPLATES.values())
-    return random.choice(templates)
-
-
-# ============================================================
-# 🔠 PROPER CAPITALIZATION MAP
-# ============================================================
-
-CAPITALIZATION_MAP: Dict[str, str] = {
-    # Programming Languages
-    "python": "Python", "java": "Java", "javascript": "JavaScript", "typescript": "TypeScript",
-    "c++": "C++", "c#": "C#", "go": "Go", "rust": "Rust", "scala": "Scala", "kotlin": "Kotlin",
-    "swift": "Swift", "ruby": "Ruby", "php": "PHP", "r": "R", "matlab": "MATLAB", "sql": "SQL",
-    "bash": "Bash", "shell": "Shell", "perl": "Perl", "lua": "Lua", "julia": "Julia",
-
-    # ML/AI Frameworks
-    "pytorch": "PyTorch", "tensorflow": "TensorFlow", "keras": "Keras", "scikit-learn": "Scikit-learn",
-    "sklearn": "Scikit-learn", "pandas": "Pandas", "numpy": "NumPy", "scipy": "SciPy",
-    "matplotlib": "Matplotlib", "seaborn": "Seaborn", "plotly": "Plotly", "opencv": "OpenCV",
-    "hugging face": "Hugging Face", "huggingface": "Hugging Face", "transformers": "Transformers",
-    "xgboost": "XGBoost", "lightgbm": "LightGBM", "catboost": "CatBoost",
-    "spacy": "SpaCy", "nltk": "NLTK", "gensim": "Gensim", "fastai": "FastAI", 
-    "jax": "JAX", "flax": "Flax",
-
-    # Cloud & DevOps
-    "aws": "AWS", "gcp": "GCP", "azure": "Azure", "docker": "Docker", "kubernetes": "Kubernetes",
-    "k8s": "K8s", "jenkins": "Jenkins", "terraform": "Terraform", "ansible": "Ansible",
-    "circleci": "CircleCI", "github actions": "GitHub Actions", "gitlab": "GitLab",
-    "ec2": "EC2", "s3": "S3", "lambda": "Lambda", "sagemaker": "SageMaker", "emr": "EMR",
-    "bigquery": "BigQuery", "redshift": "Redshift", "snowflake": "Snowflake",
-
-    # Databases
-    "mysql": "MySQL", "postgresql": "PostgreSQL", "postgres": "PostgreSQL", "mongodb": "MongoDB",
-    "redis": "Redis", "elasticsearch": "Elasticsearch", "cassandra": "Cassandra",
-    "dynamodb": "DynamoDB", "sqlite": "SQLite", "oracle": "Oracle", "neo4j": "Neo4j",
-
-    # Tools & Platforms
-    "git": "Git", "github": "GitHub", "linux": "Linux", "unix": "Unix", "windows": "Windows",
-    "jupyter": "Jupyter", "vscode": "VS Code", "intellij": "IntelliJ", "vim": "Vim",
-    "mlflow": "MLflow", "wandb": "W&B", "weights & biases": "Weights & Biases",
-    "airflow": "Airflow", "kafka": "Kafka", "spark": "Spark", "hadoop": "Hadoop",
-    "databricks": "Databricks", "dbt": "Dbt", "prefect": "Prefect", "dagster": "Dagster",
-    "grafana": "Grafana", "prometheus": "Prometheus", "datadog": "Datadog",
-
-    # Web Frameworks
-    "flask": "Flask", "django": "Django", "fastapi": "FastAPI", "express": "Express",
-    "react": "React", "angular": "Angular", "vue": "Vue", "nextjs": "Next.js", "next.js": "Next.js",
-    "nodejs": "Node.js", "node.js": "Node.js", "spring": "Spring", "rails": "Rails",
-
-    # ML/AI Concepts
-    "ml": "ML", "ai": "AI", "dl": "DL", "nlp": "NLP", "cv": "CV", "rl": "RL",
-    "machine learning": "Machine Learning", "deep learning": "Deep Learning",
-    "natural language processing": "Natural Language Processing",
-    "computer vision": "Computer Vision", "reinforcement learning": "Reinforcement Learning",
-    "neural network": "Neural Network", "neural networks": "Neural Networks",
-    "cnn": "CNN", "rnn": "RNN", "lstm": "LSTM", "gru": "GRU", "gan": "GAN", "vae": "VAE",
-    "bert": "BERT", "gpt": "GPT", "llm": "LLM", "llms": "LLMs",
-    "transformer": "Transformer", "transformers": "Transformers",
-    "attention mechanism": "Attention Mechanism", "self-attention": "Self-Attention",
-    "fine-tuning": "Fine-Tuning", "transfer learning": "Transfer Learning",
-    "feature engineering": "Feature Engineering", "hyperparameter tuning": "Hyperparameter Tuning",
-    "cross-validation": "Cross-Validation", "gradient descent": "Gradient Descent",
-    "backpropagation": "Backpropagation", "batch normalization": "Batch Normalization",
-    "dropout": "Dropout", "regularization": "Regularization",
-    "supervised learning": "Supervised Learning", "unsupervised learning": "Unsupervised Learning",
-    "semi-supervised learning": "Semi-Supervised Learning",
-    "classification": "Classification", "regression": "Regression", "clustering": "Clustering",
-    "dimensionality reduction": "Dimensionality Reduction", "pca": "PCA", "t-sne": "T-SNE",
-    "random forest": "Random Forest", "decision tree": "Decision Tree",
-    "support vector machine": "Support Vector Machine", "svm": "SVM",
-    "k-nearest neighbors": "K-Nearest Neighbors", "knn": "KNN",
-    "naive bayes": "Naive Bayes", "logistic regression": "Logistic Regression",
-    "linear regression": "Linear Regression", "gradient boosting": "Gradient Boosting",
-    "ensemble methods": "Ensemble Methods", "bagging": "Bagging", "boosting": "Boosting",
-    "automl": "AutoML", "mlops": "MLOps", "devops": "DevOps", "ci/cd": "CI/CD",
-    "etl": "ETL", "elt": "ELT", "api": "API", "rest": "REST", "graphql": "GraphQL",
-    "microservices": "Microservices", "serverless": "Serverless",
-    "rag": "RAG", "retrieval-augmented generation": "Retrieval-Augmented Generation",
-    "vector database": "Vector Database", "embedding": "Embedding", "embeddings": "Embeddings",
-    "prompt engineering": "Prompt Engineering", "langchain": "LangChain",
-    "llamaindex": "LlamaIndex", "openai": "OpenAI", "anthropic": "Anthropic",
-    "chatgpt": "ChatGPT", "claude": "Claude", "gemini": "Gemini",
-
-    # Data Science
-    "data science": "Data Science", "data engineering": "Data Engineering",
-    "data analysis": "Data Analysis", "data visualization": "Data Visualization",
-    "data pipeline": "Data Pipeline", "data warehouse": "Data Warehouse",
-    "data lake": "Data Lake", "data mining": "Data Mining",
-    "big data": "Big Data", "analytics": "Analytics",
-    "business intelligence": "Business Intelligence", "bi": "BI",
-    "a/b testing": "A/B Testing", "ab testing": "A/B Testing", "a-b testing": "A/B Testing",
-    "statistical analysis": "Statistical Analysis", "hypothesis testing": "Hypothesis Testing",
-
-    # Company-core / systems topics
-    "recommender systems": "Recommender Systems",
-    "recommendation systems": "Recommendation Systems",
-    "search & ranking": "Search & Ranking",
-    "search and ranking": "Search And Ranking",
-    "ranking": "Ranking",
-    "experimentation": "Experimentation",
-    "online experimentation": "Online Experimentation",
-    "offline evaluation": "Offline Evaluation",
-    "distributed systems": "Distributed Systems",
-    "system design": "System Design",
-    "large-scale data": "Large-Scale Data",
-    "stream processing": "Stream Processing",
-    "batch processing": "Batch Processing",
-    "feature store": "Feature Store",
-    "data modeling": "Data Modeling",
-
-    # Other
-    "agile": "Agile", "scrum": "Scrum", "jira": "Jira", "confluence": "Confluence",
-    "slack": "Slack", "notion": "Notion", "trello": "Trello",
-    "json": "JSON", "xml": "XML", "yaml": "YAML", "csv": "CSV",
-    "html": "HTML", "css": "CSS", "sass": "SASS", "less": "LESS",
-    "oauth": "OAuth", "jwt": "JWT", "ssl": "SSL", "tls": "TLS", "https": "HTTPS",
-    "tcp": "TCP", "udp": "UDP", "http": "HTTP", "websocket": "WebSocket",
-    "gpu": "GPU", "cpu": "CPU", "tpu": "TPU", "cuda": "CUDA", "cudnn": "CuDNN",
-    "ios": "iOS", "macos": "MacOS",
-}
-
-
-def fix_capitalization(text: str) -> str:
-    """Fix capitalization of technical terms while preserving sentence structure."""
-    if not text:
+async def fix_capitalization_gpt(text: str) -> str:
+    """Use GPT to fix capitalization of ALL technical terms in a text block."""
+    if not text or len(text.strip()) < 3:
         return text
 
-    result = text
-    sorted_terms = sorted(CAPITALIZATION_MAP.keys(), key=len, reverse=True)
-    for term in sorted_terms:
-        correct = CAPITALIZATION_MAP[term]
-        pattern = rf"\b{re.escape(term)}\b"
-        result = re.sub(pattern, correct, result, flags=re.IGNORECASE)
-    return result
+    # Check cache for short strings (skill names)
+    text_lower = text.lower().strip()
+    if text_lower in _capitalization_cache:
+        return _capitalization_cache[text_lower]
+
+    prompt = f"""Fix the capitalization of ALL technical terms in this text. 
+Return STRICT JSON: {{"fixed": "the corrected text"}}
+
+Rules:
+- Programming languages: Python, Java, JavaScript, C++, SQL, R, MATLAB, Go, Rust
+- Frameworks: PyTorch, TensorFlow, Keras, Scikit-learn, NumPy, Pandas, FastAPI, React
+- Tools: Docker, Kubernetes, Git, GitHub, AWS, GCP, Azure, MLflow, Airflow, Spark
+- Acronyms: ML, AI, NLP, CV, CNN, RNN, LSTM, BERT, GPT, LLM, API, REST, CI/CD, ETL
+- Concepts: Machine Learning, Deep Learning, Natural Language Processing, Computer Vision
+- Databases: PostgreSQL, MongoDB, Redis, MySQL, DynamoDB, Elasticsearch
+- Keep sentence structure intact, only fix capitalization of tech terms
+- If text is a single skill/keyword, just return it properly capitalized
+
+Text: "{text}"
+"""
+    try:
+        data = await gpt_json(prompt, temperature=0.0)
+        fixed = data.get("fixed", text).strip()
+        if len(text_lower) < 50:
+            _capitalization_cache[text_lower] = fixed
+        return fixed
+    except Exception:
+        return text
+
+
+async def fix_capitalization_batch(items: List[str]) -> List[str]:
+    """Fix capitalization for a batch of skill/keyword strings using one GPT call."""
+    if not items:
+        return []
+
+    # Check cache first
+    uncached = []
+    cached_results = {}
+    for item in items:
+        key = item.lower().strip()
+        if key in _capitalization_cache:
+            cached_results[key] = _capitalization_cache[key]
+        else:
+            uncached.append(item)
+
+    if not uncached:
+        return [cached_results.get(i.lower().strip(), i) for i in items]
+
+    prompt = f"""Fix capitalization of these technical keywords/skills for a resume.
+Return STRICT JSON: {{"fixed": ["Python", "PyTorch", "Machine Learning", ...]}}
+
+Rules:
+- Programming languages: Python, Java, JavaScript, C++, SQL, R, MATLAB
+- Frameworks: PyTorch, TensorFlow, Keras, Scikit-learn, NumPy, Pandas, FastAPI
+- Tools: Docker, Kubernetes, Git, AWS, GCP, Azure, MLflow, Spark, Airflow
+- Acronyms: ML, AI, NLP, CV, CNN, RNN, LSTM, BERT, GPT, LLM, API, REST, CI/CD
+- Concepts: Machine Learning, Deep Learning, Natural Language Processing
+- Databases: PostgreSQL, MongoDB, Redis, MySQL, DynamoDB
+- Each keyword should have first letter capitalized if not an acronym
+- Preserve multi-word terms as-is except for capitalization fixes
+
+Keywords: {json.dumps(uncached)}
+"""
+    try:
+        data = await gpt_json(prompt, temperature=0.0)
+        fixed_list = data.get("fixed", uncached)
+        if len(fixed_list) != len(uncached):
+            fixed_list = uncached
+
+        for orig, fixed in zip(uncached, fixed_list):
+            key = orig.lower().strip()
+            _capitalization_cache[key] = str(fixed).strip()
+
+        result = []
+        for item in items:
+            key = item.lower().strip()
+            if key in _capitalization_cache:
+                result.append(_capitalization_cache[key])
+            elif key in cached_results:
+                result.append(cached_results[key])
+            else:
+                result.append(item)
+        return result
+    except Exception:
+        return items
 
 
 def _ensure_first_letter_capital(s: str) -> str:
-    """Force first character to uppercase if it's a lowercase letter."""
     s = (s or "").strip()
     if not s:
         return s
@@ -499,211 +636,186 @@ def _ensure_first_letter_capital(s: str) -> str:
     return s
 
 
-def fix_skill_capitalization(skill: str) -> str:
-    """Fix capitalization for a single skill term + enforce first-letter-capital."""
+async def fix_skill_capitalization(skill: str) -> str:
+    """Fix capitalization for a single skill term via cache or GPT."""
     skill = (skill or "").strip()
     if not skill:
         return ""
+    key = skill.lower().strip()
+    if key in _capitalization_cache:
+        return _capitalization_cache[key]
+    fixed = await fix_capitalization_gpt(skill)
+    fixed = _ensure_first_letter_capital(fixed)
+    _capitalization_cache[key] = fixed
+    return fixed
 
-    skill_lower = skill.lower()
-    if skill_lower in CAPITALIZATION_MAP:
-        return CAPITALIZATION_MAP[skill_lower]
 
-    out = fix_capitalization(skill)
-    out = _ensure_first_letter_capital(out)
-    return out
+def fix_skill_capitalization_sync(skill: str) -> str:
+    """Sync version — uses cache only, no GPT call."""
+    skill = (skill or "").strip()
+    if not skill:
+        return ""
+    key = skill.lower().strip()
+    if key in _capitalization_cache:
+        return _capitalization_cache[key]
+    return _ensure_first_letter_capital(skill)
 
 
 # ============================================================
-# 🏢 ENHANCED Company Context with Progression & Vocabulary
+# ✅ SKILL VALIDATION using GPT — STRICT FILTERING
 # ============================================================
 
-COMPANY_CONTEXTS = {
-    "ayar labs": {
-        "type": "industry_internship",
-        "domain": "ML/AI in Semiconductor Industry",
-        "context": "Silicon photonics company where ML/AI is applied across semiconductor workflow for yield prediction, process optimization, and quality assurance.",
-        "technical_vocabulary": [
-            "yield prediction", "process optimization", "wafer inspection",
-            "defect classification", "signal integrity", "test data analysis",
-            "equipment health monitoring", "production forecasting", "quality metrics"
-        ],
-        "ml_projects": [
-            "ML-based yield prediction using manufacturing sensor data and process parameters",
-            "Predictive maintenance system for semiconductor fabrication equipment health",
-            "Automated defect classification pipeline for wafer inspection quality control",
-            "Time-series forecasting model for production capacity planning optimization",
-            "Feature engineering framework for high-dimensional semiconductor test data"
-        ],
-        "believable_tasks": [
-            "Data Preprocessing", "Feature Engineering", "Model Training", "Hyperparameter Tuning",
-            "Cross-Validation", "Model Evaluation", "Pipeline Development", "Data Visualization",
-            "Statistical Analysis", "Experiment Tracking", "Model Deployment", "Batch Inference"
-        ],
-        "progression_tasks": {
-            "early": ["data cleaning", "EDA", "baseline models", "documentation"],
-            "mid": ["feature engineering", "model development", "pipeline creation"],
-            "late": ["model optimization", "deployment prep", "production integration"]
-        }
-    },
-    "indian institute of technology indore": {
-        "type": "research_internship",
-        "domain": "ML/AI Research",
-        "context": "Premier research institution conducting cutting-edge ML/AI research with focus on novel architectures and optimization methods.",
-        "technical_vocabulary": [
-            "state-of-the-art", "baseline comparison", "ablation study",
-            "benchmark evaluation", "novel architecture", "convergence analysis",
-            "generalization capability", "theoretical foundation", "empirical validation"
-        ],
-        "ml_projects": [
-            "Research on efficient Neural Network architectures for resource-constrained deployment",
-            "Investigation of Transfer Learning techniques for cross-domain adaptation",
-            "Development of novel Attention Mechanisms for improved sequence modeling",
-            "Empirical study of optimization algorithms for Deep Learning convergence",
-            "Research on model compression and knowledge distillation techniques"
-        ],
-        "believable_tasks": [
-            "Literature Review", "Baseline Implementation", "Experiment Design", "Ablation Studies",
-            "Benchmark Evaluation", "Result Analysis", "Technical Writing", "Paper Reproduction"
-        ],
-        "progression_tasks": {
-            "early": ["literature survey", "baseline reproduction", "data preparation"],
-            "mid": ["experiment design", "systematic evaluation", "ablation studies"],
-            "late": ["novel contributions", "paper writing", "presentation"]
-        }
-    },
-    "iit indore": {
-        "type": "research_internship",
-        "domain": "ML/AI Research",
-        "context": "Premier research institution conducting ML/AI research.",
-        "technical_vocabulary": [
-            "state-of-the-art", "baseline comparison", "ablation study",
-            "benchmark evaluation", "novel architecture"
-        ],
-        "ml_projects": [
-            "Novel Neural Network architecture research",
-            "Transfer Learning and Domain Adaptation studies",
-            "Attention mechanisms and Transformer variants"
-        ],
-        "believable_tasks": [
-            "Literature Review", "Baseline Implementation", "Experiment Design", "Ablation Studies"
-        ],
-        "progression_tasks": {
-            "early": ["literature survey", "baseline reproduction"],
-            "mid": ["experiment design", "evaluation"],
-            "late": ["novel contributions", "documentation"]
-        }
-    },
-    "national institute of technology jaipur": {
-        "type": "research_internship",
-        "domain": "Applied ML Research",
-        "context": "Engineering institution focusing on practical ML applications to real-world problems.",
-        "technical_vocabulary": [
-            "practical application", "real-world dataset", "engineering constraints",
-            "system integration", "performance benchmarking", "scalability analysis",
-            "robustness testing", "deployment considerations"
-        ],
-        "ml_projects": [
-            "Applied Machine Learning for time-series forecasting in engineering systems",
-            "Development of anomaly detection methods for industrial monitoring applications",
-            "Classification system for pattern recognition in sensor data streams",
-            "Ensemble methods research for improved prediction reliability",
-            "Feature selection study for high-dimensional engineering datasets"
-        ],
-        "believable_tasks": [
-            "Data Collection", "Data Cleaning", "Exploratory Analysis", "Feature Extraction",
-            "Model Selection", "Training Pipelines", "Error Analysis", "Documentation"
-        ],
-        "progression_tasks": {
-            "early": ["data collection", "preprocessing", "EDA"],
-            "mid": ["model implementation", "evaluation", "iteration"],
-            "late": ["optimization", "documentation", "handoff"]
-        }
-    },
-    "nit jaipur": {
-        "type": "research_internship",
-        "domain": "Applied ML Research",
-        "context": "Engineering institution focusing on practical ML applications.",
-        "technical_vocabulary": [
-            "practical application", "real-world dataset", "engineering constraints"
-        ],
-        "ml_projects": [
-            "Time-series analysis and forecasting models",
-            "Anomaly detection for industrial systems",
-            "Regression models for engineering tasks"
-        ],
-        "believable_tasks": [
-            "Data Collection", "Data Cleaning", "Exploratory Analysis", "Feature Extraction"
-        ],
-        "progression_tasks": {
-            "early": ["data collection", "preprocessing"],
-            "mid": ["model implementation", "evaluation"],
-            "late": ["optimization", "documentation"]
-        }
+_validated_skills_cache: Dict[str, bool] = {}
+
+
+async def is_valid_skill(keyword: str) -> bool:
+    global _validated_skills_cache
+    keyword_lower = keyword.lower().strip()
+    if keyword_lower in _validated_skills_cache:
+        return _validated_skills_cache[keyword_lower]
+
+    non_skills = {
+        "phd", "ph.d", "ms", "m.s", "msc", "m.sc", "bs", "b.s", "bsc", "b.sc",
+        "bachelor", "master", "masters", "degree", "university", "college",
+        "experience", "years", "year", "month", "months", "week", "weeks",
+        "required", "preferred", "plus", "bonus", "nice to have",
+        "strong", "excellent", "good", "proficient", "familiar", "advanced", "basic",
+        "knowledge", "understanding", "ability", "skills", "skill",
+        "iso", "nist", "gdpr", "hipaa", "sox", "pci", "cmmi", "itil",
+        "compliance", "certified", "certification", "framework", "standard",
+        "iso 42001", "nist ai rmf", "ai rmf", "rmf",
     }
-}
+    if keyword_lower in non_skills:
+        _validated_skills_cache[keyword_lower] = False
+        log_event(f"❌ [SKILL FAST-REJECT] '{keyword}' → Non-skill")
+        return False
+
+    if re.match(r"^(iso|nist|pci|gdpr)\s+\d+", keyword_lower):
+        _validated_skills_cache[keyword_lower] = False
+        log_event(f"❌ [SKILL PATTERN-REJECT] '{keyword}' → Standard pattern")
+        return False
+
+    prompt = f"""Is "{keyword}" a HARD TECHNICAL SKILL or ESSENTIAL SOFT SKILL for a resume?
+
+**ACCEPT (true):** Programming languages, frameworks, libraries, tools, platforms, databases,
+technical concepts (Machine Learning, System Design, etc.), essential soft skills ONLY
+(Leadership, Communication, Problem-Solving, Teamwork).
+
+**REJECT (false):** Standards/certifications (ISO, NIST, GDPR), degrees, generic qualifiers,
+time periods, vague terms, company names, job requirements.
+
+Return STRICT JSON: {{"is_skill": true}} or {{"is_skill": false}}
+Keyword: "{keyword}"
+"""
+    try:
+        data = await gpt_json(prompt, temperature=0.0)
+        is_skill = data.get("is_skill", False)
+        _validated_skills_cache[keyword_lower] = bool(is_skill)
+        status = "✅" if is_skill else "❌"
+        log_event(f"{status} [SKILL GPT] '{keyword}' → {is_skill}")
+        return bool(is_skill)
+    except Exception as e:
+        log_event(f"⚠️ [SKILL VALIDATION] Failed for '{keyword}': {e}")
+        _validated_skills_cache[keyword_lower] = False
+        return False
 
 
-def get_company_context(company_name: str) -> Dict[str, Any]:
+async def filter_valid_skills(keywords: List[str]) -> List[str]:
+    if not keywords:
+        return []
+    tasks = [is_valid_skill(kw) for kw in keywords]
+    results = await asyncio.gather(*tasks)
+    valid_skills = [kw for kw, is_valid in zip(keywords, results) if is_valid]
+    removed = set(keywords) - set(valid_skills)
+    if removed:
+        log_event(f"🧹 [SKILL FILTER] Removed {len(removed)} non-skills: {', '.join(list(removed)[:5])}")
+    return valid_skills
+
+
+# ============================================================
+# 🏢 GPT-BASED COMPANY CONTEXT (replaces hardcoded map)
+# ============================================================
+
+_company_context_cache: Dict[str, Dict[str, Any]] = {}
+
+
+async def get_company_context_gpt(company_name: str) -> Dict[str, Any]:
+    """Use GPT to generate company context dynamically instead of hardcoded map."""
     name_lower = (company_name or "").lower().strip()
-    for key, ctx in COMPANY_CONTEXTS.items():
-        if key in name_lower or name_lower in key:
-            return ctx
-    return {
-        "type": "internship",
-        "domain": "ML/AI",
-        "context": "Technical internship applying Machine Learning and Data Science.",
-        "technical_vocabulary": ["model development", "data analysis", "pipeline"],
-        "ml_projects": ["ML Model Development", "Data Pipeline Creation"],
-        "believable_tasks": ["Model Development", "Data Analysis", "Testing", "Documentation"],
-        "progression_tasks": {
-            "early": ["learning", "documentation"],
-            "mid": ["implementation", "testing"],
-            "late": ["optimization", "delivery"]
+    if name_lower in _company_context_cache:
+        return _company_context_cache[name_lower]
+
+    prompt = f"""Analyze this company/institution for resume bullet writing context.
+Return STRICT JSON:
+{{
+    "type": "industry_internship or research_internship or internship",
+    "domain": "2-4 word domain description",
+    "context": "1-2 sentence description of what ML/AI work is done here",
+    "technical_vocabulary": ["5-8 domain-specific technical terms used at this company"],
+    "ml_projects": ["3-5 realistic ML project descriptions for an intern here"],
+    "believable_tasks": ["8-12 tasks an ML intern would realistically do here"],
+    "progression_tasks": {{
+        "early": ["3-4 early-stage intern tasks"],
+        "mid": ["3-4 mid-stage intern tasks"],
+        "late": ["3-4 late-stage intern tasks"]
+    }}
+}}
+
+Company/Institution: "{company_name}"
+
+Rules:
+- Be REALISTIC about what an intern would actually do
+- For universities/research institutions, focus on research internship context
+- For companies, focus on industry internship context
+- Technical vocabulary should be domain-specific, not generic
+"""
+    try:
+        data = await gpt_json(prompt, temperature=0.2)
+        result = {
+            "type": data.get("type", "internship"),
+            "domain": data.get("domain", "ML/AI"),
+            "context": data.get("context", "Technical internship applying Machine Learning."),
+            "technical_vocabulary": data.get("technical_vocabulary", ["model development", "data analysis"]),
+            "ml_projects": data.get("ml_projects", ["ML Model Development"]),
+            "believable_tasks": data.get("believable_tasks", ["Model Development", "Data Analysis"]),
+            "progression_tasks": data.get("progression_tasks", {
+                "early": ["learning", "documentation"],
+                "mid": ["implementation", "testing"],
+                "late": ["optimization", "delivery"],
+            }),
         }
-    }
+        _company_context_cache[name_lower] = result
+        log_event(f"🏢 [COMPANY CONTEXT] Generated for '{company_name}': type={result['type']}")
+        return result
+    except Exception as e:
+        log_event(f"⚠️ [COMPANY CONTEXT] Failed for '{company_name}': {e}")
+        fallback = {
+            "type": "internship",
+            "domain": "ML/AI",
+            "context": "Technical internship applying Machine Learning and Data Science.",
+            "technical_vocabulary": ["model development", "data analysis", "pipeline"],
+            "ml_projects": ["ML Model Development", "Data Pipeline Creation"],
+            "believable_tasks": ["Model Development", "Data Analysis", "Testing", "Documentation"],
+            "progression_tasks": {
+                "early": ["learning", "documentation"],
+                "mid": ["implementation", "testing"],
+                "late": ["optimization", "delivery"],
+            },
+        }
+        _company_context_cache[name_lower] = fallback
+        return fallback
 
 
 # ============================================================
-# 🏢 Company Core Expectations (target employer)
+# 🏢 Company Core Expectations (target employer) — GPT-based
 # ============================================================
-
-COMPANY_CORE_FALLBACKS: Dict[str, Dict[str, Any]] = {
-    "netflix": {
-        "core_areas": ["Recommender Systems", "Search & Ranking", "Experimentation", "Large-Scale Data"],
-        "core_keywords": ["Recommender Systems", "Search & Ranking", "A/B Testing", "Spark", "Scala", "Data Pipelines", "Offline Evaluation"],
-    },
-    "google": {
-        "core_areas": ["System Design", "Scalability", "Distributed Systems", "Experimentation"],
-        "core_keywords": ["System Design", "Distributed Systems", "Scalability", "A/B Testing", "Data Structures", "Algorithms"],
-    },
-    "meta": {
-        "core_areas": ["Experimentation", "Ranking", "Large-Scale Data", "Distributed Systems"],
-        "core_keywords": ["A/B Testing", "Ranking", "Distributed Systems", "Spark", "Data Pipelines", "Online Experimentation"],
-    },
-    "amazon": {
-        "core_areas": ["Scalability", "Distributed Systems", "Operational Excellence", "Data-driven Decisions"],
-        "core_keywords": ["Distributed Systems", "Scalability", "System Design", "Monitoring", "Data Pipelines"],
-    },
-    "microsoft": {
-        "core_areas": ["Cloud Computing", "Distributed Systems", "AI/ML", "Product Development"],
-        "core_keywords": ["Azure", "Distributed Systems", "Machine Learning", "System Design", "Cloud Architecture"],
-    },
-    "apple": {
-        "core_areas": ["Privacy-Preserving ML", "On-Device ML", "User Experience", "System Optimization"],
-        "core_keywords": ["On-Device ML", "Privacy", "Core ML", "System Optimization", "User Experience"],
-    },
-}
 
 _company_core_cache: Dict[str, Dict[str, Any]] = {}
 
 
 async def extract_company_core_requirements(
-    target_company: str,
-    target_role: str,
-    jd_text: str,
+    target_company: str, target_role: str, jd_text: str,
 ) -> Dict[str, Any]:
-    """Uses ChatGPT API to infer company expectations NOT always in the JD."""
     ckey = (target_company or "").strip().lower()
     rkey = (target_role or "").strip().lower()
     cache_key = f"{ckey}__{rkey}"
@@ -719,74 +831,276 @@ async def extract_company_core_requirements(
         _company_core_cache[cache_key] = out
         return out
 
-    json_schema = (
-        '{\n'
-        '  "core_areas": ["..."],\n'
-        '  "core_keywords": ["..."],\n'
-        '  "notes": "1-2 sentence justification"\n'
-        '}'
-    )
-
     prompt = (
         "You are building an ATS-focused resume optimizer.\n"
-        "Infer the KEY COMPANY EXPECTATIONS for the target employer that are often NOT explicitly stated in the JD.\n\n"
-        f"Target Company: {target_company}\n"
-        f"Target Role: {target_role}\n\n"
+        "Infer KEY COMPANY EXPECTATIONS for the target employer often NOT stated in JD.\n\n"
+        f"Target Company: {target_company}\nTarget Role: {target_role}\n\n"
         "Rules:\n"
-        "- Return STRICT JSON ONLY in this format:\n"
-        f"{json_schema}\n"
-        "- core_areas: 3-6 high-level areas (2-4 words each).\n"
-        "- core_keywords: 8-14 resume-friendly skills/topics/tools commonly expected.\n"
-        "- Do NOT invent proprietary internal tool names.\n"
-        "- Keep tokens short (1-4 words).\n\n"
-        "JD (for context only; do not restrict to it):\n"
-        f"{jd_text[:2500]}"
+        '- Return STRICT JSON: {"core_areas":["..."],"core_keywords":["..."],"notes":"..."}\n'
+        "- core_areas: 3-6 high-level areas (2-4 words each)\n"
+        "- core_keywords: 8-14 resume-friendly skills/topics/tools commonly expected\n"
+        "- Do NOT include standards (ISO, NIST), certifications, or compliance terms\n"
+        "- Do NOT invent proprietary internal tool names\n"
+        "- Keep tokens short (1-4 words)\n\n"
+        f"JD (context only):\n{jd_text[:2500]}"
     )
-
     try:
         data = await gpt_json(prompt, temperature=0.0)
         core_areas = data.get("core_areas", []) or []
         core_kw = data.get("core_keywords", []) or []
         notes = (data.get("notes", "") or "").strip()
 
-        def _clean_list(lst: Iterable[Any]) -> List[str]:
-            out_list: List[str] = []
-            seen: Set[str] = set()
-            for x in lst:
-                s = re.sub(r"[^\w\-\+\.#\/ \(\)&]", "", str(x)).strip()
-                s = re.sub(r"\s+", " ", s)
-                if not s:
-                    continue
-                s = fix_skill_capitalization(s)
-                key = s.lower()
-                if key not in seen:
-                    seen.add(key)
-                    out_list.append(s)
-            return out_list
+        # Fix capitalization via GPT batch
+        core_areas = await fix_capitalization_batch([str(x).strip() for x in core_areas if str(x).strip()])
+        core_kw = await fix_capitalization_batch([str(x).strip() for x in core_kw if str(x).strip()])
 
-        core_areas = _clean_list(core_areas)[:8]
-        core_kw = _clean_list(core_kw)[:18]
+        # Deduplicate
+        seen: Set[str] = set()
+        deduped_areas, deduped_kw = [], []
+        for a in core_areas:
+            if a.lower() not in seen:
+                seen.add(a.lower())
+                deduped_areas.append(a)
+        for k in core_kw:
+            if k.lower() not in seen:
+                seen.add(k.lower())
+                deduped_kw.append(k)
 
-        if not core_kw:
-            fb = COMPANY_CORE_FALLBACKS.get(ckey, {})
-            core_areas = fb.get("core_areas", core_areas) or core_areas
-            core_kw = fb.get("core_keywords", core_kw) or core_kw
-
-        out = {"core_areas": core_areas, "core_keywords": core_kw, "notes": notes}
+        out = {"core_areas": deduped_areas[:8], "core_keywords": deduped_kw[:18], "notes": notes}
         _company_core_cache[cache_key] = out
-        log_event(f"🏢 [COMPANY CORE] {target_company} areas={len(core_areas)} keywords={len(core_kw)}")
+        log_event(f"🏢 [COMPANY CORE] {target_company} areas={len(deduped_areas)} keywords={len(deduped_kw)}")
         return out
-
     except Exception as e:
         log_event(f"⚠️ [COMPANY CORE] Failed: {e}")
-        fb = COMPANY_CORE_FALLBACKS.get(ckey, {})
         out = {
-            "core_areas": fb.get("core_areas", ["System Design", "Experimentation", "Distributed Systems"]),
-            "core_keywords": fb.get("core_keywords", ["System Design", "Distributed Systems", "A/B Testing", "Data Pipelines", "Scalability"]),
-            "notes": "Fallback company-core profile used due to API failure.",
+            "core_areas": ["System Design", "Experimentation", "Distributed Systems"],
+            "core_keywords": ["System Design", "Distributed Systems", "A/B Testing", "Data Pipelines"],
+            "notes": "Fallback profile used.",
         }
         _company_core_cache[cache_key] = out
         return out
+
+
+# ============================================================
+# ✨ NEW: IDEAL CANDIDATE PROFILING — Implicit JD Requirements
+# ============================================================
+
+_ideal_candidate_cache: Dict[str, Dict[str, Any]] = {}
+
+
+async def profile_ideal_candidate(
+    jd_text: str, target_company: str, target_role: str,
+) -> Dict[str, Any]:
+    """
+    ✨ NEW FEATURE: Ask GPT who the IDEAL candidate is for this job.
+    Extracts IMPLICIT requirements not explicitly in JD.
+    Returns ranked points by importance with top-3 must-haves.
+    """
+    cache_key = f"{(target_company or '').lower()}__{(target_role or '').lower()}"
+    if cache_key in _ideal_candidate_cache:
+        return _ideal_candidate_cache[cache_key]
+
+    prompt = f"""You are a senior technical recruiter at {target_company} hiring for {target_role}.
+
+JOB DESCRIPTION:
+{jd_text[:3000]}
+
+Think deeply about what this job REALLY needs beyond what's written. What would the IDEAL candidate have done in their past experience?
+
+Return STRICT JSON:
+{{
+    "ideal_profile_summary": "2-3 sentence description of the ideal candidate",
+    "implicit_requirements": [
+        {{
+            "requirement": "What the job implicitly wants (1 short sentence)",
+            "importance_rank": 1,
+            "why_implicit": "Why this isn't stated but critical",
+            "bullet_theme": "A concrete resume bullet theme showing this capability"
+        }},
+        ... (exactly 6 implicit requirements, ranked 1-6 by importance)
+    ],
+    "top_3_must_haves": [
+        "Concrete thing #1 the job DEFINITELY wants candidates to have done",
+        "Concrete thing #2 the job DEFINITELY wants candidates to have done",
+        "Concrete thing #3 the job DEFINITELY wants candidates to have done"
+    ],
+    "ideal_candidate_bullet_themes": [
+        "4 specific resume bullet THEMES that would make this candidate stand out",
+        "Each theme is a concrete past-experience description (not a skill name)",
+        "These are things NOT derivable from JD keywords alone",
+        "They come from understanding what the company truly values"
+    ],
+    "differentiation_factors": [
+        "3-4 factors that separate a good candidate from a great one for this role"
+    ]
+}}
+
+CRITICAL RULES:
+- Focus on IMPLICIT requirements — things not directly stated in JD
+- Think about: company culture, team dynamics, hidden expectations
+- Think about: what past projects would impress this specific team
+- top_3_must_haves should be CONCRETE PAST EXPERIENCES, not skills
+- ideal_candidate_bullet_themes should be ACTIONABLE resume bullet ideas
+- Each bullet theme must be distinct and non-overlapping
+"""
+    try:
+        data = await gpt_json(prompt, temperature=0.3, model="gpt-4o-mini")
+
+        result = {
+            "ideal_profile_summary": data.get("ideal_profile_summary", ""),
+            "implicit_requirements": data.get("implicit_requirements", [])[:6],
+            "top_3_must_haves": data.get("top_3_must_haves", [])[:3],
+            "ideal_candidate_bullet_themes": data.get("ideal_candidate_bullet_themes", [])[:4],
+            "differentiation_factors": data.get("differentiation_factors", [])[:4],
+        }
+
+        _ideal_candidate_cache[cache_key] = result
+        log_event(f"🌟 [IDEAL CANDIDATE] Profiled for {target_company}/{target_role}")
+        log_event(f"   Top 3 must-haves: {result['top_3_must_haves']}")
+        log_event(f"   Implicit reqs: {len(result['implicit_requirements'])}")
+        log_event(f"   Bullet themes: {len(result['ideal_candidate_bullet_themes'])}")
+        return result
+    except Exception as e:
+        log_event(f"⚠️ [IDEAL CANDIDATE] Failed: {e}")
+        fallback = {
+            "ideal_profile_summary": "A strong ML engineer with hands-on experience.",
+            "implicit_requirements": [],
+            "top_3_must_haves": [
+                "Built end-to-end ML pipelines from data to deployment",
+                "Worked with large-scale datasets in production environments",
+                "Demonstrated ability to iterate quickly on model experiments",
+            ],
+            "ideal_candidate_bullet_themes": [
+                "End-to-end ML pipeline development with production deployment",
+                "Large-scale data processing and feature engineering",
+                "Model experimentation with systematic evaluation",
+                "Cross-functional collaboration on ML-driven products",
+            ],
+            "differentiation_factors": [
+                "Production ML experience", "Scale of data handled",
+                "Speed of experimentation", "Business impact awareness",
+            ],
+        }
+        _ideal_candidate_cache[cache_key] = fallback
+        return fallback
+
+
+async def rank_all_bullet_points(
+    jd_text: str,
+    target_company: str,
+    target_role: str,
+    jd_keywords: List[str],
+    ideal_candidate: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    ✨ NEW: Rank ALL bullet point themes by importance.
+    Determines which 8 come from keywords and which 4 from ideal candidate.
+    Ensures NO keyword is used twice.
+    """
+    top_3 = ideal_candidate.get("top_3_must_haves", [])
+    bullet_themes = ideal_candidate.get("ideal_candidate_bullet_themes", [])
+    implicit_reqs = ideal_candidate.get("implicit_requirements", [])
+
+    prompt = f"""You are optimizing a resume for {target_role} at {target_company}.
+
+JD KEYWORDS AVAILABLE (each can only be used ONCE across all 12 bullets):
+{json.dumps(jd_keywords[:30])}
+
+IDEAL CANDIDATE INSIGHTS:
+- Top 3 must-haves: {json.dumps(top_3)}
+- Bullet themes from ideal candidate analysis: {json.dumps(bullet_themes)}
+- Implicit requirements: {json.dumps([r.get('requirement', '') for r in implicit_reqs[:6]])}
+
+TASK: Create a plan for 12 resume bullets across 4 experience blocks (3 bullets each).
+
+Return STRICT JSON:
+{{
+    "keyword_bullets": [
+        {{
+            "bullet_index": 0,
+            "block_index": 0,
+            "primary_keyword": "one keyword from JD (UNIQUE, never repeated)",
+            "secondary_keywords": ["1-2 supporting keywords"],
+            "theme": "What this bullet should demonstrate",
+            "source": "keyword"
+        }},
+        ... (exactly 8 bullets sourced from JD keywords)
+    ],
+    "ideal_candidate_bullets": [
+        {{
+            "bullet_index": 8,
+            "block_index": 2,
+            "theme": "What this bullet should demonstrate (from ideal candidate analysis)",
+            "implicit_requirement": "Which implicit requirement this addresses",
+            "supporting_keywords": ["1-2 JD keywords to weave in naturally"],
+            "source": "ideal_candidate"
+        }},
+        ... (exactly 4 bullets sourced from ideal candidate insights)
+    ],
+    "keyword_usage_map": {{
+        "keyword1": 3,
+        "keyword2": 7
+    }},
+    "importance_ranking": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+}}
+
+CRITICAL RULES:
+1. EXACTLY 8 keyword_bullets + 4 ideal_candidate_bullets = 12 total
+2. Each JD keyword can appear as primary_keyword in ONLY ONE bullet
+3. secondary_keywords should also be unique where possible
+4. Spread keyword_bullets across all 4 blocks (2 per block)
+5. Spread ideal_candidate_bullets: 1 per block
+6. importance_ranking: order all 12 bullet indices from most to least important
+7. The 4 ideal_candidate bullets should cover the top_3_must_haves
+8. Block 0 = most recent experience, Block 3 = oldest
+"""
+    try:
+        data = await gpt_json(prompt, temperature=0.2)
+        keyword_bullets = data.get("keyword_bullets", [])[:8]
+        ideal_bullets = data.get("ideal_candidate_bullets", [])[:4]
+        importance = data.get("importance_ranking", list(range(12)))
+        usage_map = data.get("keyword_usage_map", {})
+
+        log_event(f"📋 [BULLET PLAN] keyword_bullets={len(keyword_bullets)}, ideal_bullets={len(ideal_bullets)}")
+        log_event(f"📋 [IMPORTANCE] Top 3 most important: {importance[:3]}")
+
+        return {
+            "keyword_bullets": keyword_bullets,
+            "ideal_candidate_bullets": ideal_bullets,
+            "importance_ranking": importance,
+            "keyword_usage_map": usage_map,
+        }
+    except Exception as e:
+        log_event(f"⚠️ [BULLET RANKING] Failed: {e}")
+        # Fallback: simple distribution
+        keyword_bullets = []
+        for i in range(8):
+            block = i // 2
+            kw = jd_keywords[i] if i < len(jd_keywords) else "Machine Learning"
+            keyword_bullets.append({
+                "bullet_index": i if i < 6 else i + 1,
+                "block_index": block,
+                "primary_keyword": kw,
+                "secondary_keywords": [],
+                "theme": f"Demonstrate {kw} expertise",
+                "source": "keyword",
+            })
+        ideal_bullets = []
+        for i, theme in enumerate(bullet_themes[:4]):
+            ideal_bullets.append({
+                "bullet_index": [2, 5, 8, 11][i] if i < 4 else 11,
+                "block_index": i,
+                "theme": theme,
+                "implicit_requirement": top_3[i] if i < len(top_3) else "",
+                "supporting_keywords": [],
+                "source": "ideal_candidate",
+            })
+        return {
+            "keyword_bullets": keyword_bullets,
+            "ideal_candidate_bullets": ideal_bullets,
+            "importance_ranking": list(range(12)),
+            "keyword_usage_map": {},
+        }
 
 
 # ============================================================
@@ -802,8 +1116,8 @@ UNICODE_NORM = {
     "–": "-", "—": "-", "−": "-", "•": "-", "·": "-", "●": "-",
     "→": "->", "⇒": "=>", "↔": "<->", "×": "x", "°": " degrees ",
     "\u00A0": " ", "\uf0b7": "-", "\x95": "-",
-
 }
+
 
 def latex_escape_text(s: str) -> str:
     if not s or not isinstance(s, str):
@@ -832,52 +1146,6 @@ def strip_all_macros_keep_text(s: str) -> str:
 
 
 # ============================================================
-# 🚫 No-quantification guardrails
-# ============================================================
-
-_NUMBER_WORDS_RE = re.compile(
-    r"\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|"
-    r"eleven|twelve|dozen|couple|hundred|thousand|million|billion|"
-    r"first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b",
-    re.IGNORECASE,
-)
-
-_QUANT_UNITS_RE = re.compile(
-    r"\b(day|days|week|weeks|month|months|year|years|quarter|quarters|"
-    r"hrs?|hours?|mins?|minutes?|seconds?|sec|sprint|sprints|percent|percentage|%)\b",
-    re.IGNORECASE,
-)
-
-_QUANT_SYMBOLS_RE = re.compile(r"[\d%$£€¥]")
-_MULTIPLIER_RE = re.compile(r"\b\d+\s*[xX]\b")
-
-
-def _has_any_quantification(text: str) -> bool:
-    if not text:
-        return False
-    t = strip_all_macros_keep_text(text)
-    return bool(_QUANT_SYMBOLS_RE.search(t) or _MULTIPLIER_RE.search(t) or
-                _NUMBER_WORDS_RE.search(t) or _QUANT_UNITS_RE.search(t))
-
-
-def _strip_quantification(text: str) -> str:
-    if not text:
-        return ""
-    t = strip_all_macros_keep_text(text)
-    t = re.sub(r"[$£€¥]\s*\d+(\.\d+)?", "", t)
-    t = re.sub(r"\b\d+(\.\d+)?\b", "", t)
-    t = t.replace("%", "")
-    t = re.sub(r"\b[xX]\b", "", t)
-    t = _NUMBER_WORDS_RE.sub("", t)
-    t = _QUANT_UNITS_RE.sub("", t)
-    t = re.sub(r"\s+", " ", t).strip()
-    t = re.sub(r"\s+([,.;:])", r"\1", t).strip()
-    if t and t[-1] not in ".!?":
-        t += "."
-    return t
-
-
-# ============================================================
 # 📏 BULLET LENGTH VALIDATION
 # ============================================================
 
@@ -896,7 +1164,6 @@ def is_valid_bullet_length(text: str) -> bool:
 
 
 def adjust_bullet_length(text: str) -> str:
-    """Truncate if too long; otherwise leave."""
     words = (text or "").split()
     if len(words) > MAX_BULLET_WORDS:
         truncated = words[:MAX_BULLET_WORDS]
@@ -966,41 +1233,7 @@ def section_rx(name: str) -> re.Pattern:
 
 
 # ============================================================
-# 🧠 GPT Helper
-# ============================================================
-
-def _json_from_text(text: str, default: Any):
-    m = re.search(r"\{[\s\S]*\}", text or "")
-    if not m:
-        return default
-    try:
-        return json.loads(m.group(0))
-    except Exception:
-        return default
-
-
-async def gpt_json(prompt: str, temperature: float = 0.0, model: str = "gpt-4o-mini") -> dict:
-    client = get_openai_client()
-    kwargs: Dict[str, Any] = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": temperature,
-        "timeout": 120,
-    }
-
-    try:
-        kwargs["response_format"] = {"type": "json_object"}
-        resp = client.chat.completions.create(**kwargs)
-    except TypeError:
-        kwargs.pop("response_format", None)
-        resp = client.chat.completions.create(**kwargs)
-
-    content = (resp.choices[0].message.content or "").strip()
-    return _json_from_text(content or "{}", {})
-
-
-# ============================================================
-# 🧠 JD Analysis
+# 🧠 JD Analysis — UPGRADED
 # ============================================================
 
 async def extract_company_role(jd_text: str) -> Tuple[str, str]:
@@ -1032,14 +1265,29 @@ Return STRICT JSON:
     "domain_context": "brief domain description"
 }}
 
-Be comprehensive. Extract EVERY technical term that belongs on a resume.
+IMPORTANT:
+- Extract ONLY hard technical skills (programming languages, frameworks, tools, platforms)
+- DO NOT include: ISO standards, NIST frameworks, certifications, compliance terms
+- DO NOT include: degrees (PhD, MS), time periods, generic qualifiers
 """
-
     try:
         data = await gpt_json(prompt, temperature=0.0)
-        must_have = [fix_skill_capitalization(k) for k in data.get("must_have", [])]
-        should_have = [fix_skill_capitalization(k) for k in data.get("should_have", [])]
-        nice_to_have = [fix_skill_capitalization(k) for k in data.get("nice_to_have", [])]
+
+        # Fix capitalization via GPT batch
+        must_raw = [str(k).strip() for k in data.get("must_have", []) if str(k).strip()]
+        should_raw = [str(k).strip() for k in data.get("should_have", []) if str(k).strip()]
+        nice_raw = [str(k).strip() for k in data.get("nice_to_have", []) if str(k).strip()]
+
+        all_raw = must_raw + should_raw + nice_raw
+        if all_raw:
+            all_fixed = await fix_capitalization_batch(all_raw)
+            idx = 0
+            must_have = all_fixed[idx:idx + len(must_raw)]; idx += len(must_raw)
+            should_have = all_fixed[idx:idx + len(should_raw)]; idx += len(should_raw)
+            nice_to_have = all_fixed[idx:idx + len(nice_raw)]
+        else:
+            must_have, should_have, nice_to_have = [], [], []
+
         responsibilities = list(data.get("key_responsibilities", []))
         domain = data.get("domain_context", "Technology")
 
@@ -1057,19 +1305,13 @@ Be comprehensive. Extract EVERY technical term that belongs on a resume.
         must_have = dedup(must_have)
         should_have = dedup(should_have)
         nice_to_have = dedup(nice_to_have)
-
         all_keywords = must_have + should_have + nice_to_have
+
         log_event(f"💡 [JD KEYWORDS] must={len(must_have)}, should={len(should_have)}, nice={len(nice_to_have)}")
-
         return {
-            "must_have": must_have,
-            "should_have": should_have,
-            "nice_to_have": nice_to_have,
-            "all_keywords": all_keywords,
-            "responsibilities": responsibilities,
-            "domain": domain,
+            "must_have": must_have, "should_have": should_have, "nice_to_have": nice_to_have,
+            "all_keywords": all_keywords, "responsibilities": responsibilities, "domain": domain,
         }
-
     except Exception as e:
         log_event(f"⚠️ [JD KEYWORDS] Failed: {e}")
         return {
@@ -1087,11 +1329,12 @@ async def extract_coursework_gpt(jd_text: str, max_courses: int = 24) -> List[st
     try:
         data = await gpt_json(prompt, temperature=0.0)
         courses = data.get("courses", []) or []
+        if courses:
+            courses = await fix_capitalization_batch([str(c).strip() for c in courses if str(c).strip()])
         out: List[str] = []
         seen: Set[str] = set()
         for c in courses:
-            c = fix_capitalization(re.sub(r"\s+", " ", str(c)).strip())
-            c = _ensure_first_letter_capital(c)
+            c = _ensure_first_letter_capital(str(c).strip())
             if c and c.lower() not in seen:
                 seen.add(c.lower())
                 out.append(c)
@@ -1109,8 +1352,7 @@ def replace_relevant_coursework_distinct(body_tex: str, courses: List[str], max_
     seen: Set[str] = set()
     uniq: List[str] = []
     for c in courses:
-        c = fix_capitalization(re.sub(r"\s+", " ", str(c)).strip())
-        c = _ensure_first_letter_capital(c)
+        c = _ensure_first_letter_capital(re.sub(r"\s+", " ", str(c)).strip())
         if c and c.lower() not in seen:
             seen.add(c.lower())
             uniq.append(c)
@@ -1148,11 +1390,10 @@ def replace_relevant_coursework_distinct(body_tex: str, courses: List[str], max_
 def render_skills_section_flat(skills: List[str]) -> str:
     if not skills:
         return ""
-
     seen: Set[str] = set()
     unique_skills: List[str] = []
     for s in skills:
-        s = fix_skill_capitalization(str(s).strip())
+        s = str(s).strip()
         if not s:
             continue
         if s.lower() not in seen:
@@ -1160,7 +1401,6 @@ def render_skills_section_flat(skills: List[str]) -> str:
             unique_skills.append(s)
 
     skills_content = ", ".join(latex_escape_text(s) for s in unique_skills)
-
     return (
         r"\section{Skills}" + "\n"
         r"\begin{itemize}[leftmargin=0.15in, label={}]" + "\n"
@@ -1173,24 +1413,30 @@ async def replace_skills_section(body_tex: str, skills: List[str]) -> str:
     new_block = render_skills_section_flat(skills)
     if not new_block:
         return body_tex
-
     pattern = re.compile(
         r"(\\section\*?\{Skills\}[\s\S]*?)(?=%-----------|\\section\*?\{|\\end\{document\})",
         re.IGNORECASE,
     )
     if re.search(pattern, body_tex):
         return re.sub(pattern, lambda _: new_block + "\n", body_tex)
-
     m = re.search(r"%-----------TECHNICAL SKILLS-----------", body_tex, re.IGNORECASE)
     if m:
         return body_tex[:m.end()] + "\n" + new_block + "\n" + body_tex[m.end():]
-
     return body_tex
 
 
 # ============================================================
-# 📝 ENHANCED Bullet Generation with All Improvements
+# ✨ ENHANCED BULLET GENERATION — 8 keyword + 4 ideal candidate
 # ============================================================
+
+# Global keyword dedup tracker: ensures NO keyword appears in more than 1 bullet
+_global_keyword_assignments: Dict[str, int] = {}  # keyword_lower -> bullet_index
+
+
+def reset_keyword_assignment_tracking():
+    global _global_keyword_assignments
+    _global_keyword_assignments.clear()
+
 
 async def generate_credible_bullets(
     jd_text: str,
@@ -1203,143 +1449,265 @@ async def generate_credible_bullets(
     responsibilities: List[str],
     used_keywords: Set[str],
     block_index: int,
+    bullet_start_position: int,
     total_blocks: int = 4,
     num_bullets: int = 3,
+    bullet_plan: Optional[Dict[str, Any]] = None,
+    ideal_candidate: Optional[Dict[str, Any]] = None,
 ) -> Tuple[List[str], Set[str]]:
     """
     Generate ENHANCED resume bullets with:
-    - Action verb diversity
-    - Technical depth indicators
-    - Result phrases without numbers
-    - Skill progression
-    - Believability constraints
+    - ✨ NEW: 8 keyword-sourced + 4 ideal-candidate-sourced across resume
+    - ✨ NEW: NO keyword used twice (global dedup)
+    - ✨ Unique action verbs (NO repetition across all 12 bullets)
+    - ✨ Different sentence structures for each bullet
+    - ✨ 4 numbers total (positions 2,6,7,10)
+    - ✨ 4 different number categories
     """
-    exp_context = get_company_context(experience_company)
+    global _global_keyword_assignments
+
+    exp_context = await get_company_context_gpt(experience_company)
     progression = get_progression_context(block_index, total_blocks)
-    
-    # Get diverse verb categories for this company type
+
+    # Determine which bullets in this block get quantification
+    quantified_bullets_in_block = []
+    for i in range(num_bullets):
+        bullet_pos = bullet_start_position + i
+        if should_quantify_bullet(bullet_pos):
+            category = get_quantification_category(bullet_pos, jd_text)
+            quantified_bullets_in_block.append((i, category))
+
+    # Get verb categories and pre-select unique verbs
     verb_categories = get_verb_categories_for_context(exp_context.get("type", "internship"))
-    suggested_verbs = [get_diverse_verb(cat) for cat in verb_categories[:3]]
-    
-    # Get technical depth phrase
+    suggested_verbs = []
+    for cat in (verb_categories * 3)[:num_bullets]:
+        verb = get_diverse_verb(cat)
+        suggested_verbs.append(verb)
+
     tech_depth = get_technical_depth_phrase("ml_techniques")
-    
-    # Get result phrase
     result_phrase = get_result_phrase("performance")
-    
-    # Get believability phrase
     believability = get_believability_phrase()
 
-    available_must = [fix_skill_capitalization(k) for k in must_use_keywords if k.lower() not in used_keywords][:6]
-    available_should = [fix_skill_capitalization(k) for k in should_use_keywords if k.lower() not in used_keywords][:4]
+    # ✨ NEW: Determine bullet sources from plan
+    bullet_sources = []  # list of dicts per bullet in this block
+    for local_idx in range(num_bullets):
+        abs_idx = bullet_start_position + local_idx
+        source_info = {"source": "keyword", "primary_keyword": "", "theme": "", "implicit_requirement": ""}
 
-    core_pool = [fix_skill_capitalization(k) for k in (company_core_keywords or [])]
-    core_pool = [k for k in core_pool if k.lower() not in used_keywords][:6]
+        if bullet_plan:
+            # Check keyword bullets
+            for kb in bullet_plan.get("keyword_bullets", []):
+                if kb.get("bullet_index") == abs_idx or kb.get("block_index") == block_index:
+                    # Match by block index and local position
+                    block_kbs = [b for b in bullet_plan["keyword_bullets"] if b.get("block_index") == block_index]
+                    kbs_in_block = sorted(block_kbs, key=lambda x: x.get("bullet_index", 99))
+                    keyword_local_indices = []
+                    for bk in kbs_in_block:
+                        if bk.get("source") == "keyword":
+                            keyword_local_indices.append(bk)
+                    break
 
-    keywords_for_block = core_pool[:3] + available_must + available_should
+            # Check ideal candidate bullets
+            for ib in bullet_plan.get("ideal_candidate_bullets", []):
+                if ib.get("block_index") == block_index:
+                    source_info = {
+                        "source": "ideal_candidate",
+                        "primary_keyword": "",
+                        "theme": ib.get("theme", ""),
+                        "implicit_requirement": ib.get("implicit_requirement", ""),
+                        "supporting_keywords": ib.get("supporting_keywords", []),
+                    }
+                    break
+
+        bullet_sources.append(source_info)
+
+    # Build keyword pool — ONLY keywords not yet assigned to another bullet
+    available_must = [k for k in must_use_keywords
+                      if k.lower() not in _global_keyword_assignments and k.lower() not in used_keywords]
+    available_should = [k for k in should_use_keywords
+                        if k.lower() not in _global_keyword_assignments and k.lower() not in used_keywords]
+    core_pool = [k for k in (company_core_keywords or [])
+                 if k.lower() not in _global_keyword_assignments and k.lower() not in used_keywords]
+
+    keywords_for_block = core_pool[:3] + available_must[:6] + available_should[:4]
     keywords_for_block = [k for k in keywords_for_block if k]
+
+    # Fix capitalization
+    if keywords_for_block:
+        keywords_for_block = await fix_capitalization_batch(keywords_for_block)
 
     keywords_str = ", ".join(keywords_for_block[:10]) if keywords_for_block else "Python, Machine Learning"
     resp_str = "; ".join(responsibilities[:3]) if responsibilities else "Model Development; Evaluation; Deployment"
 
     core_focus_str = ", ".join(core_pool[:4]) if core_pool else ""
-    core_rule = (
-        f"- Naturally include target-company core areas: {core_focus_str}\n"
-        if core_focus_str else ""
-    )
+    core_rule = f"- Naturally include target-company core areas: {core_focus_str}\n" if core_focus_str else ""
 
-    # Get company-specific vocabulary
     tech_vocab = exp_context.get("technical_vocabulary", [])
     vocab_str = ", ".join(tech_vocab[:5]) if tech_vocab else ""
+
+    # Build quantification instructions
+    quant_instructions = []
+    for local_idx, category in quantified_bullets_in_block:
+        is_hero = (bullet_start_position + local_idx) in HERO_POSITIONS
+        if is_hero:
+            quant_instructions.append(
+                f"   • Bullet {local_idx + 1}: HERO POINT with comparison (from X% to Y%)")
+        else:
+            if category == "count_scale":
+                quant_instructions.append(
+                    f"   • Bullet {local_idx + 1}: Include COUNT metric (e.g., '10,347 samples')")
+            elif category == "metric_achievement":
+                quant_instructions.append(
+                    f"   • Bullet {local_idx + 1}: Include ML METRIC (e.g., 'F1 score of 0.87')")
+            elif category == "percent_improvement":
+                quant_instructions.append(
+                    f"   • Bullet {local_idx + 1}: Include PERCENTAGE improvement (e.g., '23.7%')")
+
+    quant_instruction = ""
+    if quant_instructions:
+        quant_instruction = f"""
+🎯 QUANTIFICATION REQUIREMENTS:
+{chr(10).join(quant_instructions)}
+   • Other bullets: NO numbers
+   • Numbers must end in ODD digits (e.g., 23.7%, 10,347, 0.87)
+"""
+    else:
+        quant_instruction = "🎯 NO quantification for this block. Focus on methodology and qualitative impact.\n"
+
+    # ✨ NEW: Build ideal candidate bullet instructions
+    ideal_bullet_instructions = ""
+    ideal_themes_in_block = []
+    if ideal_candidate and bullet_plan:
+        for ib in bullet_plan.get("ideal_candidate_bullets", []):
+            if ib.get("block_index") == block_index:
+                ideal_themes_in_block.append(ib)
+
+    if ideal_themes_in_block:
+        themes_text = "\n".join([
+            f"   • One bullet MUST address: \"{t.get('theme', '')}\""
+            f"\n     (Implicit requirement: {t.get('implicit_requirement', 'N/A')})"
+            for t in ideal_themes_in_block
+        ])
+        supporting_kws = []
+        for t in ideal_themes_in_block:
+            supporting_kws.extend(t.get("supporting_keywords", []))
+        skw_str = ", ".join(supporting_kws[:4]) if supporting_kws else ""
+
+        ideal_bullet_instructions = f"""
+🌟 IDEAL CANDIDATE BULLET (1 of 3 bullets in this block):
+{themes_text}
+   • Weave in these supporting keywords naturally: {skw_str}
+   • This bullet shows IMPLICIT value, not just keyword matching
+"""
+
+    # ✨ NEW: Keyword dedup instruction
+    already_used = list(_global_keyword_assignments.keys())
+    dedup_instruction = ""
+    if already_used:
+        dedup_instruction = f"""
+🚫 KEYWORD DEDUP — These keywords are ALREADY USED in other bullets (DO NOT use as primary):
+{', '.join(already_used[:20])}
+"""
 
     prompt = f"""Write EXACTLY {num_bullets} HIGHLY CREDIBLE resume bullet points for an INTERN at "{experience_company}",
 tailored for applying to "{target_company}" ({target_role}).
 
-🎯 CRITICAL REQUIREMENTS FOR CREDIBILITY:
+🎯 CRITICAL REQUIREMENTS:
+0. USE: INDIAN ACCENT IN LANGUAGE and USA SPELLING STANDARDS THROUGHOUT.
 
-1. LENGTH: Each bullet MUST be EXACTLY 18-22 words (count carefully!)
+1. LENGTH: Each bullet MUST be EXACTLY 18-22 words
 
 2. SKILLS TO USE: Each bullet MUST naturally integrate 2-3 skills from: {keywords_str}
+   ⚠️ Each keyword should be PRIMARY in only ONE bullet across the ENTIRE resume
 
-3. ACTION VERBS: Use these strong, varied verbs (one per bullet, no repetition):
-   - Suggested: {', '.join(suggested_verbs)}
-   - Avoid: "Worked on", "Helped with", "Was responsible for"
+3. ✨ ACTION VERBS (NO substitution, NO repetition):
+   - Bullet 1: {suggested_verbs[0]}
+   - Bullet 2: {suggested_verbs[1]}
+   - Bullet 3: {suggested_verbs[2]}
 
-4. TECHNICAL DEPTH: Show HOW you did things, not just WHAT:
-   - Example technique reference: "{tech_depth}"
-   - Include specific methodologies, not vague claims
+4. ✨ SENTENCE STRUCTURES: Use DIFFERENT structures for each bullet
 
-5. RESULT LANGUAGE (NO NUMBERS): End with impact phrases like:
-   - "{result_phrase}"
-   - Avoid any digits, percentages, or quantified metrics
+5. TECHNICAL DEPTH: Show HOW, not just WHAT:
+   - Example technique: "{tech_depth}"
+
+{quant_instruction}
+
+{ideal_bullet_instructions}
+
+{dedup_instruction}
 
 6. BELIEVABILITY FOR INTERN LEVEL:
    - Scope: {progression['scope'][0]} / {progression['scope'][1]} level work
    - Autonomy: {progression['autonomy']}
-   - Task complexity: {progression['complexity']}
+   - Complexity: {progression['complexity']}
    {f'- Collaboration: {believability}' if believability else ''}
 
-7. DOMAIN VOCABULARY: Use industry terms naturally:
-   - Company domain: {exp_context['domain']}
-   - Relevant terms: {vocab_str}
+7. DOMAIN VOCABULARY: {vocab_str}
+   Company domain: {exp_context['domain']}
 
 {core_rule}
-
-EXPERIENCE CONTEXT:
-- Company Type: {exp_context['type']}
-- Domain: {exp_context['domain']}
 
 JOB RESPONSIBILITIES TO ALIGN WITH:
 {resp_str}
 
-GOOD BULLET EXAMPLES (18-22 words, technical depth, no numbers):
-- "Engineered PyTorch classification pipeline with stratified Cross-Validation and Hyperparameter Tuning, achieving robust generalization across imbalanced semiconductor datasets."
-- "Developed automated Feature Engineering framework using Pandas and Scikit-learn, enabling consistent data transformation for downstream Machine Learning models."
-- "Implemented TensorFlow model training workflow with experiment tracking via MLflow, facilitating reproducible research and systematic performance comparison."
-
-BAD BULLET EXAMPLES (avoid these):
-- "Worked on machine learning projects." (too vague, no depth)
-- "Improved model accuracy by 25%." (has numbers)
-- "Responsible for data analysis tasks." (passive, no action verb)
-
 Return STRICT JSON with EXACTLY {num_bullets} bullets:
-{{"bullets": ["bullet1 (18-22 words)", "bullet2 (18-22 words)", "bullet3 (18-22 words)"]}}
+{{"bullets": ["bullet1", "bullet2", "bullet3"], "primary_keywords_used": ["kw1", "kw2", "kw3"]}}
 """
 
     try:
-        data = await gpt_json(prompt, temperature=0.25)
+        data = await gpt_json(prompt, temperature=0.3)
         bullets = data.get("bullets", []) or []
+        primary_kws = data.get("primary_keywords_used", []) or []
 
         cleaned: List[str] = []
         newly_used: Set[str] = set()
 
-        for b in bullets[:num_bullets]:
+        for local_idx, b in enumerate(bullets[:num_bullets]):
             b = str(b).strip()
-            b = fix_capitalization(b)
-            if _has_any_quantification(b):
-                b = _strip_quantification(b)
+            # Fix capitalization via GPT
+            b = await fix_capitalization_gpt(b)
+
+            # Check quantification
+            should_have_number = any(idx == local_idx for idx, _ in quantified_bullets_in_block)
+            if not should_have_number:
+                b = re.sub(r'\d+\.?\d*%', '', b)
+                b = re.sub(r'\d+x', '', b)
+                b = re.sub(r'\d+,?\d*\s+(?:samples|records|minutes|hours)', '', b)
+                b = re.sub(r'(?:F1|f1)\s+score\s+of\s+\d+\.\d+', '', b)
+                b = re.sub(r'from\s+\d+%?\s+to\s+\d+%?', '', b)
+                b = re.sub(r'\s+', ' ', b).strip()
 
             b = adjust_bullet_length(b)
             b = latex_escape_text(b)
 
             if b:
                 cleaned.append(b)
+                # Track keyword usage
                 for kw in keywords_for_block:
                     if kw.lower() in b.lower():
                         newly_used.add(kw.lower())
 
-        # Enhanced fallback bullets with proper structure
+                # ✨ NEW: Track primary keyword globally
+                if local_idx < len(primary_kws):
+                    pk = primary_kws[local_idx].lower().strip()
+                    if pk and pk not in _global_keyword_assignments:
+                        _global_keyword_assignments[pk] = bullet_start_position + local_idx
+
+        # Fallback bullets
         while len(cleaned) < num_bullets:
             idx = len(cleaned)
-            verb = get_diverse_verb(verb_categories[idx % len(verb_categories)])
-            kw1 = fix_skill_capitalization(keywords_for_block[idx % max(1, len(keywords_for_block))]) if keywords_for_block else "Python"
-            kw2 = fix_skill_capitalization(keywords_for_block[(idx + 1) % max(1, len(keywords_for_block))]) if len(keywords_for_block) > 1 else "Machine Learning"
-            
-            fallback = (
-                f"{verb} {kw1}-based analytical workflow with {kw2} integration, "
-                f"enabling systematic evaluation and improved reproducibility for research deliverables."
-            )
-            fallback = fix_capitalization(fallback)
+            verb = suggested_verbs[idx]
+            kw1 = fix_skill_capitalization_sync(keywords_for_block[idx % max(1, len(keywords_for_block))]) if keywords_for_block else "Python"
+            kw2 = fix_skill_capitalization_sync(keywords_for_block[(idx + 1) % max(1, len(keywords_for_block))]) if len(keywords_for_block) > 1 else "Machine Learning"
+
+            should_have_number = any(i == idx for i, _ in quantified_bullets_in_block)
+            if should_have_number:
+                category = next(cat for i, cat in quantified_bullets_in_block if i == idx)
+                quant_phrase = generate_quantified_phrase(category, jd_text)
+                fallback = f"{verb} {kw1}-based analytical workflow with {kw2} integration, {quant_phrase} through systematic optimization."
+            else:
+                fallback = f"{verb} {kw1}-based analytical workflow with {kw2} integration, enabling systematic evaluation and improved reproducibility."
+
             cleaned.append(latex_escape_text(fallback))
             newly_used.add(kw1.lower())
             newly_used.add(kw2.lower())
@@ -1348,13 +1716,13 @@ Return STRICT JSON with EXACTLY {num_bullets} bullets:
 
     except Exception as e:
         log_event(f"⚠️ [BULLETS] Generation failed for {experience_company}: {e}")
-        fallback = "Contributed to Machine Learning model development and Data Pipeline implementation supporting research objectives with reliable engineering practices."
-        return [latex_escape_text(fallback)] * num_bullets, set()
+        fallbacks = []
+        for idx in range(num_bullets):
+            verb = suggested_verbs[idx]
+            fallback = f"{verb} Machine Learning model development and Data Pipeline implementation supporting research objectives with reliable engineering practices."
+            fallbacks.append(latex_escape_text(fallback))
+        return fallbacks, set()
 
-
-# ============================================================
-# 🔄 Experience Rewriter
-# ============================================================
 
 async def rewrite_experience_with_skill_alignment(
     tex_content: str,
@@ -1363,17 +1731,21 @@ async def rewrite_experience_with_skill_alignment(
     target_company: str,
     target_role: str,
     company_core_keywords: List[str],
+    bullet_plan: Optional[Dict[str, Any]] = None,
+    ideal_candidate: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, Set[str]]:
-    # Reset tracking for new resume
+    """Rewrite all experience bullets using the enhanced plan."""
+    # Reset all tracking for new resume
     reset_verb_tracking()
     reset_result_phrase_tracking()
-    
+    reset_quantification_tracking()
+    reset_keyword_assignment_tracking()
+
     must_have = jd_info.get("must_have", []) or []
     should_have = jd_info.get("should_have", []) or []
     responsibilities = jd_info.get("responsibilities", []) or []
 
     exp_used_keywords: Set[str] = set()
-
     num_blocks = 4
     must_per_block = max(3, len(must_have) // num_blocks + 1)
     should_per_block = max(2, len(should_have) // num_blocks + 1)
@@ -1382,6 +1754,10 @@ async def rewrite_experience_with_skill_alignment(
     out: List[str] = []
     pos = 0
     block_index = 0
+    absolute_bullet_position = 0
+
+    # ✨ NEW: Extract experience company names from tex via GPT
+    exp_companies = await _extract_experience_companies(tex_content)
 
     for m in exp_pat.finditer(tex_content):
         out.append(tex_content[pos:m.start()])
@@ -1404,15 +1780,11 @@ async def rewrite_experience_with_skill_alignment(
 
             rebuilt.append(section[i:a])
 
-            # Candidate experience company
-            if block_index == 0:
-                exp_company = "Ayar Labs"
-            elif block_index == 1:
-                exp_company = "Indian Institute of Technology Indore"
-            elif block_index == 2:
-                exp_company = "National Institute of Technology Jaipur"
+            # Use extracted company name or fallback
+            if block_index < len(exp_companies):
+                exp_company = exp_companies[block_index]
             else:
-                exp_company = "Indian Institute of Technology Indore"
+                exp_company = f"Company {block_index + 1}"
 
             start_must = block_index * must_per_block
             end_must = min(start_must + must_per_block, len(must_have))
@@ -1439,8 +1811,11 @@ async def rewrite_experience_with_skill_alignment(
                 responsibilities=responsibilities,
                 used_keywords=exp_used_keywords,
                 block_index=block_index,
+                bullet_start_position=absolute_bullet_position,
                 total_blocks=num_blocks,
                 num_bullets=3,
+                bullet_plan=bullet_plan,
+                ideal_candidate=ideal_candidate,
             )
 
             exp_used_keywords.update(newly_used)
@@ -1452,6 +1827,7 @@ async def rewrite_experience_with_skill_alignment(
 
             rebuilt.append(new_block)
             block_index += 1
+            absolute_bullet_position += 3
             i = b + len(e_tag)
 
         out.append("".join(rebuilt))
@@ -1461,8 +1837,38 @@ async def rewrite_experience_with_skill_alignment(
 
     must_covered = len([k for k in must_have if k.lower() in exp_used_keywords])
     log_event(f"📊 [EXP COVERAGE] Must-have: {must_covered}/{len(must_have)}")
+    log_event(f"🎲 [QUANTIFICATION] Positions: {QUANTIFIED_POSITIONS}, Hero: {HERO_POSITIONS}")
+    log_event(f"✅ [VERBS] Total unique: {len(_used_verbs_global)}/12")
+    log_event(f"🔑 [KEYWORD DEDUP] Unique primary keywords: {len(_global_keyword_assignments)}")
 
     return "".join(out), exp_used_keywords
+
+
+async def _extract_experience_companies(tex_content: str) -> List[str]:
+    """Extract company names from the experience section of the TeX."""
+    exp_pat = section_rx("Experience")
+    m = exp_pat.search(tex_content)
+    if not m:
+        return []
+
+    section = m.group(1)
+    # Try to find company names from \resumeSubheading or similar
+    # Pattern: \resumeSubheading{Title}{Dates}{Company}{Location}
+    companies = re.findall(r"\\resumeSubheading\{[^}]*\}\{[^}]*\}\{([^}]*)\}", section)
+    if not companies:
+        # Try alternate pattern: company might be in different position
+        companies = re.findall(r"\\resumeSubheading\{([^}]*)\}", section)
+
+    if companies:
+        # Clean up
+        cleaned = []
+        for c in companies:
+            c = strip_all_macros_keep_text(c).strip()
+            if c and len(c) > 2:
+                cleaned.append(c)
+        return cleaned
+
+    return []
 
 
 # ============================================================
@@ -1475,7 +1881,9 @@ def _pdf_page_count(pdf_bytes: Optional[bytes]) -> int:
     return len(re.findall(rb"/Type\s*/Page\b", pdf_bytes))
 
 
-_EDU_SPLIT_ANCHOR = re.compile(r"(%-----------EDUCATION-----------)|\\section\*?\{\s*Education\s*\}", re.IGNORECASE)
+_EDU_SPLIT_ANCHOR = re.compile(
+    r"(%-----------EDUCATION-----------)|\\section\*?\{\s*Education\s*\}", re.IGNORECASE
+)
 
 
 def _split_preamble_body(tex: str) -> Tuple[str, str]:
@@ -1521,7 +1929,9 @@ def remove_one_achievement_bullet(tex_content: str) -> Tuple[str, bool]:
     return tex_content, False
 
 
-def remove_last_bullet_from_sections(tex_content: str, sections: Tuple[str, ...] = ("Projects", "Experience")) -> Tuple[str, bool]:
+def remove_last_bullet_from_sections(
+    tex_content: str, sections: Tuple[str, ...] = ("Projects", "Experience")
+) -> Tuple[str, bool]:
     for sec in sections:
         pat = section_rx(sec)
         last_m = None
@@ -1553,11 +1963,16 @@ def compute_coverage(tex_content: str, keywords: List[str]) -> Dict[str, Any]:
         elif kw_lower:
             missing.add(kw_lower)
     total = max(1, len(present) + len(missing))
-    return {"ratio": len(present) / total, "present": sorted(present), "missing": sorted(missing), "total": total}
+    return {
+        "ratio": len(present) / total,
+        "present": sorted(present),
+        "missing": sorted(missing),
+        "total": total,
+    }
 
 
 # ============================================================
-# 🚀 Main Optimizer
+# 🚀 Main Optimizer — v3.0 with Ideal Candidate Profiling
 # ============================================================
 
 async def optimize_resume(
@@ -1567,28 +1982,48 @@ async def optimize_resume(
     target_role: str,
     extra_keywords: Optional[str] = None,
 ) -> Tuple[str, Dict[str, Any]]:
-    log_event("🟨 [OPTIMIZE] Starting ENHANCED optimization with credibility features")
+    log_event("🟨 [OPTIMIZE] Starting v3.0 with IDEAL CANDIDATE PROFILING & keyword dedup")
 
     # 1) JD keywords
     jd_info = await extract_keywords_with_priority(jd_text)
 
     # 2) Company-core expectations
     company_core = await extract_company_core_requirements(target_company, target_role, jd_text)
-    core_keywords = [fix_skill_capitalization(k) for k in (company_core.get("core_keywords", []) or [])]
+    core_keywords_raw = company_core.get("core_keywords", []) or []
+    core_keywords = await fix_capitalization_batch([str(k).strip() for k in core_keywords_raw if str(k).strip()])
 
-    jd_info["company_core_keywords"] = core_keywords
-    all_keywords = list(jd_info.get("all_keywords", []) or [])
+    # 3) ✨ NEW: IDEAL CANDIDATE PROFILING
+    log_event("🌟 [IDEAL CANDIDATE] Profiling ideal candidate...")
+    ideal_candidate = await profile_ideal_candidate(jd_text, target_company, target_role)
+    log_event(f"🌟 [IDEAL CANDIDATE] Top 3 must-haves: {ideal_candidate.get('top_3_must_haves', [])}")
+
+    # 4) VALIDATE SKILLS
+    log_event("🔍 [SKILL VALIDATION] Starting STRICT validation...")
+    all_keywords_raw = list(jd_info.get("all_keywords", []) or [])
     for k in core_keywords:
-        if k and k.lower() not in [x.lower() for x in all_keywords]:
-            all_keywords.append(k)
+        if k and k.lower() not in [x.lower() for x in all_keywords_raw]:
+            all_keywords_raw.append(k)
 
-    # 3) Extra keywords
+    validated_keywords = await filter_valid_skills(all_keywords_raw)
+    jd_info["must_have"] = await filter_valid_skills(jd_info.get("must_have", []))
+    jd_info["should_have"] = await filter_valid_skills(jd_info.get("should_have", []))
+    jd_info["nice_to_have"] = await filter_valid_skills(jd_info.get("nice_to_have", []))
+    jd_info["all_keywords"] = validated_keywords
+    core_keywords = await filter_valid_skills(core_keywords)
+    jd_info["company_core_keywords"] = core_keywords
+    all_keywords = validated_keywords
+
+    # 5) Extra keywords
     extra_list: List[str] = []
     if extra_keywords:
         for token in re.split(r"[,\n;]+", extra_keywords):
-            t = fix_skill_capitalization(token.strip())
+            t = token.strip()
             if t and t.lower() not in [x.lower() for x in extra_list]:
                 extra_list.append(t)
+        extra_list = await filter_valid_skills(extra_list)
+        if extra_list:
+            extra_list = await fix_capitalization_batch(extra_list)
+
     if extra_list:
         jd_info["extra_keywords"] = extra_list
         for k in extra_list:
@@ -1599,72 +2034,102 @@ async def optimize_resume(
 
     log_event(f"📊 [KEYWORDS] JD={len(jd_info.get('all_keywords', []))} + CORE={len(core_keywords)} + EXTRA={len(extra_list)} → TOTAL={len(all_keywords)}")
 
-    # 4) Coursework
+    # 6) ✨ NEW: RANK ALL BULLET POINTS — 8 keyword + 4 ideal candidate
+    log_event("📋 [BULLET RANKING] Planning 12 bullets (8 keyword + 4 ideal candidate)...")
+    bullet_plan = await rank_all_bullet_points(
+        jd_text=jd_text,
+        target_company=target_company,
+        target_role=target_role,
+        jd_keywords=all_keywords,
+        ideal_candidate=ideal_candidate,
+    )
+    log_event(f"📋 [BULLET PLAN] keyword_bullets={len(bullet_plan.get('keyword_bullets', []))}, "
+              f"ideal_bullets={len(bullet_plan.get('ideal_candidate_bullets', []))}")
+
+    # 7) Coursework
     courses = await extract_coursework_gpt(jd_text, max_courses=24)
 
-    # 5) Split preamble/body
+    # 8) Split preamble/body
     preamble, body = _split_preamble_body(base_tex)
 
-    # 6) Coursework replace
+    # 9) Coursework replace
     body = replace_relevant_coursework_distinct(body, courses, max_per_line=8)
     log_event("✅ [COURSEWORK] Updated")
 
-    # 7) Rewrite experience with enhanced bullet generation
+    # 10) ✨ ENHANCED: Rewrite experience with bullet plan + ideal candidate
     body, exp_used_keywords = await rewrite_experience_with_skill_alignment(
-        body,
-        jd_text,
-        jd_info,
+        body, jd_text, jd_info,
         target_company=target_company,
         target_role=target_role,
         company_core_keywords=core_keywords,
+        bullet_plan=bullet_plan,
+        ideal_candidate=ideal_candidate,
     )
-    log_event(f"✅ [EXPERIENCE] {len(exp_used_keywords)} keywords used with enhanced credibility")
+    log_event(f"✅ [EXPERIENCE] {len(exp_used_keywords)} keywords used, "
+              f"{len(_global_keyword_assignments)} unique primary keywords")
 
-    # 8) Skills section
-    skills_list: List[str] = [fix_skill_capitalization(k) for k in exp_used_keywords]
+    # 11) Skills section — VALIDATED ONLY
+    skills_list: List[str] = []
+    # Add from experience
+    for kw in exp_used_keywords:
+        fixed = fix_skill_capitalization_sync(kw)
+        if fixed and fixed.lower() not in [s.lower() for s in skills_list]:
+            skills_list.append(fixed)
 
     for kw in jd_info.get("must_have", []) or []:
-        kw_fixed = fix_skill_capitalization(kw)
-        if kw_fixed.lower() not in [s.lower() for s in skills_list]:
-            skills_list.append(kw_fixed)
+        if kw and kw.lower() not in [s.lower() for s in skills_list]:
+            skills_list.append(kw)
 
     for kw in jd_info.get("nice_to_have", []) or []:
-        kw_fixed = fix_skill_capitalization(kw)
-        if kw_fixed.lower() not in [s.lower() for s in skills_list]:
-            skills_list.append(kw_fixed)
+        if kw and kw.lower() not in [s.lower() for s in skills_list]:
+            skills_list.append(kw)
 
     for kw in core_keywords:
-        kw_fixed = fix_skill_capitalization(kw)
-        if kw_fixed.lower() not in [s.lower() for s in skills_list]:
-            skills_list.append(kw_fixed)
+        if kw and kw.lower() not in [s.lower() for s in skills_list]:
+            skills_list.append(kw)
 
     for kw in extra_list:
-        kw_fixed = fix_skill_capitalization(kw)
-        if kw_fixed.lower() not in [s.lower() for s in skills_list]:
-            skills_list.append(kw_fixed)
+        if kw and kw.lower() not in [s.lower() for s in skills_list]:
+            skills_list.append(kw)
+
+    skills_list = await filter_valid_skills(skills_list)
+    if skills_list:
+        skills_list = await fix_capitalization_batch(skills_list)
 
     body = await replace_skills_section(body, skills_list)
-    log_event(f"✅ [SKILLS] {len(skills_list)} skills")
+    log_event(f"✅ [SKILLS] {len(skills_list)} validated skills")
 
-    # 9) Merge back
+    # 12) Merge back
     final_tex = _merge_tex(preamble, body)
 
-    # 10) Coverage
+    # 13) Coverage
     coverage = compute_coverage(final_tex, all_keywords)
     log_event(f"📊 [COVERAGE] {coverage['ratio']:.1%}")
+
+    all_numbers_used = (
+        list(_used_numbers_by_category['percent']) +
+        list(_used_numbers_by_category['count']) +
+        list(_used_numbers_by_category['metric']) +
+        list(_used_numbers_by_category['comparison'])
+    )
+    log_event(f"🎲 [UNIQUE NUMBERS] Used: {all_numbers_used}")
 
     return final_tex, {
         "jd_info": jd_info,
         "company_core": company_core,
+        "ideal_candidate": ideal_candidate,
+        "bullet_plan": bullet_plan,
         "all_keywords": all_keywords,
         "coverage": coverage,
         "exp_used_keywords": list(exp_used_keywords),
         "skills_list": skills_list,
+        "unique_numbers_used": all_numbers_used,
+        "global_keyword_assignments": dict(_global_keyword_assignments),
     }
 
 
 # ============================================================
-# 🚀 API Endpoint (NO HUMANIZE)
+# 🚀 API Endpoint
 # ============================================================
 
 @router.post("/")
@@ -1672,13 +2137,12 @@ async def optimize_resume(
 @router.post("/submit")
 async def optimize_endpoint(
     jd_text: str = Form(...),
-    use_humanize: bool = Form(False),  # Parameter kept for API compatibility but ignored
+    use_humanize: bool = Form(False),
     base_resume_tex: Optional[UploadFile] = File(None),
     extra_keywords: Optional[str] = Form(None),
 ):
     try:
-        # HUMANIZE IS COMPLETELY DISABLED - ignore the parameter
-        _ = use_humanize  # Explicitly ignore
+        _ = use_humanize  # Ignored
 
         jd_text = (jd_text or "").strip()
         if not jd_text:
@@ -1704,8 +2168,7 @@ async def optimize_endpoint(
         target_company, target_role = await extract_company_role(jd_text)
 
         optimized_tex, info = await optimize_resume(
-            raw_tex,
-            jd_text,
+            raw_tex, jd_text,
             target_company=target_company,
             target_role=target_role,
             extra_keywords=extra_keywords,
@@ -1750,7 +2213,6 @@ async def optimize_endpoint(
 
         optimized_tex_final = cur_tex
         pdf_bytes_optimized = cur_pdf_bytes
-
         coverage = info["coverage"]
 
         # Save files
@@ -1764,6 +2226,10 @@ async def optimize_endpoint(
             saved_paths.append(str(opt_path))
             log_event(f"💾 [SAVE] Optimized → {opt_path}")
 
+        # ✨ UPGRADED: Response includes ideal candidate + bullet plan
+        ideal_candidate_info = info.get("ideal_candidate", {})
+        bullet_plan_info = info.get("bullet_plan", {})
+
         return JSONResponse({
             "company_name": target_company,
             "role": target_role,
@@ -1772,20 +2238,34 @@ async def optimize_endpoint(
                 "present": coverage["present"],
                 "missing": coverage["missing"],
                 "total": coverage["total"],
-                "verdict": "Strong fit" if coverage["ratio"] >= 0.7 else "Good fit" if coverage["ratio"] >= 0.5 else "Needs improvement",
+                "verdict": (
+                    "Strong fit" if coverage["ratio"] >= 0.7
+                    else "Good fit" if coverage["ratio"] >= 0.5
+                    else "Needs improvement"
+                ),
             },
             "company_core": info.get("company_core", {}),
+            # ✨ NEW: Ideal candidate analysis
+            "ideal_candidate": {
+                "profile_summary": ideal_candidate_info.get("ideal_profile_summary", ""),
+                "top_3_must_haves": ideal_candidate_info.get("top_3_must_haves", []),
+                "implicit_requirements": ideal_candidate_info.get("implicit_requirements", []),
+                "differentiation_factors": ideal_candidate_info.get("differentiation_factors", []),
+                "bullet_themes_used": ideal_candidate_info.get("ideal_candidate_bullet_themes", []),
+            },
+            # ✨ NEW: Bullet plan transparency
+            "bullet_plan": {
+                "keyword_bullets_count": len(bullet_plan_info.get("keyword_bullets", [])),
+                "ideal_candidate_bullets_count": len(bullet_plan_info.get("ideal_candidate_bullets", [])),
+                "importance_ranking": bullet_plan_info.get("importance_ranking", []),
+                "keyword_dedup_map": info.get("global_keyword_assignments", {}),
+            },
             "optimized": {
                 "tex": render_final_tex(optimized_tex_final),
                 "pdf_b64": base64.b64encode(pdf_bytes_optimized or b"").decode("ascii"),
                 "filename": str(opt_path) if pdf_bytes_optimized else "",
             },
-            # Humanized fields kept for API compatibility but empty
-            "humanized": {
-                "tex": "",
-                "pdf_b64": "",
-                "filename": "",
-            },
+            "humanized": {"tex": "", "pdf_b64": "", "filename": ""},
             "tex_string": render_final_tex(optimized_tex_final),
             "pdf_base64": base64.b64encode(pdf_bytes_optimized or b"").decode("ascii"),
             "pdf_base64_humanized": None,
@@ -1794,9 +2274,10 @@ async def optimize_endpoint(
             "coverage_present": coverage["present"],
             "coverage_missing": coverage["missing"],
             "coverage_history": [],
-            "did_humanize": False,  # Always False now
+            "did_humanize": False,
             "extra_keywords": info.get("jd_info", {}).get("extra_keywords", []),
             "skills_list": info.get("skills_list", []),
+            "unique_numbers_used": info.get("unique_numbers_used", []),
         })
 
     except Exception as e:
