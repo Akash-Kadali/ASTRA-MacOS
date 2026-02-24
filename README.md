@@ -1,4 +1,4 @@
-# 🌌 **ASTRA v2.0.0**
+# 🌌 **ASTRA v1.0.0**
 
 <p align="center">
   <img src="https://github.com/Akash-Kadali/ASTRA-MacOS/blob/main/data/test2.png" alt="ASTRA Logo" width="700"/>
@@ -14,80 +14,80 @@
 
 ## 📘 Overview
 
-**ASTRA** (Autonomous System for Talent & Resume Automation) is a **modular AI ecosystem** built to optimize resumes, generate tailored cover letters, and assist with job applications end-to-end.
-It combines **LaTeX-based automation**, **LLM reasoning**, and **humanized writing** into one unified app.
+**ASTRA** (Autonomous System for Talent & Resume Automation) is a **local-first, modular AI ecosystem** designed to:
 
-ASTRA runs locally as a **FastAPI + PyWebView desktop application**, providing a native ChatGPT-like experience with **persistent memory**, **LaTeX rendering**, and **analytics dashboards**.
+* Optimize **ATS-friendly LaTeX resumes**
+* Generate **role-specific cover letters**
+* Provide a **job-aware chat assistant**
+* Maintain **persistent sessions + analytics logs** locally
+
+ASTRA runs as a **FastAPI backend + PyWebView desktop app**, delivering a native ChatGPT-like UI with PDF preview, saved history, and safe LaTeX compilation.
 
 ---
 
 ## 🪐 ASTRA Submodules
 
-ASTRA is composed of three core intelligent submodules:
-
-| Submodule          | Description                                                                                                                              |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| 🧠 **HIREX**       | *High Resume eXpert* — the core engine that builds, optimizes, and compiles ATS-friendly LaTeX resumes and cover letters.                |
-| 🗣️ **SuperHuman** | The humanization engine that rewrites and enhances resume or cover letter content to sound natural, confident, and professionally human. |
-| 💬 **MasterMind**  | The conversational reasoning assistant — a local ChatGPT-class model with session memory, tone control, and job-awareness.               |
-
-Each of these submodules powers ASTRA’s integrated tools like the **Resume Optimizer**, **Cover Letter Generator**, and **Talk to ASTRA** modules.
+| Submodule          | Description                                                                                                    |
+| ------------------ | -------------------------------------------------------------------------------------------------------------- |
+| 🧠 **HIREX**       | *High Resume eXpert* — core engine for JD parsing, LaTeX resume optimization, and PDF compilation.             |
+| 🗣️ **SuperHuman** | Humanization engine that rewrites bullets/sections to sound natural and professional while staying LaTeX-safe. |
+| 💬 **MasterMind**  | Job-aware conversational assistant with session memory and tone control.                                       |
 
 ---
 
-### 🧩 Core Features
+## 🧩 Core Features
 
-| Module                          | Purpose                                                                                          |
-| ------------------------------- | ------------------------------------------------------------------------------------------------ |
-| 🧠 **MasterMind (Submodule)**   | ChatGPT-style reasoning assistant with persistent memory (RAG-like context).                     |
-| 🗣️ **SuperHuman (Submodule)**  | AI text humanizer for resumes, cover letters, and interview answers.                             |
-| 🧾 **HIREX (Submodule)**        | Resume optimizer built on LaTeX rendering and GPT-powered JD alignment.                          |
-| 💬 **Talk to ASTRA**            | Job-aware Q&A system that answers recruiter/interview questions using saved JD + resume context. |
-| ✍️ **CoverLetter Engine**       | Auto-drafts role-specific cover letters integrating SuperHuman rewrites.                         |
-| 🧍 **Humanize (AIHumanize.io)** | Enhances LaTeX bullets (`\resumeItem{}`) for clarity and readability.                            |
-| 📊 **Dashboard**                | Tracks tone, model usage, fit scores, and historical sessions.                                   |
-| ⚙️ **Utils / Models Routers**   | Backend helpers for config, model lists, telemetry, and text utilities.                          |
+| Module                          | Purpose                                                           |
+| ------------------------------- | ----------------------------------------------------------------- |
+| 🧠 **MasterMind (Submodule)**   | Chat assistant with persistent memory (session storage).          |
+| 🗣️ **SuperHuman (Submodule)**  | Humanizes resume bullets, cover letters, and interview answers.   |
+| 🧾 **HIREX (Submodule)**        | JD-aligned ATS resume optimization using LaTeX-safe replacements. |
+| 💬 **Talk to ASTRA**            | Contextual Q&A using saved JD + resume bundles.                   |
+| ✍️ **CoverLetter Engine**       | Generates role-specific cover letters from templates + context.   |
+| 🧍 **Humanize (AIHumanize.io)** | Optional external humanizer for `\resumeItem{}` bullet upgrades.  |
+| 📊 **Dashboard**                | Tracks usage, fit score trends, sessions, and output history.     |
+| ⚙️ **Utils / Routers**          | Config, model routing, telemetry/logging, helpers.                |
 
 ---
 
 ## 🏗️ Project Structure
 
-```
+```text
 ASTRA/
 │
 ├── backend/
 │   ├── api/
-│   │   ├── optimize.py          ← Resume optimizer / JD parser (HIREX core)
-│   │   ├── coverletter.py       ← Cover letter generator
-│   │   ├── talk.py              ← “Talk to ASTRA” Q&A endpoint
-│   │   ├── superhuman.py        ← SuperHuman humanizer engine
-│   │   ├── humanize.py          ← AIHumanize.io integration
-│   │   ├── mastermind.py        ← MasterMind assistant backend
-│   │   ├── dashboard.py         ← Analytics + trends
-│   │   ├── context_store.py     ← JD + Resume memory store
-│   │   ├── models_router.py     ← Model list + pricing
-│   │   ├── utils_router.py      ← Helpers (ping, base64, escape)
-│   │   └── debug.py             ← Frontend → backend logger
+│   │   ├── optimize.py
+│   │   ├── coverletter.py
+│   │   ├── talk.py
+│   │   ├── superhuman.py
+│   │   ├── humanize.py
+│   │   ├── mastermind.py
+│   │   ├── dashboard.py
+│   │   ├── context_store.py
+│   │   ├── models_router.py
+│   │   ├── utils_router.py
+│   │   └── debug.py
 │   │
 │   ├── core/
-│   │   ├── config.py            ← Global paths, env, and defaults
-│   │   ├── compiler.py          ← Secure pdflatex wrapper (HIREX compile)
-│   │   ├── security.py          ← File + LaTeX validation
-│   │   └── utils.py             ← Logging, hashing, diagnostics
+│   │   ├── config.py
+│   │   ├── compiler.py
+│   │   ├── security.py
+│   │   └── utils.py
 │   │
 │   └── data/
-│       ├── contexts/            ← Saved JD + resume contexts
-│       ├── history/             ← User activity JSONL
-│       ├── logs/                ← Event logs for dashboard
-│       └── mastermind_sessions/ ← Stored MasterMind chats
+│       ├── contexts/
+│       ├── history/
+│       ├── logs/
+│       └── mastermind_sessions/
 │
 ├── frontend/
-│   ├── master.html              ← Main app UI
-│   ├── master.js                ← Unified JS controller
-│   ├── static/css/              ← Theme + layout
-│   └── static/assets/           ← Icons, logos, favicon
+│   ├── master.html
+│   ├── master.js
+│   ├── static/css/
+│   └── static/assets/
 │
-├── main.py                      ← FastAPI + PyWebView launcher
+├── main.py
 └── requirements.txt
 ```
 
@@ -96,6 +96,12 @@ ASTRA/
 ## ⚙️ Setup & Environment
 
 ### 1️⃣ Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+If you don’t have a finalized `requirements.txt` yet:
 
 ```bash
 pip install fastapi uvicorn httpx openai python-dotenv pywebview pydantic
@@ -117,130 +123,92 @@ API_BASE_URL=http://127.0.0.1:8000
 python main.py
 ```
 
-**Launch sequence:**
+**Launch behavior:**
 
-* FastAPI backend starts at **localhost:8000**
+* FastAPI backend starts on **127.0.0.1:8000**
 * PyWebView opens the desktop UI
-* Routers auto-register & mount static files
-* Logs + chat sessions persist under `/backend/data/`
+* Logs + sessions persist under `backend/data/`
 
-Then open:
-👉 [http://127.0.0.1:8000](http://127.0.0.1:8000)
+Open:
+
+* `http://127.0.0.1:8000`
+* `http://127.0.0.1:8000/api/docs` (Swagger)
 
 ---
 
 ## 🧠 Backend Modules Summary
 
-### 🧾 `optimize.py` — (HIREX Submodule)
+### 🧾 `optimize.py` — HIREX Core
 
-* Extracts **skills**, **courses**, and **roles** from job descriptions.
-* Canonicalizes skills (e.g., *PyTorch → Data & ML*).
-* Generates LaTeX-safe resume replacements.
-* Uses GPT for smart section rebuilding.
+* Extracts role requirements from JD (skills, tooling, keywords, expectations)
+* Produces LaTeX-safe, ATS-friendly edits
+* Compiles output with secure LaTeX pipeline
 
 ### ✍️ `coverletter.py`
 
-* Extracts company & role.
-* Generates custom cover letter body.
-* Humanizes tone via SuperHuman before PDF compilation.
+* Extracts company + role context
+* Generates role-specific cover letter
+* Uses templates + safe LaTeX compile
 
-### 💬 `talk.py` — “Talk to ASTRA”
+### 💬 `talk.py` — Talk to ASTRA
 
-* Contextual interview Q&A using stored JD + resume.
-* Leverages MasterMind for reasoning + SuperHuman for tone.
+* JD + resume context-based interview Q&A
+* Uses MasterMind reasoning + SuperHuman tone control
 
-### 🗣️ `superhuman.py` — (SuperHuman Submodule)
+### 🗣️ `superhuman.py`
 
-* Refines tone, style, and fluency for different text modes.
-* Supports tone presets (`formal`, `conversational`, `academic`, etc.).
-* Ensures LaTeX compatibility.
+* Tone presets (formal, conversational, concise, etc.)
+* Ensures LaTeX compatibility and avoids brittle formatting breaks
 
-### 🧠 `mastermind.py` — (MasterMind Submodule)
+### 🧠 `mastermind.py`
 
-* Persistent AI reasoning assistant.
-* Supports personas, tones, and multi-turn sessions.
-* Stores sessions in `/data/mastermind_sessions`.
-
-### 🤖 `humanize.py`
-
-* Uses AIHumanize.io to improve bullet clarity and balance.
-* Brace-safe LaTeX parsing for `\resumeItem`.
+* Persistent chat sessions saved locally
+* Supports multi-turn reasoning tied to job context
 
 ### 🧾 `context_store.py`
 
-* Saves combined JD + resume JSON bundles for reuse.
-* Provides dashboard view of past applications.
+* Saves combined JD + resume bundles for reuse and history tracking
 
 ### 📊 `dashboard.py`
 
-* Aggregates log data for analytics.
-* Displays trends and activity metrics.
-
-### ⚙️ `utils_router.py` & `debug.py`
-
-* Diagnostics, telemetry, text encoding, logging.
-
----
-
-## 💻 Core Framework Files
-
-| File               | Purpose                                 |
-| ------------------ | --------------------------------------- |
-| `core/config.py`   | Global constants, paths, ENV management |
-| `core/compiler.py` | Safe LaTeX → PDF compiler               |
-| `core/security.py` | File validation & LaTeX safety          |
-| `core/utils.py`    | Logging, hashing, benchmarks            |
-
----
-
-## 🖥️ Frontend Overview
-
-* **`master.html`** — Single-page dark UI
-* **`master.js`** — Event routing + API interaction
-* Design inspired by ChatGPT (dark #0a1020 theme)
-
-Main UI Tabs:
-
-* Resume Optimizer (HIREX)
-* Cover Letter Generator
-* Talk to ASTRA (MasterMind + SuperHuman)
-* Dashboard & History
+* Aggregates logs into analytics signals (activity, usage, trends)
 
 ---
 
 ## 💾 Data Directories
 
-| Directory                    | Description               |
-| ---------------------------- | ------------------------- |
-| `data/logs/events.jsonl`     | Event logs                |
-| `data/history/history.jsonl` | Usage history             |
-| `data/contexts/`             | Saved JD + Resume bundles |
-| `data/mastermind_sessions/`  | Chat session storage      |
-| `data/cache/latex_builds/`   | Temporary LaTeX builds    |
+| Directory                            | Description               |
+| ------------------------------------ | ------------------------- |
+| `backend/data/logs/events.jsonl`     | Event logs                |
+| `backend/data/history/history.jsonl` | Usage history             |
+| `backend/data/contexts/`             | Saved JD + Resume bundles |
+| `backend/data/mastermind_sessions/`  | Stored chats              |
+| `backend/data/cache/latex_builds/`   | Temporary LaTeX builds    |
 
 ---
 
 ## 🔐 Security
 
-* Strict `.tex` file validation (≤5 MB)
-* `pdflatex` runs in sandbox, no shell escape
-* No external code execution
-* All input goes through `secure_tex_input()`
+* Strict `.tex` validation (size + extension rules)
+* `pdflatex` runs in a sandboxed temp build directory
+* No shell escape
+* Inputs pass through LaTeX safety checks before compile
 
 ---
 
 ## 📈 Logging & Analytics
 
-Each event calls:
+Events use:
 
 ```python
 log_event("event_name", {"meta": {...}})
 ```
 
-→ stored in `/data/logs/events.jsonl`
-→ visualized via `dashboard.py`
+Stored in:
 
-Common event types:
+* `backend/data/logs/events.jsonl`
+
+Example events:
 
 * `optimize_resume`
 * `superhuman_rewrite`
@@ -252,28 +220,29 @@ Common event types:
 
 ## 🧱 Run Modes
 
-| Mode                               | Description             |
-| ---------------------------------- | ----------------------- |
-| `python main.py`                   | Full desktop app (GUI)  |
-| `uvicorn backend.api:app --reload` | API-only developer mode |
-| `/api/docs`                        | Swagger API UI          |
+| Mode                   | Command                            |
+| ---------------------- | ---------------------------------- |
+| Full desktop app (GUI) | `python main.py`                   |
+| API-only dev mode      | `uvicorn backend.api:app --reload` |
+| API docs               | `/api/docs`                        |
 
 ---
 
-## 🛠️ Roadmap (v2.2.x → v3.0)
+## 🛠️ Roadmap (v1.x → v2.0)
 
-* ✅ Resume Fit Scoring (JD ↔ Resume match %)
-* 🌐 Cloud Sync for Contexts
-* 💡 RAG Memory Retrieval for ASTRA chat
-* 🪶 PDF → LaTeX converter
-* 🔄 Live WebSocket MasterMind chat
-* 📈 Skill Graph visualization
+Planned upgrades after v1.0.0:
+
+* Resume Fit Scoring (JD ↔ Resume match %)
+* Better memory retrieval (RAG-style) for MasterMind
+* PDF → LaTeX converter
+* WebSocket streaming chat
+* Skill graph visualization + richer dashboard analytics
 
 ---
 
 ## 🪙 License & Attribution
 
-Copyright © 2025 **Sri Akash Kadali**
+Copyright © 2025–2026 **Sri Akash Kadali**
 
 Educational & research use permitted.
 Trademarks: **ASTRA™, HIREX™, SuperHuman™, MasterMind™** belong to their respective author.
