@@ -1,22 +1,23 @@
 /* ============================================================
-   ASTRA • coverletter.js (v2.1.0 — JD-Specific Cover Letter)
+   HIREX • coverletter.js (v1.0.0 — JD-Specific Cover Letter)
    ------------------------------------------------------------
    • Reads selected JD+Resume context from localStorage
+   • Fetches previous jobs from backend /api/context/list
    • Submits FormData to /api/coverletter (FastAPI contract)
-   • Optional “Humanize BODY” via global toggle/state
+   • Optional "Humanize BODY" via global toggle/state
    • Renders returned LaTeX + PDF (tabs + iframe)
    • PDF/LaTeX toolbar (copy / download)
    • Timeout (3m) + Cancel + robust errors
    • Safe base64 decode, no duplicate listeners
    • Stores server memory id/path for quick reopen
-   • Auto-populates <select> if page didn’t (defensive)
+   • Auto-populates <select> from backend + localStorage
    • Restores last cover letter on load via /api/context/get?latest=true
    Author: Sri Akash Kadali
    ============================================================ */
 
 document.addEventListener("DOMContentLoaded", () => {
-  const APP_NAME = "ASTRA";
-  const APP_VERSION = "v2.1.0";
+  const APP_NAME = "HIREX";
+  const APP_VERSION = "v1.0.0";
 
   /* ------------------------------------------------------------
      🌐 Elements (optional-safe)
@@ -37,7 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ------------------------------------------------------------
      🧠 Runtime helpers
   ------------------------------------------------------------ */
-  const RT = (window.ASTRA ?? window.HIREX) || {};
+  const RT = (window.HIREX ?? window.ASTRA) || {};
   const debug = (msg, data) => (typeof RT.debugLog === "function" ? RT.debugLog(msg, data) : void 0);
 
   const getApiBase = () => {
@@ -47,7 +48,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   const apiBase = getApiBase();
 
-  const toast = (msg, t = 3000) => (RT.toast ? RT.toast(msg, t) : alert(msg));
+  const toast = (msg, t = 3000) => (RT.toast ? RT.toast(msg, t) : console.log(`[HIREX Toast] ${msg}`));
   const nowStamp = () => new Date().toISOString().replace(/[:.]/g, "-");
   const sanitize = (name) => String(name || "file").replace(/[\\/:*?"<>|]+/g, "_").trim() || "file";
 
@@ -149,37 +150,152 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   };
 
-  // Defensive: populate the <select> if the HTML page didn't
-  const populateSelectIfEmpty = () => {
-    if (!selectEl) return;
-    if (selectEl.options.length > 0) return; // page already filled it
+  /* ------------------------------------------------------------
+     🔄 Fetch contexts from backend API (NEW - fixes Issue #2)
+  ------------------------------------------------------------ */
+  const fetchContextListFromBackend = async (limit = 50) => {
+    try {
+      const res = await fetch(`${apiBase}/api/context/list?limit=${limit}`, { 
+        credentials: "same-origin" 
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return Array.isArray(data.items) ? data.items : [];
+    } catch (e) {
+      console.warn("[HIREX] /api/context/list failed:", e);
+      return [];
+    }
+  };
 
-    const history = readHistory();
-    if (!history.length) {
+  const fetchContextByKey = async (key) => {
+    try {
+      const res = await fetch(`${apiBase}/api/context/get?key=${encodeURIComponent(key)}`, {
+        credentials: "same-origin",
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (e) {
+      console.warn("[HIREX] /api/context/get?key failed:", e);
+      return null;
+    }
+  };
+
+  /* ------------------------------------------------------------
+     📋 Populate select from backend + localStorage (FIXED)
+  ------------------------------------------------------------ */
+  const populateSelectIfEmpty = async () => {
+    if (!selectEl) return;
+    
+    // Show loading state
+    selectEl.innerHTML = "<option disabled selected>Loading jobs...</option>";
+    if (genBtn) genBtn.disabled = true;
+
+    // Collect items from both sources
+    const localHistory = readHistory();
+    const backendItems = await fetchContextListFromBackend(50);
+    
+    // Merge and deduplicate (prefer backend for same company__role)
+    const seen = new Set();
+    const allItems = [];
+    
+    // Add backend items first (they're more authoritative)
+    for (const item of backendItems) {
+      const key = `${(item.company || "").toLowerCase()}__${(item.role || "").toLowerCase()}`;
+      if (!seen.has(key) && (item.company || item.role)) {
+        seen.add(key);
+        allItems.push({
+          ...item,
+          source: 'backend',
+          key: item.key || key,
+        });
+      }
+    }
+    
+    // Add local items that aren't in backend
+    for (let i = 0; i < localHistory.length; i++) {
+      const item = localHistory[i];
+      const key = `${(item.company || "").toLowerCase()}__${(item.role || "").toLowerCase()}`;
+      if (!seen.has(key) && (item.company || item.role)) {
+        seen.add(key);
+        allItems.push({
+          ...item,
+          source: 'local',
+          localIndex: i,
+          key: key,
+        });
+      }
+    }
+
+    if (!allItems.length) {
       selectEl.innerHTML = "<option disabled selected>No saved resumes</option>";
       if (genBtn) genBtn.disabled = true;
       return;
     }
 
-    // Build rows newest-first but keep value as ORIGINAL index
-    const rows = [...history].map((h, i) => ({ i, ...h })).reverse();
-    selectEl.innerHTML = rows
-      .map((h) => {
-        const comp = (h.company ?? "—").toString().replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]));
-        const role = (h.role ?? "—").toString().replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]));
-        return `<option value="${h.i}">${comp} — ${role}</option>`;
+    // Build options (newest first based on timestamp if available)
+    allItems.sort((a, b) => {
+      const tsA = new Date(a.timestamp || a.updated_at || 0).getTime();
+      const tsB = new Date(b.timestamp || b.updated_at || 0).getTime();
+      return tsB - tsA;
+    });
+
+    selectEl.innerHTML = allItems
+      .map((item, idx) => {
+        const comp = sanitize(item.company ?? "—");
+        const role = sanitize(item.role ?? "—");
+        const sourceIcon = item.source === 'backend' ? '☁️' : '💾';
+        // Store both source and key/index in data attributes via value encoding
+        const valueData = JSON.stringify({ 
+          source: item.source, 
+          key: item.key, 
+          localIndex: item.localIndex 
+        });
+        return `<option value='${valueData.replace(/'/g, "&#39;")}'>${sourceIcon} ${comp} — ${role}</option>`;
       })
       .join("");
+    
     selectEl.selectedIndex = 0;
+    if (genBtn) genBtn.disabled = false;
 
-    const persistSelection = () => {
-      const raw = history[Number(selectEl.value)] || null;
-      if (raw) localStorage.setItem("hirex_selected_cl", JSON.stringify(raw));
+    // Handle selection changes
+    const persistSelection = async () => {
+      try {
+        const valueData = JSON.parse(selectEl.value);
+        
+        if (valueData.source === 'backend') {
+          // Fetch full context from backend
+          const ctx = await fetchContextByKey(valueData.key);
+          if (ctx) {
+            const selected = {
+              company: ctx.company || ctx.company_name || "",
+              role: ctx.role || "",
+              jd_text: ctx.jd_text || ctx.jd || "",
+              resume_tex: ctx.humanized?.tex || ctx.humanized_tex || ctx.optimized?.tex || ctx.resume_tex || "",
+            };
+            localStorage.setItem("hirex_selected_cl", JSON.stringify(selected));
+            debug("BACKEND_CONTEXT_SELECTED", selected);
+          }
+        } else {
+          // Use local history
+          const raw = localHistory[valueData.localIndex];
+          if (raw) {
+            localStorage.setItem("hirex_selected_cl", JSON.stringify(raw));
+            debug("LOCAL_CONTEXT_SELECTED", raw);
+          }
+        }
+      } catch (e) {
+        console.warn("[HIREX] Selection persist failed:", e);
+      }
     };
+    
+    // Persist initial selection
     persistSelection();
+    
+    // Listen for changes
     selectEl.addEventListener("change", persistSelection, { once: false });
   };
 
+  // Initialize the select dropdown
   populateSelectIfEmpty();
 
   /* ------------------------------------------------------------
@@ -340,7 +456,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 const blob = await fetch(url).then((r) => r.blob());
                 downloadBlob(pdfName, blob);
               } catch (e) {
-                console.error("[ASTRA] PDF download error:", e);
+                console.error("[HIREX] PDF download error:", e);
                 toast("❌ Failed to download PDF.");
               }
             };
@@ -358,7 +474,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 await navigator.clipboard.writeText(tex_string);
                 toast("✅ LaTeX copied!");
               } catch (e) {
-                console.error("[ASTRA] Clipboard error:", e);
+                console.error("[HIREX] Clipboard error:", e);
                 toast("⚠️ Clipboard permission denied.");
               }
             };
@@ -402,7 +518,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (record.memory_path) localStorage.setItem("hirex_cl_memory_path", record.memory_path);
       if (record.pdf_path) localStorage.setItem("hirex_cl_pdf_path", record.pdf_path);
     } catch (err) {
-      console.warn("[ASTRA] Cache save failed:", err);
+      console.warn("[HIREX] Cache save failed:", err);
     }
   };
 
@@ -466,7 +582,7 @@ document.addEventListener("DOMContentLoaded", () => {
       toast(`✅ Cover Letter ready for ${data.company || ctx.company}`);
       setStatus("Ready");
     } catch (err) {
-      console.error("[ASTRA] CoverLetter Error:", err);
+      console.error("[HIREX] CoverLetter Error:", err);
       if (err.name === "AbortError") {
         toast("⚠️ Generation canceled or timed out (3 min).");
         setStatus("Canceled / Timed out");

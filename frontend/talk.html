@@ -1,458 +1,1029 @@
+-e # ===== FILE: ./frontend/talk.html =====
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="color-scheme" content="dark light" />
-  <meta name="theme-color" content="#0a1020" />
-
-  <title>Talk to HIREX | ASTRA — AI Career Assistant v2.1.3</title>
-  <meta name="description" content="Ask job or interview questions — HIREX responds using your saved resume and job description pair." />
-  <meta name="author" content="Sri Akash Kadali" />
-
-  <!-- CSP aligned with suite: dev websockets, blobs, workers, about: iframes -->
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <meta name="color-scheme" content="dark light"/>
+  <meta name="theme-color" content="#0B1220"/>
+  <title>ASTRA · HIREX</title>
+  <meta name="description" content="Ask job or interview questions — HIREX responds using your saved resume and job description pair."/>
+  <meta name="author" content="Sri Akash Kadali"/>
   <meta http-equiv="Content-Security-Policy"
         content="
           default-src 'self' blob: data:;
           img-src 'self' data: blob:;
-          style-src 'self' 'unsafe-inline';
+          style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+          font-src 'self' data: https://fonts.gstatic.com;
           script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval';
-          connect-src 'self' blob: http://127.0.0.1:8000 ws://127.0.0.1:8000 http://0.0.0.0:8000 ws://0.0.0.0:8000 http://localhost:8000 ws://localhost:8000 https://api.openai.com;
+          connect-src 'self' blob:
+                       http://127.0.0.1:8000 ws://127.0.0.1:8000
+                       http://0.0.0.0:8000   ws://0.0.0.0:8000
+                       http://localhost:8000  ws://localhost:8000
+                       https://api.openai.com;
           frame-src 'self' blob: data: about:;
           child-src 'self' blob:;
           worker-src 'self' blob:;
-          font-src 'self' data:;
           media-src 'self' blob: data:;
           object-src 'none';
           base-uri 'self';
           frame-ancestors 'self';
-        " />
+        "/>
 
-  <link rel="icon" type="image/png" href="/static/assets/favicon.png" />
-  <link rel="preload" href="/static/assets/logo.png" as="image" />
-  <link rel="stylesheet" href="/static/css/base.css?v=2.1.3" />
-  <link rel="stylesheet" href="/static/css/animations.css?v=2.1.3" />
-  <link rel="stylesheet" href="/static/css/app.css?v=2.1.3" />
+  <link rel="icon" type="image/png" href="/static/assets/favicon.png"/>
+  <link rel="preload" href="/static/assets/logo.png" as="image"/>
 
-  <style>
-    :root {
-      --bg: #0a0f1a;
-      --panel: #101622;
-      --accent: #5bd0ff;
-      --accent2: #9f78ff;
-      --muted: rgba(255,255,255,0.7);
-      --radius: 12px;
-      --font: "Inter","Outfit",system-ui,sans-serif;
-      --sidebar-width: 260px;
-      --history-width: 240px;
-    }
+  <!-- Google Sans + JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
 
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: #e6ecf7;
-      font-family: var(--font);
-      -webkit-font-smoothing: antialiased;
-      overflow-x: hidden;
-      position: relative;
-      z-index: 0;
-      line-height: 1.6;
-    }
-    ::selection { background: var(--accent); color: #000; }
-    .menu-toggle, .theme-toggle { display: none !important; }
+  <link rel="stylesheet" href="/static/css/animations.css?v=2.1.3"/>
 
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      background:
-        repeating-linear-gradient(to right, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px),
-        repeating-linear-gradient(to bottom, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px);
-      animation: gridFloat 24s linear infinite;
-      pointer-events: none;
-      z-index: -1;
-    }
-    body::after {
-      content: "";
-      position: fixed;
-      width: 500px;
-      height: 500px;
-      top: 30%;
-      right: 10%;
-      background: radial-gradient(circle, rgba(91,208,255,0.12), transparent 70%);
-      filter: blur(100px);
-      animation: glowPulse 10s ease-in-out infinite alternate;
-      pointer-events: none;
-      z-index: -1;
-    }
-    @keyframes gridFloat { from { background-position: 0 0, 0 0; } to { background-position: 80px 80px, 80px 80px; } }
-    @keyframes glowPulse { from { opacity: .8; transform: scale(1); } to { opacity: .6; transform: scale(1.1); } }
+<style>
+:root{
+  /* Surfaces */
+  --bg0:#0B1220;
+  --bg1:#0E1629;
 
-    /* Sidebar */
-    .sidebar {
-      position: fixed; left: 0; top: 0; bottom: 0;
-      width: var(--sidebar-width);
-      background: rgba(10,16,32,0.9);
-      border-right: 1px solid rgba(255,255,255,0.05);
-      z-index: 10; backdrop-filter: blur(10px);
-      display: flex; flex-direction: column; padding-top: .25rem;
-    }
-    .brand { display: flex; align-items: center; gap: .75rem; padding: .6rem 1rem .05rem; }
-    .brand img {
-      width: 72px; height: auto; aspect-ratio: 1 / 1; object-fit: contain;
-      filter: drop-shadow(0 0 6px rgba(91,208,255,0.6));
-      transition: transform .25s ease, filter .25s ease;
-    }
-    .brand img:hover { transform: scale(1.05); filter: drop-shadow(0 0 12px rgba(91,208,255,0.9)); }
-    .logo-text {
-      background: linear-gradient(90deg, var(--accent), var(--accent2));
-      -webkit-background-clip: text; background-clip: text;
-      color: transparent; font-weight: 700; font-size: 1.35rem; letter-spacing: .4px;
-    }
+  /* Text */
+  --text:#EAF0FF;
+  --muted:rgba(234,240,255,.72);
+  --dim:rgba(234,240,255,.42);
 
-    .vnav { list-style: none; padding: 0; margin: .05rem 1rem 1rem; }
-    .vnav li { margin-bottom: .42rem; }
-    .vnav a {
-      display: block; padding: 0.6rem 1rem; color: #cfd9ff; border-radius: 10px; text-decoration: none;
-      transition: background .2s ease, color .2s ease;
-    }
-    .vnav a:hover, .vnav a.active-link { background: rgba(91,208,255,0.12); color: var(--accent); }
+  /* Accents */
+  --accent:#7AA7FF;
+  --ok:#34D399;
+  --warn:#FBBF24;
+  --danger:#FB7185;
 
-    /* History panel */
-    #history-panel {
-      position: fixed; left: var(--sidebar-width); top: 0; bottom: 0;
-      width: var(--history-width);
-      background: rgba(10,16,32,0.9);
-      border-right: 1px solid rgba(255,255,255,0.05);
-      padding: 1rem; overflow-y: auto; z-index: 9; backdrop-filter: blur(10px);
-    }
-    #history-panel h3 {
-      background: linear-gradient(90deg, var(--accent), var(--accent2));
-      -webkit-background-clip: text; background-clip: text; color: transparent;
-      font-size: 1rem; text-align: center; margin-bottom: 0.75rem; font-weight: 700; letter-spacing: .3px;
-    }
-    #history-list { list-style: none; margin: 0; padding: 0; }
-    #history-list li {
-      padding: .6rem .5rem; border-radius: 8px; color: #ccc; cursor: pointer;
-      transition: background .2s ease, color .2s ease;
-    }
-    #history-list li:hover, #history-list li.active { background: rgba(91,208,255,0.18); color: #fff; }
+  /* Lines + shadows */
+  --line:rgba(255,255,255,.10);
+  --shadow:0 18px 50px rgba(0,0,0,.45);
 
-    /* Main */
-    main.console {
-      margin-left: calc(var(--sidebar-width) + var(--history-width));
-      padding: 2.5rem 3rem 4rem;
-      max-width: 1000px; position: relative; z-index: 1;
-      display: flex; flex-direction: column; gap: 1.8rem; animation: fadeRise 1s ease;
-    }
-    @keyframes fadeRise { from { opacity: 0; transform: translateY(25px); } to { opacity: 1; transform: translateY(0); } }
+  /* Type */
+  --ui:"Google Sans",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
 
-    h1.page-title {
-      text-align: center; font-size: 2rem; font-weight: 600;
-      background: linear-gradient(90deg, var(--accent), var(--accent2));
-      -webkit-background-clip: text; background-clip: text; color: transparent;
-      margin-bottom: 0.5rem;
-    }
-    .muted { text-align: center; color: var(--muted); margin-bottom: 2rem; }
+  /* Layout */
+  --sidebar:268px;
+  --histpanel:240px;
+  --topbar:52px;
 
-    /* Card */
-    .card {
-      background: var(--panel); border: 1px solid rgba(255,255,255,0.07);
-      border-radius: var(--radius); padding: 1.5rem;
-      transition: transform .25s ease, box-shadow .25s ease;
-      position: relative; z-index: 2; box-shadow: 0 0 20px rgba(91,208,255,0.08);
-    }
-    .card:hover { transform: translateY(-2px); box-shadow: 0 0 30px rgba(91,208,255,0.22); }
+  /* Radius */
+  --r:16px;
+  --r2:12px;
 
-    label {
-      font-size: 13px; color: var(--muted); display: block; margin-bottom: 6px;
-      text-align: center; text-transform: uppercase; letter-spacing: 0.4px;
-    }
-    select, textarea {
-      width: 100%; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);
-      background: #0e1424; color: #eaf0ff; padding: 10px 12px; font-size: 14px; outline: none;
-      transition: border-color .25s, background .25s;
-    }
-    select:focus, textarea:focus { border-color: var(--accent); background: #111a30; }
-    select option { background: #0f1628; color: #eaf0ff; }
+  /* Page */
+  --maxw:820px;
+}
 
-    .btn {
-      border: none; background: var(--accent); color: #0a0f1a; padding: 10px 14px;
-      border-radius: 8px; font-weight: 600; cursor: pointer; transition: background .25s, transform .15s;
-    }
-    .btn:hover { background: #72d7ff; transform: translateY(-1px); }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+::selection{background:rgba(122,167,255,.35);color:#fff;}
 
-    /* Chat */
-    .chat-box {
-      background: #0f1524; border: 1px solid rgba(255,255,255,0.05);
-      border-radius: 10px; padding: 14px; overflow-y: auto; height: 65vh;
-    }
-    .msg { margin-bottom: 12px; max-width: 85%; font-size: 14px; line-height: 1.5;
-      padding: 10px 14px; border-radius: 8px; white-space: pre-wrap; word-break: break-word; }
-    .msg.user { background: #18243c; color: #eaf0ff; margin-left: auto; }
-    .msg.bot  { background: #141b2e; color: #dce4f8; }
+body{
+  font-family:var(--ui);
+  background:
+    radial-gradient(900px 520px at 20% -10%, rgba(122,167,255,.18), transparent 60%),
+    radial-gradient(900px 520px at 85% 22%, rgba(185,199,255,.10), transparent 60%),
+    radial-gradient(700px 500px at 65% 110%, rgba(52,211,153,.08), transparent 60%),
+    linear-gradient(180deg, var(--bg0), var(--bg1));
+  color:var(--text);
+  font-size:14px;
+  line-height:1.55;
+  overflow-x:hidden;
+  min-height:100vh;
+  isolation:isolate;
+}
 
-    .chat-controls { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; }
-    .chat-controls textarea { flex: 1; min-height: 60px; border-radius: 8px; }
+/* Subtle noise */
+.grain{
+  position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.028;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size:220px 220px;
+}
 
-    footer {
-      text-align: center; color: #9aa7cc; font-size: 0.9rem; border-top: 1px solid rgba(255,255,255,0.06);
-      padding: 1.5rem; margin-top: 3rem; position: relative; z-index: 2;
-    }
+/* Ambient blobs */
+.ambient{position:fixed;pointer-events:none;z-index:0;border-radius:50%;filter:blur(120px);opacity:.9;}
+.amb-1{
+  width:520px;height:520px;top:-220px;left:calc(var(--sidebar) + var(--histpanel) - 120px);
+  background:radial-gradient(circle,rgba(122,167,255,.26),transparent 70%);
+  animation:drift 26s ease-in-out infinite alternate;
+}
+.amb-2{
+  width:520px;height:520px;bottom:-220px;right:4%;
+  background:radial-gradient(circle,rgba(52,211,153,.14),transparent 72%);
+  animation:drift 30s ease-in-out infinite alternate-reverse;
+}
+@keyframes drift{from{transform:translate(0,0);}to{transform:translate(30px,34px);}}
 
-    /* Responsive */
-    @media(max-width:1100px){
-      #history-panel { display: none; }
-      main.console { margin-left: var(--sidebar-width); }
-    }
-    @media(max-width:880px){
-      .brand { padding: .5rem 1rem .04rem; }
-      .brand img { width: 60px; }
-      .logo-text { font-size: 1.2rem; }
-      .vnav { margin: .02rem 1rem 1rem; }
-    }
-    @media(max-width:700px){
-      main.console { padding: 1.5rem; }
-      .chat-box { height: 60vh; }
-    }
-  </style>
+/* ── TOPBAR ── */
+.topbar{
+  position:fixed;top:0;left:calc(var(--sidebar) + var(--histpanel));right:0;height:var(--topbar);
+  z-index:40;
+  background:rgba(15,22,41,.72);
+  border-bottom:1px solid var(--line);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 1.25rem;
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+}
+.topbar-left,.topbar-right{display:flex;align-items:center;gap:1rem;}
+.sys-online{
+  display:flex;align-items:center;gap:.5rem;
+  font-size:12px;font-weight:800;color:rgba(234,240,255,.72);
+}
+.sys-online::before{
+  content:"";width:8px;height:8px;border-radius:999px;
+  background:var(--ok);
+  box-shadow:0 0 0 4px rgba(52,211,153,.10);
+}
+.topbar-tag{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:.35rem;}
+.topbar-tag b{color:rgba(234,240,255,.78);font-weight:800;}
+#sys-clock{font-variant-numeric:tabular-nums;font-size:12px;color:rgba(234,240,255,.72);}
+
+/* ── MAIN SIDEBAR ── */
+.sidebar{
+  position:fixed;top:0;left:0;width:var(--sidebar);height:100vh;
+  z-index:50;
+  background:rgba(15,22,41,.78);
+  border-right:1px solid var(--line);
+  display:flex;flex-direction:column;overflow:hidden;
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+}
+.sidebar::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.06), transparent 30%),
+    radial-gradient(800px 380px at 20% 0%, rgba(122,167,255,.10), transparent 60%);
+  opacity:.8;
+}
+
+.brand{
+  position:relative;z-index:2;
+  padding:1.15rem 1.1rem 1rem;
+  border-bottom:1px solid var(--line);
+  display:flex;flex-direction:column;gap:.5rem;
+}
+.brand-row{display:flex;align-items:center;gap:.8rem;}
+.brand-logo{width:44px;height:44px;flex-shrink:0;border-radius:14px;overflow:hidden;}
+.brand-logo img{
+  width:44px;height:44px;object-fit:contain;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:14px;
+}
+.brand-wordmark{display:flex;flex-direction:column;gap:.08rem;}
+.brand-name{font-size:16px;font-weight:900;letter-spacing:.06em;color:var(--text);}
+.brand-tagline{font-size:12px;color:var(--dim);}
+.brand-sysinfo{display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.15rem;}
+.sys-badge{
+  font-family:var(--mono);font-size:11px;
+  color:rgba(234,240,255,.75);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:999px;
+  padding:.18em .65em;
+  background:rgba(255,255,255,.05);
+}
+
+.vnav{list-style:none;padding:.75rem .6rem;flex:1;overflow-y:auto;position:relative;z-index:2;}
+.vnav::-webkit-scrollbar{width:6px;}
+.vnav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:999px;}
+.nav-group-label{
+  font-size:11px;font-weight:900;letter-spacing:.10em;text-transform:uppercase;
+  color:rgba(234,240,255,.42);padding:.75rem .7rem .35rem;
+}
+.vnav a{
+  display:flex;align-items:center;gap:.7rem;
+  color:rgba(234,240,255,.72);
+  text-decoration:none;
+  font-size:13px;font-weight:800;
+  padding:.62rem .75rem;
+  border-radius:12px;border:1px solid transparent;
+  margin-bottom:.2rem;
+  transition:background .15s,border-color .15s,transform .12s,color .15s;
+}
+.vnav a .nav-ico{width:22px;text-align:center;opacity:.7;font-size:.92rem;}
+.vnav a:hover{
+  background:rgba(255,255,255,.06);
+  border-color:rgba(255,255,255,.10);
+  transform:translateY(-1px);
+  color:var(--text);
+}
+.vnav a.active-link{
+  background:linear-gradient(90deg, rgba(122,167,255,.22), rgba(255,255,255,.06));
+  border-color:rgba(122,167,255,.25);
+  color:var(--text);
+}
+.vnav a.active-link::after,.vnav a.active-link::before{display:none;}
+
+.sidebar-foot{
+  position:relative;z-index:2;
+  padding:.9rem;border-top:1px solid var(--line);
+  display:flex;flex-direction:column;gap:.55rem;
+}
+.btn-exec{
+  width:100%;
+  display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(180deg, rgba(122,167,255,.22), rgba(122,167,255,.14));
+  border:1px solid rgba(122,167,255,.28);
+  color:var(--text);
+  font-family:var(--ui);
+  font-size:12px;font-weight:900;letter-spacing:.06em;
+  padding:.72rem .9rem;border-radius:12px;cursor:pointer;
+  transition:transform .12s,box-shadow .2s,background .2s;
+  box-shadow:0 10px 22px rgba(0,0,0,.20);
+}
+.btn-exec::before{display:none;}
+.btn-exec:hover{
+  transform:translateY(-1px);
+  box-shadow:0 0 0 4px rgba(122,167,255,.10), 0 14px 32px rgba(0,0,0,.26);
+}
+.btn-exec span{position:relative;z-index:1;}
+
+.btn-kill{
+  width:100%;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(251,113,133,.10);
+  border:1px solid rgba(251,113,133,.22);
+  color:rgba(251,113,133,.92);
+  font-family:var(--ui);
+  font-size:12px;font-weight:900;letter-spacing:.06em;
+  padding:.7rem .9rem;border-radius:12px;cursor:pointer;
+  transition:transform .12s,box-shadow .2s,background .2s;
+}
+.btn-kill:hover{transform:translateY(-1px);box-shadow:0 0 0 4px rgba(251,113,133,.10);}
+.btn-kill:disabled{opacity:.45;cursor:not-allowed;transform:none;}
+
+/* ── HISTORY PANEL ── */
+#history-panel{
+  position:fixed;top:0;left:var(--sidebar);width:var(--histpanel);height:100vh;
+  z-index:45;
+  background:rgba(15,22,41,.70);
+  border-right:1px solid var(--line);
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+}
+#history-panel::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(900px 420px at 30% 0%, rgba(122,167,255,.10), transparent 60%);
+  opacity:.8;
+}
+.hist-head{
+  position:relative;z-index:2;
+  padding:1rem .95rem .85rem;
+  border-bottom:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.03);
+  flex-shrink:0;
+}
+.hist-title{
+  font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;
+  color:rgba(234,240,255,.78);
+  display:flex;align-items:center;gap:.45rem;
+}
+.hist-title::before{
+  content:"";width:8px;height:8px;border-radius:999px;background:rgba(122,167,255,.75);
+  box-shadow:0 0 0 4px rgba(122,167,255,.12);
+}
+.hist-sub{font-size:12px;color:rgba(234,240,255,.55);margin-top:.25rem;}
+
+#history-list{
+  position:relative;z-index:2;
+  list-style:none;padding:.7rem .65rem;overflow-y:auto;flex:1;
+  display:flex;flex-direction:column;gap:.35rem;
+}
+#history-list::-webkit-scrollbar{width:8px;}
+#history-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:999px;}
+
+#history-list li{
+  font-size:12px;color:rgba(234,240,255,.70);
+  padding:.7rem .75rem;border-radius:14px;
+  border:1px solid rgba(255,255,255,.10);
+  background:rgba(255,255,255,.03);
+  cursor:pointer;
+  transition:transform .12s,background .2s,border-color .2s,box-shadow .2s,color .2s;
+  line-height:1.35;
+}
+#history-list li:hover{
+  transform:translateY(-1px);
+  background:rgba(255,255,255,.05);
+  border-color:rgba(255,255,255,.14);
+}
+#history-list li.active{
+  border-color:rgba(122,167,255,.28);
+  background:linear-gradient(90deg, rgba(122,167,255,.18), rgba(255,255,255,.04));
+  box-shadow:0 0 0 4px rgba(122,167,255,.10);
+}
+#history-list li .hist-company{display:block;font-weight:900;font-size:12px;color:rgba(234,240,255,.88);}
+#history-list li .hist-role{display:block;font-size:12px;color:rgba(234,240,255,.55);margin-top:.2rem;}
+
+/* ── HAMBURGER ── */
+.hamburger{
+  display:none;position:fixed;top:12px;left:12px;z-index:60;
+  background:rgba(15,22,41,.72);
+  border:1px solid rgba(255,255,255,.10);
+  color:var(--text);
+  font-size:1rem;padding:.46rem .66rem;border-radius:12px;
+  cursor:pointer;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+}
+
+/* ── MAIN ── */
+main.console{
+  margin-left:calc(var(--sidebar) + var(--histpanel));
+  padding:calc(var(--topbar) + 2.2rem) 2.5rem 5rem;
+  position:relative;z-index:2;
+  display:flex;flex-direction:column;align-items:center;
+  min-height:100vh;
+}
+
+/* Page header */
+.page-head{
+  width:100%;max-width:var(--maxw);
+  margin-bottom:1.35rem;
+  animation:rise .6s ease both;
+}
+@keyframes rise{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+.page-pre{
+  font-size:12px;font-weight:800;
+  letter-spacing:.08em;text-transform:uppercase;
+  color:rgba(234,240,255,.65);
+  display:flex;align-items:center;gap:.6rem;margin-bottom:.7rem;
+}
+.page-pre::before{
+  content:"";display:inline-block;width:24px;height:2px;border-radius:999px;
+  background:rgba(122,167,255,.65);
+}
+h1.page-title{
+  font-family:var(--ui);
+  font-size:clamp(28px,3.2vw,44px);
+  letter-spacing:-0.02em;
+  line-height:1.05;
+  color:rgba(234,240,255,.95);
+}
+h1.page-title span{
+  display:block;font-size:14px;font-weight:700;
+  color:rgba(234,240,255,.62);
+  margin-top:.35rem;
+}
+.page-desc{
+  font-size:14px;color:rgba(234,240,255,.72);
+  line-height:1.65;margin-top:.65rem;
+}
+
+/* ── CONTEXT PANEL ── */
+.ctx-panel{
+  width:100%;max-width:var(--maxw);
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:18px;
+  overflow:hidden;margin-bottom:.85rem;
+  position:relative;
+  animation:rise .65s .06s ease both;
+  box-shadow:0 18px 44px rgba(0,0,0,.18);
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+}
+.ctx-panel::before,.ctx-panel::after,.ctx-panel .bc-bl,.ctx-panel .bc-br{display:none;}
+
+.panel-hd{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.85rem 1rem;
+  background:rgba(255,255,255,.03);
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.panel-id{
+  font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
+  color:rgba(234,240,255,.78);
+}
+.panel-id::before{display:none;}
+.panel-meta{font-size:12px;color:rgba(234,240,255,.55);display:flex;gap:.8rem;}
+.panel-meta em{color:rgba(251,191,36,.92);font-style:normal;font-weight:900;}
+
+.ctx-body{
+  padding:1rem 1rem;
+  display:flex;align-items:end;gap:.8rem;flex-wrap:wrap;
+}
+
+.f-label{
+  font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;
+  color:rgba(234,240,255,.55);
+  display:block;margin-bottom:.4rem;
+}
+
+select{
+  flex:1;min-width:240px;
+  background:rgba(255,255,255,.05);
+  color:rgba(234,240,255,.92);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:12px;
+  padding:.62rem .8rem;
+  font-family:var(--ui);
+  font-size:12px;font-weight:800;
+  appearance:none;outline:none;cursor:pointer;
+  transition:border-color .2s,box-shadow .2s,background .2s;
+}
+select:focus{
+  border-color:rgba(122,167,255,.30);
+  box-shadow:0 0 0 4px rgba(122,167,255,.12);
+  background:rgba(255,255,255,.06);
+}
+option{background:#0C1426;color:rgba(234,240,255,.92);}
+
+.ctx-status{
+  font-family:var(--ui);font-size:12px;font-weight:900;
+  color:rgba(234,240,255,.55);
+  flex-shrink:0;
+  display:flex;align-items:center;gap:.4rem;
+}
+.ctx-status.ok{color:rgba(52,211,153,.92);}
+.ctx-status.err{color:rgba(251,113,133,.92);}
+
+/* Load button */
+.btn-load{
+  display:flex;align-items:center;gap:.4rem;
+  background:linear-gradient(180deg, rgba(122,167,255,.30), rgba(122,167,255,.16));
+  border:1px solid rgba(122,167,255,.26);
+  color:rgba(234,240,255,.92);
+  font-family:var(--ui);
+  font-size:12px;font-weight:900;
+  letter-spacing:.06em;text-transform:uppercase;
+  padding:.64rem 1.05rem;border-radius:12px;
+  cursor:pointer;position:relative;overflow:hidden;transition:transform .12s,box-shadow .2s;
+  flex-shrink:0;height:36px;
+}
+.btn-load::before{display:none;}
+.btn-load:hover{transform:translateY(-1px);box-shadow:0 0 0 4px rgba(122,167,255,.10);}
+
+/* ── CHAT PANEL ── */
+.chat-panel{
+  width:100%;max-width:var(--maxw);
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:18px;
+  overflow:hidden;
+  display:flex;flex-direction:column;
+  animation:rise .7s .12s ease both;
+  flex:1;
+  box-shadow:0 18px 44px rgba(0,0,0,.14);
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+}
+
+.chat-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.85rem 1rem;
+  background:rgba(255,255,255,.03);
+  border-bottom:1px solid rgba(255,255,255,.08);
+  flex-shrink:0;
+}
+.term-dots{display:flex;gap:.35rem;}
+.term-dot{width:10px;height:10px;border-radius:999px;}
+.term-dot.red{background:#ff5f57;}
+.term-dot.amb{background:rgba(251,191,36,.92);}
+.term-dot.grn{background:rgba(52,211,153,.92);}
+.chat-label{font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:rgba(234,240,255,.78);}
+.chat-meta{font-size:12px;color:rgba(234,240,255,.55);}
+
+/* Messages */
+#talk-chat{
+  flex:1;
+  height:58vh;
+  overflow-y:auto;
+  padding:1rem 1rem;
+  display:flex;flex-direction:column;gap:.65rem;
+}
+#talk-chat::-webkit-scrollbar{width:8px;}
+#talk-chat::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:999px;}
+
+.msg{
+  max-width:86%;
+  font-size:14px;
+  line-height:1.65;
+  padding:.85rem 1rem;
+  border-radius:16px;
+  white-space:pre-wrap;word-break:break-word;
+  border:1px solid rgba(255,255,255,.10);
+}
+.msg.user{
+  background:rgba(122,167,255,.12);
+  border-color:rgba(122,167,255,.20);
+  color:rgba(234,240,255,.92);
+  margin-left:auto;
+}
+.msg.user::before{display:none;}
+.msg.bot{
+  background:rgba(255,255,255,.04);
+  border-color:rgba(255,255,255,.10);
+  color:rgba(234,240,255,.92);
+  margin-right:auto;
+}
+.msg.bot::before{display:none;}
+.msg.bot.thinking{
+  color:rgba(234,240,255,.62);
+  border-color:rgba(251,191,36,.18);
+  background:rgba(251,191,36,.06);
+}
+
+/* Typing indicator */
+.typing-dots{display:inline-flex;gap:.3rem;align-items:center;}
+.typing-dots span{
+  width:6px;height:6px;border-radius:999px;
+  background:rgba(251,191,36,.92);
+  animation:typing-bounce .9s ease-in-out infinite;
+}
+.typing-dots span:nth-child(2){animation-delay:.18s;}
+.typing-dots span:nth-child(3){animation-delay:.36s;}
+@keyframes typing-bounce{0%,80%,100%{transform:translateY(0);opacity:.4;}40%{transform:translateY(-4px);opacity:1;}}
+
+/* Input area */
+.chat-input-area{
+  display:flex;align-items:flex-end;gap:.6rem;
+  padding:.85rem 1rem;
+  border-top:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.02);
+  flex-shrink:0;
+}
+
+textarea#talk-input{
+  flex:1;min-height:52px;max-height:140px;
+  background:rgba(255,255,255,.03);
+  color:rgba(234,240,255,.92);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:14px;
+  padding:.75rem .9rem;
+  font-family:var(--ui);
+  font-size:14px;line-height:1.6;
+  resize:none;outline:none;
+  transition:border-color .2s,box-shadow .2s,background .2s;
+}
+textarea#talk-input::placeholder{color:rgba(234,240,255,.45);}
+textarea#talk-input:focus{
+  border-color:rgba(122,167,255,.30);
+  box-shadow:0 0 0 4px rgba(122,167,255,.12);
+  background:rgba(255,255,255,.04);
+}
+
+/* Send button */
+.btn-send{
+  display:flex;align-items:center;justify-content:center;gap:.4rem;
+  background:linear-gradient(180deg, rgba(122,167,255,.30), rgba(122,167,255,.16));
+  border:1px solid rgba(122,167,255,.26);
+  color:rgba(234,240,255,.92);
+  font-family:var(--ui);
+  font-size:12px;font-weight:900;
+  letter-spacing:.06em;text-transform:uppercase;
+  padding:.7rem 1rem;
+  border-radius:14px;
+  cursor:pointer;
+  transition:transform .12s,box-shadow .2s,background .2s,opacity .2s;
+  flex-shrink:0;
+}
+.btn-send::before{display:none;}
+.btn-send:hover{transform:translateY(-1px);box-shadow:0 0 0 4px rgba(122,167,255,.10);}
+.btn-send:disabled{opacity:.45;cursor:not-allowed;transform:none;}
+
+/* Footer */
+footer{
+  margin-left:calc(var(--sidebar) + var(--histpanel));
+  padding:1rem 2rem;
+  border-top:1px solid rgba(255,255,255,.10);
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:.5rem;
+  font-size:12px;color:rgba(234,240,255,.55);
+  background:rgba(15,22,41,.65);
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+}
+footer b{color:rgba(234,240,255,.78);}
+.ver-tag{
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.05);
+  color:rgba(234,240,255,.75);
+  padding:.25em .75em;border-radius:999px;
+  font-family:var(--mono);font-size:11px;
+}
+
+/* Toast */
+#toast{
+  position:fixed;left:50%;transform:translateX(-50%);bottom:18px;
+  background:rgba(15,22,41,.85);
+  border:1px solid rgba(255,255,255,.12);
+  color:rgba(234,240,255,.86);
+  padding:.7rem 1.05rem;border-radius:12px;
+  display:none;z-index:9999;
+  font-family:var(--ui);font-size:13px;font-weight:800;
+  box-shadow:0 18px 44px rgba(0,0,0,.28);
+}
+
+/* FAB */
+.shutdown-fab{
+  position:fixed;right:18px;bottom:18px;z-index:40;
+  width:44px;height:44px;border-radius:14px;
+  background:rgba(251,113,133,.10);
+  border:1px solid rgba(251,113,133,.22);
+  color:rgba(251,113,133,.92);
+  display:flex;align-items:center;justify-content:center;font-size:1rem;
+  cursor:pointer;transition:transform .12s,box-shadow .2s,background .2s,opacity .2s;
+}
+.shutdown-fab:hover{transform:translateY(-1px);box-shadow:0 0 0 4px rgba(251,113,133,.10), 0 18px 44px rgba(0,0,0,.28);}
+.shutdown-fab:disabled{opacity:.45;cursor:not-allowed;transform:none;}
+
+/* Responsive */
+@media(max-width:1100px){
+  #history-panel{display:none;}
+  .topbar{left:var(--sidebar);}
+  main.console{margin-left:var(--sidebar);}
+  footer{margin-left:var(--sidebar);}
+  .amb-1{left:calc(var(--sidebar) - 120px);}
+}
+@media(max-width:700px){
+  .hamburger{display:block;}
+  .sidebar{left:-100%;width:82%;transition:left .28s ease;}
+  body.nav-open .sidebar{left:0;}
+  .topbar{left:0!important;}
+  main.console{margin-left:0!important;padding-left:1.25rem;padding-right:1.25rem;}
+  footer{margin-left:0!important;}
+}
+@media(max-width:500px){
+  #talk-chat{height:52vh;}
+  .msg{max-width:95%;}
+}
+</style>
 </head>
+<body class="glass-page">
 
-<body class="page-enter" data-app="astra">
-  <!-- Sidebar -->
-  <aside class="sidebar" id="sidebar" role="navigation" aria-label="Primary">
-    <div class="brand">
-      <img src="/static/assets/logo.png" alt="ASTRA Logo" loading="lazy" />
-      <span class="logo-text">ASTRA</span>
+<div class="grain" aria-hidden="true"></div>
+<div class="ambient amb-1" aria-hidden="true"></div>
+<div class="ambient amb-2" aria-hidden="true"></div>
+
+<button id="nav-toggle" class="hamburger" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+
+<!-- ════════════════ MAIN SIDEBAR ════════════════ -->
+<aside class="sidebar" id="sidebar" role="navigation" aria-label="Primary">
+  <div class="brand">
+    <div class="brand-row">
+      <div class="brand-logo">
+        <img src="/static/assets/logo.png" alt="ASTRA" loading="lazy"/>
+      </div>
+      <div class="brand-wordmark">
+        <span class="brand-name">ASTRA</span>
+        <span class="brand-tagline">AI Career Ops System</span>
+      </div>
     </div>
-    <ul class="vnav">
-      <li><a href="/index.html">🏠 HIREX</a></li>
-      <li><a href="/preview.html">📄 HIREX Preview</a></li>
-      <li><a href="/coverletter.html">✉️ HIREX Letter</a></li>
-      <li><a href="/talk.html" aria-current="page" class="active-link">💬 Talk to HIREX</a></li>
-      <li><a href="/mastermind.html">🧠 MasterMind</a></li>
-      <li><a href="/superhuman.html">✨ SuperHuman</a></li>
-      <li><a href="/dashboard.html">📊 Dashboard</a></li>
-      <li><a href="/genie.html">🧞 Genie</a></li>
-    </ul>
-  </aside>
+    <div class="brand-sysinfo">
+      <span class="sys-badge">v1.0.0</span>
+      <span class="sys-badge">GPT-4o</span>
+      <span class="sys-badge">ONLINE</span>
+    </div>
+  </div>
 
-  <!-- JD/Resume History Sidebar -->
-  <aside id="history-panel" aria-label="Saved JD and Resume History">
-    <h3>📜 JD + Resume History</h3>
-    <ul id="history-list"></ul>
-  </aside>
+  <ul class="vnav">
+    <li class="nav-group-label">Core</li>
+    <li><a href="/index.html"><span class="nav-ico">⬡</span> HIREX</a></li>
+    <li><a href="/preview.html"><span class="nav-ico">◧</span> Preview</a></li>
+    <li><a href="/coverletter.html"><span class="nav-ico">◈</span> Cover Letter</a></li>
 
-  <!-- Main -->
-  <main id="content" class="console" role="main">
-    <h1 class="page-title anim rise">Talk to HIREX</h1>
-    <p class="muted">
+    <li class="nav-group-label">Intelligence</li>
+    <li><a href="/talk.html" class="active-link" aria-current="page"><span class="nav-ico">◎</span> Talk to HIREX</a></li>
+    <li><a href="/mastermind.html"><span class="nav-ico">◉</span> MasterMind</a></li>
+    <li><a href="/superhuman.html"><span class="nav-ico">◈</span> SuperHuman</a></li>
+
+    <li class="nav-group-label">Analytics</li>
+    <li><a href="/dashboard.html"><span class="nav-ico">▦</span> Dashboard</a></li>
+    <li><a href="/genie.html"><span class="nav-ico">◐</span> Genie</a></li>
+  </ul>
+
+  <div class="sidebar-foot">
+    <button class="btn-exec" type="button" onclick="document.getElementById('talk-input').focus()">
+      <span>Focus</span>
+    </button>
+    <button id="shutdown-btn" class="btn-kill" type="button">⏻ Kill server</button>
+  </div>
+</aside>
+
+<!-- ════════════════ HISTORY PANEL ════════════════ -->
+<aside id="history-panel" aria-label="Saved JD and Resume History">
+  <div class="hist-head">
+    <div class="hist-title">Context store</div>
+    <div class="hist-sub">JD + Resume pairs</div>
+  </div>
+  <ul id="history-list"></ul>
+</aside>
+
+<!-- ════════════════ TOPBAR ════════════════ -->
+<div class="topbar" role="status">
+  <div class="topbar-left">
+    <span class="sys-online">Online</span>
+    <span class="topbar-tag">Module <b>Talk</b></span>
+    <span class="topbar-tag">Engine <b>v1.0.0</b></span>
+  </div>
+  <div class="topbar-right">
+    <span class="topbar-tag">Session <b id="session-id">—</b></span>
+    <span id="sys-clock">—</span>
+  </div>
+</div>
+
+<!-- ════════════════ MAIN ════════════════ -->
+<main id="content" class="console" role="main">
+
+  <!-- Page header -->
+  <div class="page-head">
+    <div class="page-pre">Conversational interface</div>
+    <h1 class="page-title">
+      Talk to HIREX
+      <span>AI Career Q&A</span>
+    </h1>
+    <p class="page-desc">
       Ask job or interview questions — HIREX responds using your saved
-      <strong>resume</strong> and <strong>job description</strong> pair.
+      <strong style="color:rgba(234,240,255,.92)">resume</strong> and
+      <strong style="color:rgba(251,191,36,.92)">job description</strong> pair.
     </p>
+  </div>
 
-    <!-- Context selection -->
-    <section class="card anim fade" aria-labelledby="context-label">
-      <label id="context-label" for="contextSelect">Select JD + Resume</label>
-      <select id="contextSelect" aria-label="JD and Resume selection"></select>
-      <div style="text-align:center;margin-top:1rem;">
-        <button class="btn" id="loadContext" type="button">Load Context</button>
-        <div id="contextStatus" style="font-size:13px;margin-top:8px;color:var(--muted);" aria-live="polite">Idle</div>
+  <!-- Context selector -->
+  <div class="ctx-panel" aria-labelledby="ctx-label">
+    <div class="panel-hd">
+      <span class="panel-id">Context — JD + Resume</span>
+      <div class="panel-meta"><em>Context store</em></div>
+    </div>
+    <div class="ctx-body">
+      <div style="flex:1;min-width:240px;">
+        <label class="f-label" for="contextSelect">Select pair</label>
+        <select id="contextSelect" aria-label="JD and Resume selection"></select>
       </div>
-    </section>
+      <button class="btn-load" id="loadContext" type="button">Load</button>
+      <div class="ctx-status" id="contextStatus" aria-live="polite">Idle</div>
+    </div>
+  </div>
 
-    <!-- Chat -->
-    <section class="card anim fade" aria-label="Chat with HIREX">
-      <div id="talk-chat" class="chat-box" aria-live="polite">
-        <div class="msg bot">👋 Hi! I’m HIREX — ask anything about your role, JD, or fit.</div>
+  <!-- Chat panel -->
+  <div class="chat-panel" aria-label="Chat with HIREX">
+    <div class="chat-head">
+      <div style="display:flex;align-items:center;gap:.65rem;">
+        <div class="term-dots" aria-hidden="true">
+          <div class="term-dot red"></div>
+          <div class="term-dot amb"></div>
+          <div class="term-dot grn"></div>
+        </div>
+        <span class="chat-label">HIREX conversation</span>
       </div>
-      <div class="chat-controls" id="talk-form" role="form" aria-label="Ask HIREX">
-        <textarea id="talk-input" placeholder="e.g., 'What makes me a strong fit for this position?'" aria-label="Your question"></textarea>
-        <button class="btn" id="talk-send" type="button" aria-label="Send question">Ask</button>
+      <span class="chat-meta" id="chat-meta">Context: None loaded</span>
+    </div>
+
+    <div id="talk-chat" aria-live="polite" role="log" aria-label="Conversation">
+      <div class="msg bot">
+        HIREX online. Load a context, then ask anything about the role, JD alignment, or interview prep.
       </div>
-    </section>
-  </main>
+    </div>
 
-  <footer>
-    &copy; 2025 <strong>ASTRA</strong> — Developed by <strong>Sri Akash Kadali</strong> |
-    Powered by <strong>FastAPI</strong> + <strong>OpenAI</strong>
-  </footer>
+    <div class="chat-input-area" role="form" aria-label="Ask HIREX">
+      <textarea
+        id="talk-input"
+        placeholder="e.g. What makes me a strong fit. How should I answer Tell me about yourself."
+        aria-label="Your question"
+        rows="2"
+      ></textarea>
+      <button class="btn-send" id="talk-send" type="button" aria-label="Send question">
+        <span>Send</span>
+      </button>
+    </div>
+  </div>
 
-  <div id="toast" role="status" aria-live="polite" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#0f1524;border:1px solid rgba(255,255,255,0.08);padding:10px 14px;border-radius:8px;z-index:50;"></div>
+</main>
 
-  <script src="/static/js/util.js?v=2.1.3" defer></script>
-  <script src="/static/js/ui.js?v=2.1.3" defer></script>
-  <script src="/static/js/talk.js?v=2.1.3" defer></script>
+<footer>
+  <span>© 2025 <b>ASTRA</b> — <b>Sri Akash Kadali</b></span>
+  <span>FastAPI · OpenAI · LaTeX</span>
+  <span class="ver-tag">v1.0.0</span>
+</footer>
 
-  <script>
-    // ===== Utilities =====
-    const $  = (s, r=document) => r.querySelector(s);
-    const $$ = (s, r=document) => [...r.querySelectorAll(s)];
-    const esc = (v) => String(v ?? "—").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-    const toast = (msg, ms=2400) => { const t=$("#toast"); if(!t) return; t.textContent=msg; t.style.display="block"; clearTimeout(window.__t0); window.__t0=setTimeout(()=>t.style.display="none", ms); };
-    const setStatus = (s)=>{ const el=$("#contextStatus"); if(el) el.textContent=s; };
+<div id="toast" role="status" aria-live="polite"></div>
+<button id="shutdown-fab" class="shutdown-fab" type="button" aria-label="Shutdown server">⏻</button>
 
-    // Stable key for selection dedupe
-    const keyFrom = (obj) => {
-      if (obj?.key) return String(obj.key).toLowerCase();
-      const c = (obj?.company || obj?.company_name || "").toLowerCase().trim().replace(/\s+/g,"_");
-      const r = (obj?.role || "").toLowerCase().trim().replace(/\s+/g,"_");
-      return `${c}__${r}`;
+<!-- keep your existing scripts exactly as-is -->
+<script src="/static/js/util.js?v=2.1.3"></script>
+<script src="/static/js/ui.js?v=2.1.3"></script>
+<script src="/static/js/talk.js?v=2.1.3"></script>
+
+<script>
+/* your existing inline boot script unchanged */
+(function(){
+  const $ = (s,r=document)=>r.querySelector(s);
+  const esc = v=>String(v??"—").replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+
+  const toast = (msg,ms=2600)=>{
+    const t=$("#toast");if(!t)return;
+    t.textContent=msg;t.style.display="block";
+    clearTimeout(window.__t0);window.__t0=setTimeout(()=>t.style.display="none",ms);
+  };
+
+  const setStatus = s=>{
+    const el=$("#contextStatus");if(!el)return;
+    el.textContent=s.toUpperCase();
+    el.className="ctx-status"+(s.startsWith("OK")||s==="LOADED"?" ok":s.startsWith("ERR")?" err":"");
+  };
+
+  const setChatMeta = (company,role)=>{
+    const el=$("#chat-meta");
+    if(el) el.textContent=(company&&role)?`Context: ${company} — ${role}`:"Context: None loaded";
+  };
+
+  const keyFrom = obj=>{
+    if(obj?.key) return String(obj.key).toLowerCase();
+    const c=(obj?.company||obj?.company_name||"").toLowerCase().trim().replace(/\s+/g,"_");
+    const r=(obj?.role||"").toLowerCase().trim().replace(/\s+/g,"_");
+    return `${c}__${r}`;
+  };
+
+  const dedupeByKey = items=>{
+    const seen=new Set();const out=[];
+    for(const it of items){
+      const k=keyFrom(it);if(!k||seen.has(k))continue;
+      seen.add(k);
+      out.push({...it,company:it.company||it.company_name||"—",role:it.role||it.title||"—",__key:k});
+    }
+    return out;
+  };
+
+  const apiBase = ()=>localStorage.getItem("hirex_api_base")||"";
+  const apiURL  = path=>`${apiBase()}${path}`;
+
+  async function listContexts(limit=300){
+    const r=await fetch(apiURL(`/api/context/list?limit=${limit}`),{credentials:"same-origin"});
+    if(!r.ok)throw new Error("Failed to list contexts");
+    const j=await r.json();return Array.isArray(j.items)?j.items:[];
+  }
+  async function getContextByKey(key){
+    const r=await fetch(apiURL(`/api/context/get?key=${encodeURIComponent(key)}`),{credentials:"same-origin"});
+    if(!r.ok)throw new Error("Context not found");return await r.json();
+  }
+  async function getLatestContext(){
+    const r=await fetch(apiURL(`/api/context/get?latest=1`),{credentials:"same-origin"});
+    if(!r.ok)throw new Error("No latest context");return await r.json();
+  }
+
+  function persistSelectedContext(ctx){
+    const sel={
+      key:keyFrom(ctx),
+      company:ctx.company||ctx.company_name||"",
+      role:ctx.role||ctx.title||"",
+      jd_text:(ctx.jd_text||ctx.jd||""),
+      resume_tex:(ctx.humanized?.tex||ctx.humanized_tex||ctx.optimized?.tex||ctx.resume_tex||""),
+      pdf_base64:ctx.pdf_base64||"",
+      pdf_base64_humanized:ctx.pdf_base64_humanized||""
     };
-    const dedupeByKey = (items) => {
-      const seen = new Set(); const out = [];
-      for (const it of items) {
-        const k = keyFrom(it);
-        if (!k || seen.has(k)) continue;
-        seen.add(k);
-        out.push({
-          ...it,
-          company: it.company || it.company_name || "—",
-          role: it.role || it.title || "—",
-          __key: k
-        });
-      }
-      return out;
-    };
+    try{
+      localStorage.setItem("hirex_selected_context",JSON.stringify(sel));
+      localStorage.setItem("hirex_company",sel.company);
+      localStorage.setItem("hirex_role",sel.role);
+    }catch{}
+    return sel;
+  }
 
-    // ===== Backend API (v2.x) =====
-    async function listContexts(limit=200) {
-      const r = await fetch(`/api/context/list?limit=${limit}`, { credentials: "same-origin" });
-      if (!r.ok) throw new Error("Failed to list contexts");
-      const j = await r.json();
-      return Array.isArray(j.items) ? j.items : [];
+  function renderHistoryList(container,items){
+    if(!container)return;
+    if(!items.length){
+      container.innerHTML='<li style="color:rgba(234,240,255,.45);font-size:12px;padding:.7rem .75rem;">No history yet</li>';
+      return;
     }
-    async function getContextByKey(key) {
-      const r = await fetch(`/api/context/get?key=${encodeURIComponent(key)}`, { credentials: "same-origin" });
-      if (!r.ok) throw new Error("Context not found");
-      return await r.json();
-    }
-    async function getLatestContext() {
-      const r = await fetch(`/api/context/get?latest=1`, { credentials: "same-origin" });
-      if (!r.ok) throw new Error("No latest context");
-      return await r.json();
-    }
+    container.innerHTML=items.map(it=>`
+      <li data-key="${esc(it.__key)}" tabindex="0" role="button" aria-label="${esc(it.company)} — ${esc(it.role)}">
+        <span class="hist-company">${esc(it.company)}</span>
+        <span class="hist-role">${esc(it.role)}</span>
+      </li>`).join("");
+  }
 
-    // ===== Persist selection for talk.js & other pages =====
-    function persistSelectedContext(ctx) {
-      const selected = {
-        key: keyFrom(ctx),
-        company: ctx.company || ctx.company_name || "",
-        role: ctx.role || ctx.title || "",
-        jd_text: (ctx.jd_text || ctx.jd || ""),
-        resume_tex: (ctx.humanized?.tex || ctx.humanized_tex || ctx.optimized?.tex || ctx.resume_tex || ""),
-        pdf_base64: ctx.pdf_base64 || "",
-        pdf_base64_humanized: ctx.pdf_base64_humanized || ""
-      };
-      try {
-        localStorage.setItem("hirex_selected_context", JSON.stringify(selected));
-        localStorage.setItem("hirex_company", selected.company);
-        localStorage.setItem("hirex_role", selected.role);
-      } catch {}
-      return selected;
-    }
+  function populateSelect(sel,items){
+    if(!sel)return;
+    if(!items.length){sel.innerHTML='<option disabled selected>No saved JD + Resume</option>';return;}
+    sel.innerHTML=items.map(it=>`<option value="${esc(it.__key)}">${esc(it.company)} — ${esc(it.role)}</option>`).join("");
+  }
 
-    function renderHistoryList(container, items) {
-      container.innerHTML = items.map(it =>
-        `<li data-key="${esc(it.__key)}" tabindex="0" role="button" aria-label="Select ${esc(it.company)} — ${esc(it.role)}">${esc(it.company)} — ${esc(it.role)}</li>`
-      ).join("");
-    }
-    function populateSelect(select, items) {
-      if (!items.length) {
-        select.innerHTML = `<option disabled selected>No saved JD + Resume</option>`;
-        return;
-      }
-      select.innerHTML = items.map(it =>
-        `<option value="${esc(it.__key)}">${esc(it.company)} — ${esc(it.role)}</option>`
-      ).join("");
-    }
+  document.addEventListener("DOMContentLoaded",async()=>{
 
-    // ===== Boot =====
-    document.addEventListener("DOMContentLoaded", async () => {
-      const select  = $("#contextSelect");
-      const list    = $("#history-list");
-      const loadBtn = $("#loadContext");
+    const clockEl=$("#sys-clock"),sessionEl=$("#session-id");
+    if(sessionEl) sessionEl.textContent=Math.random().toString(36).slice(2,8).toUpperCase();
+    const tick=()=>{if(clockEl) clockEl.textContent=new Date().toLocaleTimeString("en-GB",{hour12:false})+" UTC";};
+    tick();setInterval(tick,1000);
 
-      try {
-        setStatus("Loading history…");
-        const items = await listContexts(300);
-        const uniq  = dedupeByKey(items);
-
-        populateSelect(select, uniq);
-        renderHistoryList(list, uniq);
-
-        // Preselect previously chosen context (if exists)
-        const prev = (() => { try { return JSON.parse(localStorage.getItem("hirex_selected_context")||"null"); } catch { return null; }})();
-        if (prev?.key) {
-          select.value = prev.key;
-          [...list.children].forEach(li => li.classList.toggle("active", li.dataset.key === prev.key));
-        } else if (uniq.length) {
-          select.value = uniq[0].__key;
-          [...list.children].forEach((li, i) => li.classList.toggle("active", i === 0));
-          // Auto-persist newest once so chat works out of the box
-          try {
-            const ctx = await getContextByKey(uniq[0].__key);
-            persistSelectedContext(ctx);
-          } catch {}
-        } else {
-          // Backend empty — fallback to local history (best-effort)
-          const localHist = (() => { try { return JSON.parse(localStorage.getItem("hirex_history")||"[]"); } catch { return []; }})();
-          const dedupLocal = dedupeByKey(localHist);
-          populateSelect(select, dedupLocal);
-          renderHistoryList(list, dedupLocal);
-        }
-
-        // Click on sidebar history selects the item
-        list.addEventListener("click", (e) => {
-          const li = e.target.closest("li"); if (!li) return;
-          const key = li.dataset.key;
-          select.value = key;
-          [...list.children].forEach(x => x.classList.remove("active"));
-          li.classList.add("active");
-        });
-        // Keyboard select
-        list.addEventListener("keydown", (e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            const li = e.target.closest("li"); if (!li) return;
-            li.click();
-          }
-        });
-
-        // Load button: fetch by key and persist
-        loadBtn.addEventListener("click", async () => {
-          const key = select.value;
-          if (!key) return toast("Please select a JD + Resume pair.");
-          setStatus("Loading context…");
-          try {
-            const ctx = await getContextByKey(key);
-            const saved = persistSelectedContext(ctx);
-            setStatus(`✅ Loaded: ${saved.company || "—"} — ${saved.role || "—"}`);
-            toast("Context loaded.");
-          } catch (e) {
-            setStatus("⚠️ Failed to load context");
-            toast(String(e));
-          }
-        });
-
-        setStatus("Idle");
-      } catch (e) {
-        // If backend listing fails, try to at least get the latest context directly
-        try {
-          const ctx = await getLatestContext();
-          const saved = persistSelectedContext(ctx);
-          populateSelect($("#contextSelect"), [{company:saved.company, role:saved.role, __key:saved.key}]);
-          renderHistoryList($("#history-list"), [{company:saved.company, role:saved.role, __key:saved.key}]);
-          setStatus(`☁️ Loaded latest: ${saved.company} — ${saved.role}`);
-        } catch {
-          setStatus("History unavailable");
-          $("#contextSelect").innerHTML = `<option disabled selected>History unavailable</option>`;
-          $("#history-list").innerHTML  = `<li>No history yet</li>`;
-        }
-      }
-
-      (window.ASTRA ?? window.HIREX)?.debugLog?.("TALK PAGE LOADED", { version: "v2.1.3" });
+    const navToggle=$("#nav-toggle");
+    navToggle?.addEventListener("click",()=>{
+      const on=!document.body.classList.contains("nav-open");
+      document.body.classList.toggle("nav-open",on);
+      navToggle.setAttribute("aria-expanded",String(on));
     });
-  </script>
+    document.addEventListener("click",e=>{
+      const sb=$("#sidebar");
+      if(document.body.classList.contains("nav-open")&&sb&&!sb.contains(e.target)&&!navToggle.contains(e.target)){
+        document.body.classList.remove("nav-open");
+        navToggle.setAttribute("aria-expanded","false");
+      }
+    });
+
+    const wireShutdown=btn=>{
+      if(!btn)return;
+      btn.addEventListener("click",async()=>{
+        if(!confirm("Terminate the ASTRA server process?"))return;
+        const prev=btn.textContent;btn.disabled=true;
+        try{
+          const res=await fetch(apiURL("/api/system/shutdown"),{
+            method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({reason:"user_request"})
+          });
+          if(!res.ok)throw new Error();
+          toast("// SHUTDOWN INITIATED");
+          setTimeout(()=>{window.close();window.location.href="about:blank";},800);
+        }catch{
+          toast("// ERROR: Shutdown endpoint unreachable");
+          btn.disabled=false;btn.textContent=prev;
+        }
+      });
+    };
+    wireShutdown($("#shutdown-btn"));
+    wireShutdown($("#shutdown-fab"));
+
+    const select=$("#contextSelect");
+    const list=$("#history-list");
+    const loadBtn=$("#loadContext");
+
+    const announceContext=(saved)=>{
+      setChatMeta(saved.company,saved.role);
+      document.dispatchEvent(new CustomEvent("hirex:context-changed",{detail:saved}));
+    };
+
+    try{
+      setStatus("Loading…");
+      const items=await listContexts(300);
+      const uniq=dedupeByKey(items);
+
+      populateSelect(select,uniq);
+      renderHistoryList(list,uniq);
+
+      const prev=(()=>{try{return JSON.parse(localStorage.getItem("hirex_selected_context")||"null");}catch{return null;}})();
+      if(prev?.key&&select){
+        select.value=prev.key;
+        [...(list?.children||[])].forEach(li=>li.classList.toggle("active",li.dataset.key===prev.key));
+        setChatMeta(prev.company,prev.role);
+      }else if(uniq.length){
+        if(select) select.value=uniq[0].__key;
+        [...(list?.children||[])].forEach((li,i)=>li.classList.toggle("active",i===0));
+        try{
+          const ctx=await getContextByKey(uniq[0].__key);
+          const saved=persistSelectedContext(ctx);
+          announceContext(saved);
+        }catch{}
+      }
+
+      list?.addEventListener("click",e=>{
+        const li=e.target.closest("li");if(!li||!li.dataset.key)return;
+        const key=li.dataset.key;
+        if(select) select.value=key;
+        [...(list.children||[])].forEach(x=>x.classList.remove("active"));
+        li.classList.add("active");
+      });
+      list?.addEventListener("keydown",e=>{
+        if(e.key==="Enter"||e.key===" "){e.preventDefault();e.target.closest("li")?.click();}
+      });
+
+      loadBtn?.addEventListener("click",async()=>{
+        const key=select?.value;if(!key){toast("// WARN: Select a pair first");return;}
+        setStatus("Loading…");
+        try{
+          const ctx=await getContextByKey(key);
+          const saved=persistSelectedContext(ctx);
+          setStatus("OK Loaded");
+          announceContext(saved);
+          toast(`// OK: Context loaded — ${saved.company} / ${saved.role}`);
+          [...(list?.children||[])].forEach(li=>li.classList.toggle("active",li.dataset.key===key));
+        }catch(err){
+          setStatus("ERR Failed");
+          toast("// ERROR: "+String(err));
+        }
+      });
+
+      setStatus("Idle");
+    }catch{
+      try{
+        const ctx=await getLatestContext();
+        const saved=persistSelectedContext(ctx);
+        populateSelect(select,[{company:saved.company,role:saved.role,__key:saved.key}]);
+        renderHistoryList(list,[{company:saved.company,role:saved.role,__key:saved.key}]);
+        setStatus("OK Latest");
+        announceContext(saved);
+      }catch{
+        setStatus("ERR Unavail");
+        if(select) select.innerHTML='<option disabled selected>History unavailable</option>';
+        if(list)   list.innerHTML='<li style="color:rgba(234,240,255,.45);font-size:12px;padding:.7rem .75rem;">No history</li>';
+      }
+    }
+
+    (window.ASTRA??window.HIREX)?.debugLog?.("TALK PAGE BOOT",{version:"v1.0.0"});
+  });
+})();
+</script>
 </body>
 </html>

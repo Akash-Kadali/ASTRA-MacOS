@@ -1,6 +1,6 @@
 """
 ============================================================
- HIREX v2.1.2 — superhuman.py
+ HIREX v1.0.0 — superhuman.py
  ------------------------------------------------------------
  SuperHuman Humanizer API
   • Rewrites text for clarity, flow, and tone

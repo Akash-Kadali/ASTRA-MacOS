@@ -1,6 +1,6 @@
 """
 ============================================================
- HIREX v2.1.0 — api/debug.py
+ HIREX v1.0.0 — api/debug.py
  ------------------------------------------------------------
  Lightweight diagnostic endpoint for frontend → backend logs.
 

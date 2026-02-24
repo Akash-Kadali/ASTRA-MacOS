@@ -5,7 +5,7 @@
  Global configuration for backend constants, environment
  variables, and directory paths.
 
- Version : 2.1.2
+ Version : v1.0.0
  Author  : Sri Akash Kadali
 ============================================================
 """
@@ -110,7 +110,7 @@ for d in (
 # ============================================================
 
 APP_NAME = "HIREX"
-APP_VERSION = "2.1.2"
+APP_VERSION = "v1.0.0"
 DEBUG_MODE = _getenv_clean("DEBUG", "true").lower() == "true"
 
 MAX_UPLOAD_MB = int(_getenv_clean("MAX_UPLOAD_MB", "5"))

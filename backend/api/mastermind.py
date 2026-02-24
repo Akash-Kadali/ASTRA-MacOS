@@ -1,6 +1,6 @@
 """
 ============================================================
- HIREX v2.1.0 — mastermind.py
+ HIREX v1.0.0 — mastermind.py
  ------------------------------------------------------------
  MasterMind AI Assistant API
  • Context-aware reasoning and Q&A engine

@@ -1,6 +1,6 @@
 """
 ============================================================
- HIREX v4.0.0 — talk.py (ULTIMATE KILLER ANSWERS)
+ HIREX v1.0.0 — talk.py (ULTIMATE KILLER ANSWERS)
  ------------------------------------------------------------
  MAJOR UPGRADES:
  - Anti-hallucination grounding with resume fact verification
@@ -15,6 +15,7 @@
  - Behavioral STAR enforcement
  - Salary/negotiation intelligence
  - Output quality validation before returning
+ - CGPA/GPA filtering to ensure academic metrics are never mentioned
 
  Author: Sri Akash Kadali
 ============================================================
@@ -58,6 +59,138 @@ CHAT_SAFE_DEFAULT = getattr(config, "DEFAULT_MODEL", "gpt-4o-mini")
 # Session-level fact store for consistency across multiple questions
 _SESSION_FACTS: Dict[str, Dict[str, Any]] = {}
 _SESSION_ANSWERS: Dict[str, List[Dict[str, Any]]] = {}
+
+
+# ============================================================
+# 🚫 CGPA/GPA FILTERING SYSTEM
+# ============================================================
+
+# Patterns to detect and remove CGPA/GPA mentions
+CGPA_PATTERNS = [
+    r'\b[Cc][Gg][Pp][Aa]\s*[:\-]?\s*\d+\.?\d*\s*/?\s*\d*\.?\d*',  # CGPA: 3.8/4.0, CGPA 3.8
+    r'\b[Gg][Pp][Aa]\s*[:\-]?\s*\d+\.?\d*\s*/?\s*\d*\.?\d*',      # GPA: 3.8/4.0, GPA 3.8
+    r'\b\d+\.?\d*\s*/?\s*4\.0?\s*[Cc]?[Gg][Pp][Aa]',              # 3.8/4.0 CGPA, 3.8 GPA
+    r'\b[Cc]umulative\s+[Gg][Pp][Aa]\s*[:\-]?\s*\d+\.?\d*',       # Cumulative GPA: 3.8
+    r'\bgrade\s+point\s+average\s*[:\-]?\s*\d+\.?\d*',            # grade point average: 3.8
+    r'\bwith\s+a\s+[Cc]?[Gg][Pp][Aa]\s+of\s+\d+\.?\d*',           # with a CGPA of 3.8
+    r'\b[Cc]?[Gg][Pp][Aa]\s+of\s+\d+\.?\d*',                      # CGPA of 3.8
+    r'\bmaintained\s+a\s+\d+\.?\d*\s*[Cc]?[Gg][Pp][Aa]',          # maintained a 3.8 GPA
+    r'\bachieved\s+a\s+\d+\.?\d*\s*[Cc]?[Gg][Pp][Aa]',            # achieved a 3.8 GPA
+    r'\bgraduated\s+with\s+\d+\.?\d*\s*[Cc]?[Gg][Pp][Aa]',        # graduated with 3.8 GPA
+    r'\b\d+\.?\d*\s+out\s+of\s+4\.0',                              # 3.8 out of 4.0
+    r'\bsumma\s+cum\s+laude',                                      # summa cum laude
+    r'\bmagna\s+cum\s+laude',                                      # magna cum laude
+    r'\bcum\s+laude',                                              # cum laude
+    r'\bhonors?\s+graduate',                                       # honors graduate
+    r'\bDean\'?s\s+[Ll]ist',                                       # Dean's List
+    r'\bacademic\s+excellence',                                    # academic excellence
+    r'\bfirst\s+class\s+honors?',                                  # first class honors
+    r'\bsecond\s+class\s+honors?',                                 # second class honors
+    r'\bdistinction\s+in\s+academics?',                            # distinction in academics
+]
+
+# Words/phrases that indicate academic achievement context (for sentence-level filtering)
+ACADEMIC_ACHIEVEMENT_INDICATORS = [
+    'cgpa', 'gpa', 'grade point', 'dean\'s list', 'cum laude', 'honors graduate',
+    'academic excellence', 'first class', 'second class', 'distinction',
+    'graduated with', 'academic achievement', 'scholastic', 'valedictorian',
+    'salutatorian', 'class rank', 'top of class', 'academic standing'
+]
+
+
+def filter_cgpa_from_text(text: str) -> str:
+    """
+    Remove all CGPA/GPA mentions and academic achievement references from text.
+    This is a critical filter to ensure interview answers don't include academic metrics.
+    """
+    if not text:
+        return text
+    
+    filtered = text
+    
+    # Apply regex patterns to remove CGPA/GPA mentions
+    for pattern in CGPA_PATTERNS:
+        filtered = re.sub(pattern, '', filtered, flags=re.IGNORECASE)
+    
+    # Clean up any resulting double spaces or awkward punctuation
+    filtered = re.sub(r'\s{2,}', ' ', filtered)
+    filtered = re.sub(r'\s+([,.])', r'\1', filtered)
+    filtered = re.sub(r'([,.])\s*([,.])', r'\1', filtered)
+    filtered = re.sub(r'^\s*[,.]', '', filtered)
+    filtered = re.sub(r'[,.]\s*$', '.', filtered)
+    
+    return filtered.strip()
+
+
+def filter_cgpa_from_sentences(text: str) -> str:
+    """
+    Remove entire sentences that mention CGPA/GPA or academic achievements.
+    More aggressive filtering for cleaner output.
+    """
+    if not text:
+        return text
+    
+    # Split into sentences
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    filtered_sentences = []
+    
+    for sentence in sentences:
+        sentence_lower = sentence.lower()
+        # Check if sentence contains any academic achievement indicators
+        contains_academic = any(indicator in sentence_lower for indicator in ACADEMIC_ACHIEVEMENT_INDICATORS)
+        
+        if not contains_academic:
+            filtered_sentences.append(sentence)
+        else:
+            # Log that we filtered something
+            log_event("cgpa_sentence_filtered", {"filtered_sentence": sentence[:100]})
+    
+    result = ' '.join(filtered_sentences)
+    
+    # Final cleanup
+    result = re.sub(r'\s{2,}', ' ', result)
+    
+    return result.strip()
+
+
+def validate_no_cgpa(text: str) -> Tuple[bool, List[str]]:
+    """
+    Validate that text contains no CGPA/GPA mentions.
+    Returns (is_valid, list_of_violations).
+    """
+    violations = []
+    text_lower = text.lower()
+    
+    # Check for any academic indicators
+    for indicator in ACADEMIC_ACHIEVEMENT_INDICATORS:
+        if indicator in text_lower:
+            violations.append(f"Found '{indicator}' in text")
+    
+    # Check regex patterns
+    for pattern in CGPA_PATTERNS:
+        matches = re.findall(pattern, text, flags=re.IGNORECASE)
+        if matches:
+            violations.extend([f"Pattern match: {m}" for m in matches])
+    
+    return len(violations) == 0, violations
+
+
+def sanitize_resume_for_talk(resume_text: str) -> str:
+    """
+    Sanitize resume text before using it for talk answers.
+    Removes CGPA/GPA and academic achievements to prevent them from appearing in answers.
+    """
+    if not resume_text:
+        return resume_text
+    
+    # First pass: remove specific patterns
+    sanitized = filter_cgpa_from_text(resume_text)
+    
+    # Second pass: remove sentences mentioning academics (optional, more aggressive)
+    # Uncomment the next line for more aggressive filtering:
+    # sanitized = filter_cgpa_from_sentences(sanitized)
+    
+    return sanitized
 
 
 # ============================================================
@@ -958,12 +1091,13 @@ Return STRICT JSON:
     "technologies": ["list of technologies mentioned"],
     "metrics": ["any quantified achievements with numbers"],
     "projects": ["named projects or systems"],
-    "education": ["degrees, schools, certifications"],
+    "education": ["degrees, schools, certifications - DO NOT include GPA/CGPA"],
     "years_experience": "approximate total years",
     "skills_claimed": ["skills explicitly claimed"],
-    "achievements_verbatim": ["achievement statements as written"]
+    "achievements_verbatim": ["achievement statements as written - EXCLUDE any GPA/CGPA mentions"]
 }}
 
+IMPORTANT: Do NOT include any GPA, CGPA, grade point average, or academic achievement metrics.
 ONLY include facts explicitly stated. Do NOT infer or add anything.
 """
         
@@ -1066,16 +1200,21 @@ class AnswerQualityScorer:
         match_score = self._score_question_match(answer, question, q_type)
         self.scores["question_match"] = match_score
         
+        # 9. No CGPA/GPA Check (0-10) - NEW
+        cgpa_score = self._score_no_cgpa(answer)
+        self.scores["no_cgpa"] = cgpa_score
+        
         # Calculate overall score
         weights = {
-            "hook_strength": 0.15,
-            "specificity": 0.20,
-            "jd_relevance": 0.15,
-            "company_alignment": 0.10,
-            "confidence": 0.10,
+            "hook_strength": 0.14,
+            "specificity": 0.18,
+            "jd_relevance": 0.14,
+            "company_alignment": 0.09,
+            "confidence": 0.09,
             "length": 0.05,
-            "no_cliches": 0.10,
-            "question_match": 0.15
+            "no_cliches": 0.09,
+            "question_match": 0.14,
+            "no_cgpa": 0.08  # NEW - penalize CGPA mentions
         }
         
         overall = sum(self.scores[k] * weights[k] for k in weights)
@@ -1244,6 +1383,17 @@ class AnswerQualityScorer:
             self.feedback.append(f"Remove clichés: found {cliche_count} generic phrases")
         
         return max(0, min(10, score))
+    
+    def _score_no_cgpa(self, answer: str) -> float:
+        """Score absence of CGPA/GPA mentions - critical check."""
+        is_valid, violations = validate_no_cgpa(answer)
+        
+        if is_valid:
+            return 10.0
+        else:
+            # Severe penalty for any CGPA/GPA mention
+            self.feedback.append("CRITICAL: Remove all GPA/CGPA/academic achievement mentions")
+            return 0.0  # Zero score for this dimension if CGPA found
     
     def _score_question_match(self, answer: str, question: str, q_type: str) -> float:
         """Score how well the answer matches the question type."""
@@ -1673,10 +1823,13 @@ async def extract_resume_highlights(resume_text: str, model: str = SUMMARIZER_MO
     if not (resume_text or "").strip():
         return {"achievements": [], "skills": [], "experiences": [], "companies_worked": [], "technical_skills": []}
 
+    # Sanitize resume to remove CGPA before processing
+    sanitized_resume = sanitize_resume_for_talk(resume_text)
+
     prompt = f"""Extract the MOST IMPRESSIVE and RELEVANT highlights from this resume.
 
 RESUME:
-{resume_text[:5000]}
+{sanitized_resume[:5000]}
 
 Return STRICT JSON:
 {{
@@ -1689,14 +1842,26 @@ Return STRICT JSON:
     "roles": ["job titles held"]
 }}
 
-Focus on SPECIFIC, IMPRESSIVE, QUANTIFIED achievements.
+CRITICAL RULES:
+- Focus on SPECIFIC, IMPRESSIVE, QUANTIFIED achievements
+- Do NOT include any GPA, CGPA, grade point average, or academic metrics
+- Do NOT include graduation dates or academic honors (Dean's List, cum laude, etc.)
+- Focus ONLY on professional achievements and technical skills
 """
 
     try:
         result = await _gen_text_smart("Extract resume highlights as JSON.", prompt, model)
         match = re.search(r"\{[\s\S]*\}", result)
         if match:
-            return json.loads(match.group(0))
+            highlights = json.loads(match.group(0))
+            # Double-check: filter out any CGPA mentions that slipped through
+            for key in highlights:
+                if isinstance(highlights[key], list):
+                    highlights[key] = [
+                        item for item in highlights[key]
+                        if not any(indicator in str(item).lower() for indicator in ACADEMIC_ACHIEVEMENT_INDICATORS)
+                    ]
+            return highlights
     except Exception as e:
         log_event("resume_highlight_fail", {"error": str(e)})
     
@@ -1764,10 +1929,17 @@ async def generate_killer_answer(
     # Get company intelligence
     company_intel = get_company_intelligence(company)
     
+    # CRITICAL: Sanitize resume text to remove CGPA/GPA before using
+    sanitized_resume = sanitize_resume_for_talk(resume_text)
+    
     # Build context strings
     achievements_str = ""
     if resume_highlights:
         achievements = resume_highlights.get("top_achievements", [])
+        # Filter out any academic achievements
+        achievements = [a for a in achievements if not any(
+            indicator in str(a).lower() for indicator in ACADEMIC_ACHIEVEMENT_INDICATORS
+        )]
         if achievements:
             achievements_str = "TOP ACHIEVEMENTS FROM RESUME (use these EXACT facts):\n" + "\n".join(f"• {a}" for a in achievements[:5])
     
@@ -1842,14 +2014,24 @@ REQUIRED STRUCTURE:
 6. CONFIDENCE: Sound natural and confident - no hedging or pleading
 7. LENGTH: 2-3 paragraphs, 120-180 words total
 
-🚫 ABSOLUTE RULES - NEVER VIOLATE:
+🚫 ABSOLUTE RULES - NEVER VIOLATE - CRITICAL:
 - Do NOT invent achievements, metrics, or company names not in resume
 - Do NOT use clichés: "passionate", "team player", "hard worker", "excited"
 - Do NOT start with: "I am writing...", "Thank you for...", "I believe..."
-- Do NOT mention GPA, graduation dates, or academic achievements
 - Do NOT sound desperate: "grateful for opportunity", "hope you consider"
 - Do NOT be generic - EVERY sentence must be specific to THIS role/company
 - Do NOT use hedging: "I think", "maybe", "perhaps"
+
+🚨🚨🚨 CRITICAL GPA/CGPA RULE - ABSOLUTELY FORBIDDEN 🚨🚨🚨
+- NEVER mention GPA, CGPA, grade point average, or any numeric academic score
+- NEVER mention graduation dates, graduation year, or when you graduated
+- NEVER mention academic honors: Dean's List, cum laude, magna cum laude, summa cum laude
+- NEVER mention class rank, valedictorian, salutatorian, or academic standing
+- NEVER reference "academic excellence", "academic achievements", or "scholastic" achievements
+- NEVER mention any grades, percentages, or scores from school/university
+- Focus ONLY on professional work experience, projects, and technical skills
+- If you find yourself wanting to mention education, talk about SKILLS learned, not grades
+- This rule is NON-NEGOTIABLE and applies to ALL answers regardless of question type
 
 ✨ TONE: Confident professional who knows their worth and has done their research.
 """
@@ -1869,7 +2051,7 @@ JOB DESCRIPTION (key excerpts):
 {jd_text[:3000]}
 
 RESUME (ONLY use facts from here - do not invent):
-{resume_text[:3000]}
+{sanitized_resume[:3000]}
 
 {f'COVER LETTER (additional context):{chr(10)}{cover_letter[:1500]}' if cover_letter else ''}
 
@@ -1880,18 +2062,30 @@ Remember:
 - Show you understand {company}'s unique needs
 - Sound CONFIDENT but not arrogant
 - 2-3 paragraphs, 120-180 words
+- ABSOLUTELY NO GPA/CGPA/academic metrics/graduation dates/academic honors
 """
 
     start = time.time()
     answer = await _gen_text_smart(sys_prompt, user_prompt, model=model)
     latency = round(time.time() - start, 2)
     
+    # CRITICAL: Post-process to remove any CGPA/GPA that might have slipped through
+    answer = filter_cgpa_from_text(answer)
+    
+    # Validate no CGPA
+    is_valid, violations = validate_no_cgpa(answer)
+    if not is_valid:
+        log_event("cgpa_violation_detected", {"violations": violations})
+        # More aggressive filtering
+        answer = filter_cgpa_from_sentences(answer)
+    
     log_event("killer_answer_generated", {
         "question_type": q_type,
         "company": company,
         "latency": latency,
         "words": len(answer.split()),
-        "interview_stage": interview_stage
+        "interview_stage": interview_stage,
+        "cgpa_clean": is_valid
     })
 
     return _tex_safe(answer)
@@ -1911,7 +2105,8 @@ async def humanize_answer(answer_text: str, tone: str, q_type: str) -> Tuple[str
         "PRESERVE: the opening hook, specific achievements, numbers, company names, and confident tone. "
         "IMPROVE: natural flow, remove any AI-sounding phrases, make it sound like a real human. "
         "KEEP: 2-3 paragraphs, 120-180 words total. "
-        "DO NOT: add clichés, make it generic, remove specific details, or change facts."
+        "DO NOT: add clichés, make it generic, remove specific details, or change facts. "
+        "CRITICAL: Do NOT add any GPA, CGPA, academic scores, graduation dates, or academic honors."
     )
     
     payload = {
@@ -1927,6 +2122,10 @@ async def humanize_answer(answer_text: str, tone: str, q_type: str) -> Tuple[str
         r.raise_for_status()
         data = r.json()
         rewritten = data.get("rewritten") or answer_text
+        
+        # CRITICAL: Filter CGPA from humanized text
+        rewritten = filter_cgpa_from_text(rewritten)
+        
         was_humanized = isinstance(rewritten, str) and rewritten.strip() != answer_text.strip()
         return _tex_safe(rewritten), was_humanized
     except Exception as e:
@@ -1979,16 +2178,20 @@ Requirements:
 - Maintain confidence and specificity
 - Do NOT add clichés or generic phrases
 - Do NOT invent new achievements
+- CRITICAL: Do NOT add any GPA, CGPA, academic scores, graduation dates, or academic honors
 
 Return only the improved answer, nothing else.
 """
 
     try:
         improved = await _gen_text_smart(
-            "You are improving an interview answer based on specific feedback.",
+            "You are improving an interview answer based on specific feedback. NEVER mention GPA, CGPA, or academic achievements.",
             improvement_prompt,
             model
         )
+        
+        # CRITICAL: Filter CGPA from improved answer
+        improved = filter_cgpa_from_text(improved)
         
         # Re-score
         scorer = AnswerQualityScorer()
@@ -2016,7 +2219,7 @@ Return only the improved answer, nothing else.
 @router.get("/ping")
 async def ping():
     now = datetime.now(tz=timezone.utc)
-    return {"ok": True, "service": "talk", "version": "4.0.0", "epoch": time.time(), "iso": now.isoformat()}
+    return {"ok": True, "service": "talk", "version": "v1.0.0", "epoch": time.time(), "iso": now.isoformat()}
 
 
 # ============================================================
@@ -2039,6 +2242,7 @@ async def talk_to_hirex(req: TalkReq):
     - Personal brand consistency
     - Interview stage calibration
     - Automatic answer improvement loop
+    - CGPA/GPA filtering to ensure no academic metrics appear
     """
     
     # Load context if needed
@@ -2065,6 +2269,10 @@ async def talk_to_hirex(req: TalkReq):
         raise HTTPException(status_code=400, detail="Resume text missing.")
 
     resume_text = resume_tex or req.resume_plain or ""
+    
+    # CRITICAL: Sanitize resume to remove CGPA/GPA before any processing
+    resume_text = sanitize_resume_for_talk(resume_text)
+    
     model = (req.model or ANSWER_MODEL).strip() or ANSWER_MODEL
     
     # Extract company and role from JD if not from context
@@ -2115,6 +2323,9 @@ JD: {jd_text[:2000]}"""
         interview_stage=req.interview_stage,
     )
 
+    # CRITICAL: Final CGPA filter on draft answer
+    draft_answer = filter_cgpa_from_text(draft_answer)
+
     # Score answer quality
     scorer = AnswerQualityScorer()
     quality_score = scorer.score_answer(
@@ -2149,6 +2360,15 @@ JD: {jd_text[:2000]}"""
     else:
         final_answer, was_humanized = draft_answer, False
 
+    # CRITICAL: Final CGPA filter on final answer (belt and suspenders)
+    final_answer = filter_cgpa_from_text(final_answer)
+    
+    # Final validation
+    is_cgpa_clean, cgpa_violations = validate_no_cgpa(final_answer)
+    if not is_cgpa_clean:
+        log_event("cgpa_final_violation", {"violations": cgpa_violations})
+        final_answer = filter_cgpa_from_sentences(final_answer)
+
     # Predict follow-up questions
     followup_predictions = []
     if req.include_followups:
@@ -2166,7 +2386,8 @@ JD: {jd_text[:2000]}"""
         "humanized": was_humanized,
         "quality_score": quality_score.get("overall_score"),
         "quality_grade": quality_score.get("grade"),
-        "interview_stage": req.interview_stage
+        "interview_stage": req.interview_stage,
+        "cgpa_clean": is_cgpa_clean
     })
 
     # Build response (same interface as before, with additional fields)
@@ -2248,6 +2469,9 @@ JD: {jd_text[:2000]}"""
             "competitors": company_intel.get("competitors", []),
             "why_not_them": company_intel.get("why_not_competitors", ""),
         } if q_type == "why_this_company" else None,
+        
+        # NEW: CGPA clean status
+        "cgpa_filtered": not is_cgpa_clean,  # True if we had to filter something
     }
     
     # Clean up None values for cleaner response
@@ -2295,6 +2519,9 @@ async def analyze_gaps_endpoint(
     model: str = SUMMARIZER_MODEL
 ):
     """Analyze skill gaps between resume and JD."""
+    # Sanitize resume
+    resume_text = sanitize_resume_for_talk(resume_text)
+    
     resume_highlights = await extract_resume_highlights(resume_text, model)
     jd_requirements = await extract_jd_requirements(jd_text, model)
     skill_gaps = await analyze_skill_gaps(resume_highlights, jd_requirements, model)
@@ -2323,6 +2550,8 @@ async def score_answer_endpoint(
     if jd_text:
         jd_requirements = await extract_jd_requirements(jd_text, SUMMARIZER_MODEL)
     if resume_text:
+        # Sanitize resume
+        resume_text = sanitize_resume_for_talk(resume_text)
         resume_highlights = await extract_resume_highlights(resume_text, SUMMARIZER_MODEL)
     
     scorer = AnswerQualityScorer()
@@ -2360,6 +2589,9 @@ async def extract_brand_endpoint(
     model: str = SUMMARIZER_MODEL
 ):
     """Extract personal brand from resume."""
+    # Sanitize resume
+    resume_text = sanitize_resume_for_talk(resume_text)
+    
     resume_highlights = await extract_resume_highlights(resume_text, model)
     personal_brand = await extract_personal_brand(resume_highlights, model)
     
@@ -2375,9 +2607,29 @@ async def detect_red_flags_endpoint(
     model: str = SUMMARIZER_MODEL
 ):
     """Detect potential red flags in resume."""
+    # Sanitize resume
+    resume_text = sanitize_resume_for_talk(resume_text)
+    
     resume_highlights = await extract_resume_highlights(resume_text, model)
     red_flags = await detect_red_flags(resume_text, resume_highlights, model)
     
     return {
         "red_flags": red_flags
+    }
+
+
+@router.post("/filter-cgpa")
+async def filter_cgpa_endpoint(text: str):
+    """
+    Utility endpoint to filter CGPA/GPA from any text.
+    Useful for testing the filter or applying it to other content.
+    """
+    filtered = filter_cgpa_from_text(text)
+    is_valid, violations = validate_no_cgpa(filtered)
+    
+    return {
+        "original": text,
+        "filtered": filtered,
+        "is_clean": is_valid,
+        "violations_found": violations if not is_valid else []
     }

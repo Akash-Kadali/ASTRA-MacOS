@@ -1,296 +1,910 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="color-scheme" content="dark light" />
-  <meta name="theme-color" content="#0a1020" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <meta name="color-scheme" content="dark light"/>
+  <meta name="theme-color" content="#0B1220"/>
+  <title>Preview · HIREX</title>
+  <meta name="description" content="Compare AI-optimized and humanized LaTeX resumes with JD-fit analysis, PDF preview, and download options."/>
+  <meta name="author" content="Sri Akash Kadali"/>
+  <meta property="og:title" content="Preview · HIREX — Resume Viewer"/>
+  <meta property="og:description" content="Interactive viewer for AI-optimized resumes with JD fit score analytics."/>
+  <meta property="og:image" content="/static/assets/og-preview.png"/>
+  <meta property="og:type" content="website"/>
 
-  <title>ASTRA • HIREX — Optimized Resume Viewer v2.1.2</title>
-  <meta name="description" content="Compare AI-optimized and humanized LaTeX resumes with JD-fit analysis, PDF preview, and download options in HIREX v2.1.2." />
-  <meta name="author" content="Sri Akash Kadali" />
-  <meta property="og:title" content="ASTRA • HIREX Preview v2.1.2 — Optimized Resume Viewer" />
-  <meta property="og:description" content="Interactive viewer for your AI-optimized & humanized resumes with JD fit score analytics and memory." />
-  <meta property="og:image" content="/static/assets/og-preview.png" />
-  <meta property="og:type" content="website" />
-
-  <!-- CSP tuned for local dev + blob iframe PDFs + dev websockets -->
   <meta http-equiv="Content-Security-Policy"
         content="
           default-src 'self' blob: data:;
           img-src 'self' data: blob:;
-          style-src 'self' 'unsafe-inline';
+          style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+          font-src 'self' data: https://fonts.gstatic.com;
           script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval';
-          connect-src 'self'
-                       blob:
+          connect-src 'self' blob:
                        http://127.0.0.1:8000 ws://127.0.0.1:8000
-                       http://0.0.0.0:8000 ws://0.0.0.0:8000
-                       http://localhost:8000 ws://localhost:8000
+                       http://0.0.0.0:8000   ws://0.0.0.0:8000
+                       http://localhost:8000  ws://localhost:8000
                        https://api.openai.com;
           frame-src 'self' blob: data: about:;
           child-src 'self' blob:;
           worker-src 'self' blob:;
           media-src 'self' blob: data:;
-          font-src 'self' data:;
           object-src 'none';
           base-uri 'self';
           frame-ancestors 'self';
-        " />
+        "/>
 
-  <link rel="icon" type="image/png" href="/static/assets/favicon.png" />
-  <link rel="manifest" href="/static/manifest.json" />
-  <link rel="preload" href="/static/assets/logo.png" as="image" />
-  <link rel="preconnect" href="https://api.openai.com" crossorigin />
-  <link rel="stylesheet" href="/static/css/base.css?v=2.1.2" />
-  <link rel="stylesheet" href="/static/css/animations.css?v=2.1.2" />
-  <link rel="stylesheet" href="/static/css/app.css?v=2.1.2" />
+  <link rel="icon" type="image/png" href="/static/assets/favicon.png"/>
+  <link rel="manifest" href="/static/manifest.json"/>
+  <link rel="preload" href="/static/assets/logo.png" as="image"/>
 
-  <style>
-    :root{
-      --accent:#5bd0ff; --accent2:#9f78ff; --bg:#0a1020;
-      --muted:rgba(255,255,255,0.7); --panel:rgba(255,255,255,0.05);
-      --stroke:rgba(255,255,255,0.08); --glow:0 0 25px rgba(91,208,255,0.25);
-    }
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
 
-    body{
-      background: radial-gradient(circle at 25% 20%, #0a1020 0%, #03060f 80%) fixed;
-      color:#e4ecff; font-family:"Inter","Segoe UI",Roboto,sans-serif;
-      line-height:1.6; overflow-x:hidden; margin:0; position:relative; min-height:100vh;
-    }
-    ::selection{ background:var(--accent); color:#000; }
+  <link rel="stylesheet" href="/static/css/animations.css?v=1.0.0"/>
 
-    body::before{
-      content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
-      background:
-        repeating-linear-gradient(to right, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px),
-        repeating-linear-gradient(to bottom, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px);
-    }
-    body::after{
-      content:""; position:fixed; width:450px; height:450px; top:25%; right:10%;
-      background: radial-gradient(circle, rgba(91,208,255,0.15), transparent 70%);
-      filter: blur(70px); animation: floatGlow 12s ease-in-out infinite alternate;
-      z-index:0; pointer-events:none;
-    }
-    @keyframes floatGlow{ from{transform:translateY(0) scale(1);opacity:.9;} to{transform:translateY(-30px) scale(1.05);opacity:.7;} }
+<style>
+:root{
+  /* Surfaces */
+  --bg0:#0B1220;
+  --bg1:#0E1629;
+  --bg2:#111B31;
+  --card:rgba(255,255,255,.06);
+  --card2:rgba(255,255,255,.04);
 
-    .menu-toggle,.theme-toggle{ display:none !important; }
+  /* Text */
+  --text:#EAF0FF;
+  --muted:rgba(234,240,255,.72);
+  --dim:rgba(234,240,255,.40);
 
-    /* Sidebar */
-    .sidebar{ display:flex; flex-direction:column; padding-top:.25rem; }
-    @media (min-width:880px){
-      .sidebar{
-        position:fixed; top:0; left:0; width:260px; height:100vh;
-        background:rgba(10,16,32,0.65); border-right:1px solid rgba(255,255,255,0.05);
-        backdrop-filter: blur(18px); z-index:5;
-      }
-      main.console, footer{ margin-left:260px; }
-    }
-    @media (max-width:879px){
-      .sidebar{
-        position:fixed; left:-100%; top:0; width:75%; height:100vh;
-        background:rgba(10,16,32,0.95); transition:transform .3s ease; z-index:20;
-      }
-      body.nav-open .sidebar{ transform:translateX(100%); }
-    }
+  /* Accents */
+  --accent:#7AA7FF;   /* soft blue */
+  --accent2:#B9C7FF;
+  --ok:#34D399;       /* mint */
+  --warn:#FBBF24;     /* amber */
+  --danger:#FB7185;   /* rose */
 
-    .brand{ display:flex; align-items:center; gap:.75rem; padding:.6rem 1rem .05rem; }
-    .brand img{
-      width:72px; height:auto; aspect-ratio:1/1; object-fit:contain;
-      filter: drop-shadow(0 0 6px rgba(91,208,255,0.6));
-      transition: transform .25s, filter .25s;
-    }
-    .brand img:hover{ transform:scale(1.05); filter: drop-shadow(0 0 12px rgba(91,208,255,0.9)); }
-    .logo-text{
-      background: linear-gradient(90deg,var(--accent),var(--accent2));
-      -webkit-background-clip:text; background-clip:text; color:transparent;
-      font-weight:700; font-size:1.35rem;
-    }
+  /* Lines + shadows */
+  --line:rgba(255,255,255,.10);
+  --line2:rgba(122,167,255,.18);
+  --shadow:0 18px 50px rgba(0,0,0,.45);
+  --shadow2:0 10px 26px rgba(0,0,0,.32);
 
-    .vnav{ list-style:none; padding:0; margin:.05rem 1rem .75rem; }
-    .vnav li{ margin-bottom:.42rem; }
-    .vnav a{
-      color:#cfd9ff; text-decoration:none; display:block; padding:.6rem 1rem; border-radius:10px;
-      transition: background .2s, color .2s;
-    }
-    .vnav a:hover,.vnav a.active-link{ background: rgba(91,208,255,0.15); color: var(--accent); }
+  /* Type */
+  --ui:"Google Sans",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
 
-    .sidebar .cta-primary{
-      display:block; margin:1rem; margin-top:auto; width:calc(100% - 2rem);
-      background:linear-gradient(90deg,var(--accent),var(--accent2)); color:#fff;
-      border:none; border-radius:10px; padding:.6rem; font-weight:600; cursor:pointer;
-      transition: transform .25s;
-    }
-    .sidebar .cta-primary:hover{ transform: translateY(-2px); }
+  /* Layout */
+  --sidebar:268px;
+  --topbar:52px;
 
-    /* Main */
-    main.console{ position:relative; z-index:2; padding:3rem 3rem 5rem; animation: fadeRise 1s ease; }
-    @keyframes fadeRise{ from{opacity:0; transform:translateY(25px);} to{opacity:1; transform:translateY(0);} }
+  /* Radius */
+  --r:16px;
+  --r2:14px;
+}
 
-    h1{
-      font-size:2.2rem; font-weight:700;
-      background: linear-gradient(90deg,var(--accent),var(--accent2));
-      -webkit-background-clip:text; background-clip:text; color:transparent;
-      margin:0 0 1rem 0;
-    }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+::selection{background:rgba(122,167,255,.35);color:#fff;}
 
-    .btn{
-      border:1px solid rgba(255,255,255,0.14); background:rgba(10,16,32,0.85);
-      color:#fff; padding:10px 14px; border-radius:10px; cursor:pointer; font-size:14px;
-      transition:background .2s, transform .15s;
-    }
-    .btn:hover{ background:rgba(255,255,255,0.08); transform:translateY(-1px); }
-    .btn.accent{ border-color:var(--accent); color:var(--accent); box-shadow:0 0 15px rgba(91,208,255,0.15); }
+body{
+  font-family:var(--ui);
+  background:
+    radial-gradient(900px 520px at 20% -10%, rgba(122,167,255,.18), transparent 60%),
+    radial-gradient(900px 520px at 85% 22%, rgba(185,199,255,.10), transparent 60%),
+    radial-gradient(700px 500px at 65% 110%, rgba(52,211,153,.08), transparent 60%),
+    linear-gradient(180deg, var(--bg0), var(--bg1));
+  color:var(--text);
+  font-size:14px;
+  line-height:1.55;
+  overflow-x:hidden;
+  min-height:100vh;
+}
 
-    /* Fit Score */
-    #fit-score-card{
-      background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1);
-      border-radius:14px; padding:1rem 1.25rem; min-width:220px; text-align:center; box-shadow:var(--glow);
-      transition: transform .25s ease;
-    }
-    #fit-score-card:hover{ transform: translateY(-3px); }
-    .fit-circle{
-      width:100px; height:100px; border-radius:50%; border:4px solid var(--accent);
-      margin:0 auto .75rem; position:relative; transition:border-color .25s ease;
-    }
-    .fit-circle::after{
-      content: attr(data-score) "%"; position:absolute; top:50%; left:50%;
-      transform: translate(-50%,-50%); font-size:1.3rem; font-weight:700;
-    }
+/* Subtle noise */
+.grain{
+  position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.028;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size:220px 220px;
+}
 
-    /* PDF Cards */
-    #pdf-container{ display:flex; flex-direction:column; align-items:center; gap:3rem; width:100%; }
-    .pdf-card{
-      width:100%; max-width:1200px; background: rgba(255,255,255,0.03);
-      border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:1.25rem; box-shadow: var(--glow);
-      transition: transform .25s, box-shadow .25s, border-color .25s;
-    }
-    .pdf-card:hover{ transform: translateY(-4px); box-shadow: 0 0 40px rgba(91,208,255,0.25); }
-    .pdf-card.preferred{ border-color: var(--accent); box-shadow: 0 0 40px rgba(91,208,255,0.35); }
-    .pdf-frame iframe{ width:100%; height:88vh; border:none; border-radius:12px; background:#0e1428; }
+/* Ambient blobs */
+.ambient{position:fixed;pointer-events:none;z-index:0;border-radius:50%;filter:blur(120px);opacity:.9;}
+.amb-1{
+  width:520px;height:520px;top:-220px;left:calc(var(--sidebar) - 120px);
+  background:radial-gradient(circle,rgba(122,167,255,.26),transparent 70%);
+  animation:drift 26s ease-in-out infinite alternate;
+}
+.amb-2{
+  width:520px;height:520px;bottom:-220px;right:4%;
+  background:radial-gradient(circle,rgba(52,211,153,.14),transparent 72%);
+  animation:drift 30s ease-in-out infinite alternate-reverse;
+}
+@keyframes drift{from{transform:translate(0,0);}to{transform:translate(30px,34px);}}
 
-    /* LaTeX Output */
-    #tex-output{
-      white-space: pre-wrap; color:#dfe7ff; font-family:"Fira Code",monospace; font-size:.9rem; line-height:1.6;
-      background:rgba(10,16,32,0.85); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:1rem;
-      box-shadow: 0 0 20px rgba(91,208,255,0.1); overflow-x:auto; max-height:80vh;
-    }
+/* ── TOPBAR ── */
+.topbar{
+  position:fixed;top:0;left:var(--sidebar);right:0;height:var(--topbar);
+  z-index:40;
+  background:rgba(15,22,41,.72);
+  border-bottom:1px solid var(--line);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 1.25rem;
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+}
+.topbar-left,.topbar-right{display:flex;align-items:center;gap:1rem;}
+.sys-online{
+  display:flex;align-items:center;gap:.5rem;
+  font-size:12px;font-weight:600;color:var(--muted);
+}
+.sys-online::before{
+  content:"";width:8px;height:8px;border-radius:99px;
+  background:var(--ok);
+  box-shadow:0 0 0 4px rgba(52,211,153,.10);
+}
+.topbar-tag{
+  font-size:12px;color:var(--dim);
+  display:flex;align-items:center;gap:.35rem;
+}
+.topbar-tag b{color:var(--muted);font-weight:600;}
+#sys-clock{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted);}
 
-    footer{
-      text-align:center; padding:2rem 1rem; font-size:.9rem; color:#9aa7cc;
-      border-top:1px solid rgba(255,255,255,0.05); backdrop-filter: blur(10px);
-    }
+/* ── SIDEBAR ── */
+.sidebar{
+  position:fixed;top:0;left:0;width:var(--sidebar);height:100vh;
+  z-index:50;
+  background:rgba(15,22,41,.78);
+  border-right:1px solid var(--line);
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+}
+.sidebar::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.06), transparent 30%),
+    radial-gradient(800px 380px at 20% 0%, rgba(122,167,255,.10), transparent 60%);
+  opacity:.8;
+}
+.brand{
+  position:relative;z-index:2;
+  padding:1.15rem 1.1rem 1rem;
+  border-bottom:1px solid var(--line);
+  display:flex;flex-direction:column;gap:.5rem;
+}
+.brand-row{display:flex;align-items:center;gap:.8rem;}
+.brand-logo{width:44px;height:44px;flex-shrink:0;border-radius:14px;overflow:hidden;}
+.brand-logo img{
+  width:44px;height:44px;object-fit:contain;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:14px;
+}
+.brand-wordmark{display:flex;flex-direction:column;gap:.08rem;}
+.brand-name{font-size:16px;font-weight:700;letter-spacing:.06em;color:var(--text);}
+.brand-tagline{font-size:12px;color:var(--dim);}
+.brand-sysinfo{display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.15rem;}
+.sys-badge{
+  font-family:var(--mono);
+  font-size:11px;
+  color:rgba(234,240,255,.75);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:999px;
+  padding:.18em .65em;
+  background:rgba(255,255,255,.05);
+}
 
-    @media (max-width:880px){
-      .brand{ padding:.5rem 1rem .04rem; }
-      .brand img{ width:60px; }
-      .logo-text{ font-size:1.2rem; }
-      .vnav{ margin:.02rem 1rem .75rem; }
-    }
+.vnav{list-style:none;padding:.75rem .6rem;flex:1;overflow-y:auto;position:relative;z-index:2;}
+.vnav::-webkit-scrollbar{width:6px;}
+.vnav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:999px;}
+.nav-group-label{
+  font-size:11px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;
+  color:rgba(234,240,255,.42);padding:.75rem .7rem .35rem;
+}
+.vnav a{
+  display:flex;align-items:center;gap:.7rem;
+  color:rgba(234,240,255,.72);
+  text-decoration:none;
+  font-size:13px;font-weight:600;
+  padding:.62rem .75rem;
+  border-radius:12px;border:1px solid transparent;
+  margin-bottom:.2rem;
+  transition:background .15s,border-color .15s,transform .12s,color .15s;
+}
+.vnav a .nav-ico{width:22px;text-align:center;opacity:.7;font-size:.92rem;}
+.vnav a:hover{
+  background:rgba(255,255,255,.06);
+  border-color:rgba(255,255,255,.10);
+  transform:translateY(-1px);
+  color:var(--text);
+}
+.vnav a.active-link{
+  background:linear-gradient(90deg, rgba(122,167,255,.22), rgba(255,255,255,.06));
+  border-color:rgba(122,167,255,.25);
+  color:var(--text);
+}
+.vnav a.active-link::after{
+  content:"";position:absolute;left:10px;right:10px;bottom:-6px;height:1px;
+  background:linear-gradient(90deg, transparent, rgba(122,167,255,.35), transparent);
+  opacity:.6;
+}
 
-    /* Mobile hamburger */
-    .hamburger{
-      position:fixed; top:12px; left:16px; z-index:30;
-      background:rgba(255,255,255,0.08); color:#eaf0ff;
-      border:1px solid rgba(255,255,255,0.12); border-radius:10px;
-      padding:.45rem .65rem; cursor:pointer; display:none;
-      backdrop-filter: blur(8px);
-    }
-    @media(max-width:879px){ .hamburger{ display:block; } }
-  </style>
+/* Sidebar footer */
+.sidebar-foot{
+  position:relative;z-index:2;
+  padding:.9rem;border-top:1px solid var(--line);
+  display:flex;flex-direction:column;gap:.55rem;
+}
+.btn-exec{
+  width:100%;
+  display:flex;align-items:center;justify-content:center;gap:.5rem;
+  background:linear-gradient(180deg, rgba(122,167,255,.22), rgba(122,167,255,.14));
+  border:1px solid rgba(122,167,255,.28);
+  color:var(--text);
+  font-family:var(--ui);
+  font-size:12px;font-weight:700;letter-spacing:.06em;
+  padding:.72rem .9rem;border-radius:12px;cursor:pointer;
+  transition:transform .12s,box-shadow .2s,background .2s,border-color .2s;
+  box-shadow:0 10px 22px rgba(0,0,0,.20);
+}
+.btn-exec:hover{
+  transform:translateY(-1px);
+  box-shadow:0 0 0 4px rgba(122,167,255,.10), 0 14px 32px rgba(0,0,0,.26);
+}
+
+/* ── HAMBURGER ── */
+.hamburger{
+  display:none;position:fixed;top:12px;left:12px;z-index:60;
+  background:rgba(15,22,41,.72);
+  border:1px solid var(--line);
+  color:var(--text);
+  font-size:1rem;padding:.46rem .66rem;border-radius:12px;
+  cursor:pointer;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+}
+@media(max-width:700px){
+  .hamburger{display:block;}
+  .sidebar{left:-100%;width:82%;transition:left .28s ease;}
+  body.nav-open .sidebar{left:0;}
+  main.console,.topbar,footer{margin-left:0!important;left:0!important;}
+}
+
+/* ── MAIN ── */
+main.console{
+  margin-left:var(--sidebar);
+  padding:calc(var(--topbar) + 2.2rem) 2.75rem 5rem;
+  position:relative;z-index:2;
+  display:flex;flex-direction:column;
+  min-height:100vh;
+}
+@keyframes rise{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+
+/* ── HEADER ROW ── */
+.header-row{
+  display:flex;justify-content:space-between;align-items:flex-start;
+  flex-wrap:wrap;gap:1.25rem;margin-bottom:1.75rem;
+  animation:rise .55s ease both;
+}
+
+/* Title styles (Google-like) */
+.page-eyebrow{
+  font-family:var(--mono);
+  font-size:12px;
+  letter-spacing:.10em;
+  text-transform:uppercase;
+  color:rgba(234,240,255,.62);
+  margin-bottom:.65rem;
+}
+h1.page-title{
+  font-size:40px;
+  letter-spacing:-.02em;
+  line-height:1.05;
+  color:var(--text);
+}
+h1.page-title .t-green{color:var(--text);}
+.page-sub{
+  margin-top:.6rem;
+  font-size:14px;
+  color:rgba(234,240,255,.72);
+  line-height:1.6;
+  max-width:680px;
+}
+.page-sub strong{color:rgba(234,240,255,.90);}
+
+/* ── FIT SCORE CARD ── */
+#fit-score-card{
+  flex-shrink:0;
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:18px;
+  padding:1.15rem 1.2rem;
+  min-width:220px;
+  text-align:center;
+  position:relative;
+  overflow:hidden;
+  box-shadow:var(--shadow2);
+  transition:transform .15s,box-shadow .2s,border-color .2s,background .2s;
+}
+#fit-score-card:hover{
+  transform:translateY(-2px);
+  border-color:rgba(122,167,255,.18);
+  background:rgba(255,255,255,.055);
+  box-shadow:0 18px 44px rgba(0,0,0,.28);
+}
+
+.fit-card-label{
+  font-family:var(--ui);
+  font-size:12px;
+  font-weight:700;
+  color:rgba(234,240,255,.72);
+  margin-bottom:.75rem;
+}
+
+/* Ring */
+.fit-ring-wrap{position:relative;width:96px;height:96px;margin:0 auto .85rem;}
+.fit-ring-wrap svg{transform:rotate(-90deg);width:96px;height:96px;}
+.fit-ring-bg{fill:none;stroke:rgba(255,255,255,.12);stroke-width:5;}
+.fit-ring-fg{
+  fill:none;stroke:var(--accent);stroke-width:5;
+  stroke-linecap:round;
+  stroke-dasharray:264;stroke-dashoffset:264;
+  transition:stroke-dashoffset 1.05s cubic-bezier(.4,0,.2,1),stroke .25s,filter .25s;
+  filter:drop-shadow(0 0 3px rgba(122,167,255,.35));
+}
+.fit-ring-text{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-family:var(--mono);
+  font-size:16px;
+  font-weight:700;
+  color:rgba(234,240,255,.92);
+}
+.fit-ring-unit{font-size:12px;color:rgba(234,240,255,.70);}
+
+.fit-meta{
+  font-family:var(--mono);
+  font-size:12px;
+  color:rgba(234,240,255,.62);
+}
+.fit-meta b{color:rgba(234,240,255,.88);}
+
+#fitTier{
+  display:inline-block;margin-top:.55rem;
+  font-family:var(--mono);
+  font-size:11px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:999px;
+  padding:.28em .75em;
+  color:rgba(234,240,255,.78);
+  background:rgba(255,255,255,.05);
+}
+
+/* ── SECTION HEADER ── */
+.section-head{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:1rem;flex-wrap:wrap;gap:.75rem;
+}
+.section-title{
+  font-size:12px;
+  letter-spacing:.10em;
+  text-transform:uppercase;
+  color:rgba(234,240,255,.62);
+  font-family:var(--mono);
+}
+section{margin-bottom:2.25rem;animation:rise .6s .06s ease both;}
+
+/* ── PDF CARDS ── */
+#pdf-container{
+  display:flex;flex-direction:column;align-items:stretch;
+  gap:1.15rem;width:100%;
+}
+.pdf-card{
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:18px;
+  overflow:visible;
+  position:relative;
+  box-shadow:0 10px 30px rgba(0,0,0,.20);
+  transition:transform .15s,box-shadow .2s,border-color .2s,background .2s;
+}
+.pdf-card:hover{
+  transform:translateY(-2px);
+  border-color:rgba(122,167,255,.16);
+  background:rgba(255,255,255,.05);
+  box-shadow:0 18px 44px rgba(0,0,0,.28);
+}
+.pdf-card.preferred{
+  border-color:rgba(52,211,153,.18);
+  box-shadow:0 18px 44px rgba(0,0,0,.28);
+}
+.pdf-card-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.85rem 1.05rem;
+  background:rgba(255,255,255,.035);
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.pdf-card-id{
+  font-family:var(--ui);
+  font-size:13px;font-weight:700;
+  color:rgba(234,240,255,.86);
+}
+.pdf-card-badge{
+  font-family:var(--mono);
+  font-size:11px;
+  border:1px solid rgba(255,255,255,.14);
+  background:rgba(255,255,255,.05);
+  color:rgba(234,240,255,.75);
+  padding:.22em .7em;
+  border-radius:999px;
+}
+.pdf-card-badge.amber{
+  border-color:rgba(251,191,36,.22);
+  background:rgba(251,191,36,.10);
+  color:rgba(251,191,36,.92);
+}
+
+.pdf-frame{
+  position:relative;
+  z-index:1;
+}
+
+.pdf-frame iframe{
+  width:100%;
+  height:900px;
+  max-height:75vh;
+  border:none;
+  background:#0A0F1C;
+  display:block;
+}
+
+/* ── LATEX OUTPUT ── */
+.latex-wrap{
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:18px;
+  overflow:hidden;
+  box-shadow:0 10px 30px rgba(0,0,0,.20);
+}
+.latex-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.85rem 1.05rem;
+  background:rgba(255,255,255,.035);
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.latex-head-left{display:flex;align-items:center;gap:.7rem;}
+.term-dots{display:flex;gap:.35rem;}
+.term-dot{width:10px;height:10px;border-radius:99px;}
+.term-dot.red{background:#ff5f57;box-shadow:0 0 0 4px rgba(255,95,87,.12);}
+.term-dot.amb{background:var(--warn);box-shadow:0 0 0 4px rgba(251,191,36,.12);}
+.term-dot.grn{background:var(--ok);box-shadow:0 0 0 4px rgba(52,211,153,.12);}
+
+.latex-file{
+  font-family:var(--mono);
+  font-size:12px;
+  color:rgba(234,240,255,.78);
+}
+
+#tex-output{
+  display:block;
+  white-space:pre-wrap;
+  color:rgba(234,240,255,.86);
+  font-family:var(--mono);
+  font-size:12.5px;
+  line-height:1.7;
+  background:transparent;
+  padding:1rem 1.05rem 1.1rem;
+  overflow:auto;
+  max-height:75vh;
+  scrollbar-width:thin;
+  scrollbar-color:rgba(255,255,255,.18) transparent;
+}
+#tex-output::-webkit-scrollbar{width:8px;height:8px;}
+#tex-output::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:999px;}
+#tex-output::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.18);}
+
+/* ── BUTTONS ── */
+.btn-row{display:flex;gap:.55rem;flex-wrap:wrap;}
+.btn-primary,.btn-secondary,.btn-amber{
+  display:flex;align-items:center;gap:.45rem;
+  font-family:var(--ui);
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.06em;
+  padding:.78rem 1.05rem;
+  border-radius:12px;
+  cursor:pointer;
+  transition:transform .12s,box-shadow .2s,background .2s,border-color .2s;
+}
+.btn-primary{
+  background:linear-gradient(180deg, rgba(122,167,255,.36), rgba(122,167,255,.20));
+  border:1px solid rgba(122,167,255,.34);
+  color:var(--text);
+  box-shadow:0 14px 34px rgba(0,0,0,.25);
+}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 0 0 4px rgba(122,167,255,.12), 0 18px 45px rgba(0,0,0,.32);}
+.btn-secondary{
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.12);
+  color:rgba(234,240,255,.78);
+}
+.btn-secondary:hover{transform:translateY(-1px);background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.16);}
+.btn-amber{
+  background:rgba(251,191,36,.10);
+  border:1px solid rgba(251,191,36,.22);
+  color:rgba(251,191,36,.92);
+}
+.btn-amber:hover{transform:translateY(-1px);box-shadow:0 0 0 4px rgba(251,191,36,.10);}
+
+/* Loading */
+.loading-msg{
+  text-align:center;padding:2.25rem 1rem;
+  font-size:14px;color:rgba(234,240,255,.72);
+  display:flex;flex-direction:column;align-items:center;gap:.6rem;
+}
+.loading-dots::after{content:"...";animation:dots 1.5s steps(4,end) infinite;}
+@keyframes dots{0%{content:"";}25%{content:".";}50%{content:"..";}75%{content:"...";}}
+
+/* Footer */
+footer{
+  margin-left:var(--sidebar);
+  padding:1rem 2rem;
+  border-top:1px solid rgba(255,255,255,.10);
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:.5rem;
+  font-size:12px;color:rgba(234,240,255,.55);
+  background:rgba(15,22,41,.65);
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+}
+footer b{color:rgba(234,240,255,.78);}
+footer a{color:rgba(234,240,255,.78);text-decoration:none;border-bottom:1px solid rgba(234,240,255,.22);}
+footer a:hover{border-bottom-color:rgba(234,240,255,.55);}
+.ver-tag{
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.05);
+  color:rgba(234,240,255,.75);
+  padding:.25em .75em;border-radius:999px;
+  font-family:var(--mono);font-size:11px;
+}
+
+/* Toast (override global #toast.visible that sets bottom/transform) */
+#toast{
+  position:fixed;
+  top:64px;
+  right:1.25rem;
+
+  /* critical: prevent stretch from global CSS */
+  left:auto;
+  bottom:auto;
+  transform:none;
+
+  z-index:9999;
+  pointer-events:none;
+
+  /* make it look like a toast */
+  max-width:520px;
+  padding:.7rem .95rem;
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(15,22,41,.85);
+  color:rgba(234,240,255,.86);
+  box-shadow:0 18px 44px rgba(0,0,0,.28);
+
+  opacity:0;
+  visibility:hidden;
+  transition:opacity .18s ease, transform .18s ease;
+}
+
+#toast.visible{
+  /* critical: override global bottom/transform */
+  top:64px;
+  right:1.25rem;
+  left:auto;
+  bottom:auto;
+  transform:none;
+
+  opacity:1;
+  visibility:visible;
+}
+@media(max-width:900px){
+  main.console{padding-left:1.75rem;padding-right:1.75rem;}
+  .header-row{flex-direction:column;}
+  #fit-score-card{width:100%;max-width:340px;}
+}
+@media(max-width:600px){
+  main.console{padding-left:1.1rem;padding-right:1.1rem;}
+}
+</style>
 </head>
+<body>
 
-<body class="page-enter" data-app="hirex">
-  <!-- Mobile hamburger -->
-  <button id="nav-toggle" class="hamburger" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+<div class="grain" aria-hidden="true"></div>
+<div class="ambient amb-1" aria-hidden="true"></div>
+<div class="ambient amb-2" aria-hidden="true"></div>
 
-  <!-- Sidebar -->
-  <aside class="sidebar" id="sidebar" role="navigation" aria-label="Primary">
-    <div class="brand">
-      <img src="/static/assets/logo.png" alt="ASTRA Logo" loading="lazy" />
-      <span class="logo-text">ASTRA</span>
+<button id="nav-toggle" class="hamburger" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+
+<aside class="sidebar" id="sidebar" role="navigation" aria-label="Primary">
+  <div class="brand">
+    <div class="brand-row">
+      <div class="brand-logo">
+        <img src="/static/assets/logo.png" alt="HIREX" loading="lazy"/>
+      </div>
+      <div class="brand-wordmark">
+        <span class="brand-name">HIREX</span>
+        <span class="brand-tagline">AI Career Ops System</span>
+      </div>
+    </div>
+    <div class="brand-sysinfo">
+      <span class="sys-badge">v1.0.0</span>
+      <span class="sys-badge">GPT-4o</span>
+      <span class="sys-badge">ONLINE</span>
+    </div>
+  </div>
+
+  <ul class="vnav">
+    <li class="nav-group-label">Core</li>
+    <li><a href="/index.html"><span class="nav-ico">⬡</span> HIREX</a></li>
+    <li><a href="/preview.html" class="active-link" aria-current="page"><span class="nav-ico">◧</span> Preview</a></li>
+    <li><a href="/coverletter.html"><span class="nav-ico">◈</span> Cover Letter</a></li>
+
+    <li class="nav-group-label">Intelligence</li>
+    <li><a href="/talk.html"><span class="nav-ico">◎</span> Talk to HIREX</a></li>
+    <li><a href="/mastermind.html"><span class="nav-ico">◉</span> MasterMind</a></li>
+    <li><a href="/superhuman.html"><span class="nav-ico">◈</span> SuperHuman</a></li>
+
+    <li class="nav-group-label">Analytics</li>
+    <li><a href="/dashboard.html"><span class="nav-ico">▦</span> Dashboard</a></li>
+    <li><a href="/genie.html"><span class="nav-ico">◐</span> Genie</a></li>
+  </ul>
+
+  <div class="sidebar-foot">
+    <button class="btn-exec" type="button" onclick="window.location.href='/index.html'">
+      <span>Optimize again</span>
+    </button>
+  </div>
+</aside>
+
+<div class="topbar" role="status">
+  <div class="topbar-left">
+    <span class="sys-online">Online</span>
+    <span class="topbar-tag">Module <b>Preview</b></span>
+    <span class="topbar-tag">Status <b>Ready</b></span>
+  </div>
+  <div class="topbar-right">
+    <span class="topbar-tag">Session <b id="session-id">—</b></span>
+    <span id="sys-clock">—</span>
+  </div>
+</div>
+
+<main class="console" id="content" role="main">
+
+  <div class="header-row">
+    <div>
+      <div class="page-eyebrow">Output analysis</div>
+      <h1 class="page-title">
+        Resume preview
+      </h1>
+      <p class="page-sub">
+        Review your <strong>optimized</strong> and <strong>humanized</strong> resumes.
+        Check fit metrics, inspect LaTeX source, and download the final PDF.
+      </p>
     </div>
 
-    <ul class="vnav">
-      <li><a href="/index.html">🏠 HIREX</a></li>
-      <li><a href="/preview.html" class="active-link" aria-current="page">📄 HIREX Preview</a></li>
-      <li><a href="/coverletter.html">✉️ HIREX Letter</a></li>
-      <li><a href="/talk.html">💬 Talk to HIREX</a></li>
-      <li><a href="/mastermind.html">🧠 MasterMind</a></li>
-      <li><a href="/superhuman.html">✨ SuperHuman</a></li>
-      <li><a href="/dashboard.html">📊 Dashboard</a></li>
-      <li><a href="/genie.html">🧞 Genie</a></li>
-    </ul>
-
-    <button class="cta-primary" onclick="window.location.href='/index.html'">🚀 Optimize Again</button>
-  </aside>
-
-  <!-- Main -->
-  <main class="console" id="content" role="main">
-    <div class="main-inner">
-      <div class="header-row anim rise" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:2rem;">
-        <h1>Optimized Resume Preview</h1>
-        <div id="fit-score-card" class="anim fade" aria-live="polite">
-          <div class="fit-circle" id="fitCircle" data-score="--"></div>
-          <h2>🎯 JD Fit Score</h2>
-          <p>Rounds: <span id="fit-rounds">--</span></p>
-          <p id="fit-tier">Awaiting Analysis…</p>
+    <!-- FIT SCORE CARD - IDs match what preview.js expects -->
+    <div id="fit-score-card" aria-live="polite">
+      <div class="fit-card-label">JD fit score</div>
+      <div class="fit-ring-wrap">
+        <svg viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle class="fit-ring-bg" cx="48" cy="48" r="42"/>
+          <!-- ID: fitCircle for preview.js compatibility, also fit-ring for inline script -->
+          <circle class="fit-ring-fg" id="fitCircle" cx="48" cy="48" r="42"/>
+        </svg>
+        <div class="fit-ring-text">
+          <!-- ID: fitPct for preview.js compatibility, also fit-pct for inline script -->
+          <span id="fitPct">--</span><span class="fit-ring-unit">%</span>
         </div>
       </div>
-
-      <p class="muted">
-        Review your <strong>AI-optimized</strong> and <strong>humanized</strong> resumes side by side.
-        Compare outputs, verify JD-fit metrics, and download or copy your LaTeX source.
-      </p>
-
-      <section id="pdf-section" class="anim fade" aria-labelledby="pdf-viewer-title">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-          <h2 id="pdf-viewer-title">📄 Resume PDF Viewer</h2>
-          <button id="refresh-pdfs" class="btn accent" type="button" aria-controls="pdf-container" onclick="location.reload()">↻ Refresh PDFs</button>
-        </div>
-        <div id="pdf-container" aria-live="polite">
-          <p style="color:#bbb;text-align:center;">Loading your latest optimized resumes…</p>
-        </div>
-      </section>
-
-      <section id="latex-section" class="anim rise" aria-labelledby="latex-output-title">
-        <h2 id="latex-output-title">🧠 Optimized LaTeX Output</h2>
-        <pre id="tex-output" role="region" aria-live="polite">% Your optimized LaTeX will appear here...</pre>
-        <div style="margin-top:1rem;display:flex;gap:.75rem;flex-wrap:wrap;">
-          <button id="download-tex" class="btn accent" type="button">⬇️ Download .tex</button>
-          <button id="copy-tex" class="btn" type="button">📋 Copy Code</button>
-        </div>
-      </section>
+      <div class="fit-meta">
+        Rounds <b><span id="fit-rounds">--</span></b>
+      </div>
+      <!-- ID: fitTier for preview.js compatibility -->
+      <div id="fitTier">Awaiting analysis</div>
     </div>
-  </main>
+  </div>
 
-  <footer>
-    &copy; 2025 <strong>ASTRA</strong> — Developed by <strong>Sri Akash Kadali</strong> |
-    Powered by <strong>FastAPI</strong> + <strong>OpenAI</strong> + <strong>LaTeX</strong> |
-    <a href="https://github.com/Akash-Kadali" target="_blank" rel="noopener noreferrer">GitHub</a>
-  </footer>
+  <section id="pdf-section" aria-labelledby="pdf-viewer-title">
+    <div class="section-head">
+      <h2 class="section-title" id="pdf-viewer-title">Resume PDF viewer</h2>
+      <div class="btn-row">
+        <button id="refresh-pdfs" class="btn-amber" type="button" onclick="location.reload()">
+          <span>Refresh</span>
+        </button>
+      </div>
+    </div>
+    <div id="pdf-container" aria-live="polite">
+      <div class="loading-msg">
+        <span class="loading-dots">Loading your latest resumes</span>
+        <span style="font-size:12px;color:rgba(234,240,255,.45);font-family:var(--mono);">Fetching from the last optimization run</span>
+      </div>
+    </div>
+  </section>
 
-  <!-- Toast -->
-  <div id="toast" role="status" aria-live="polite"></div>
+  <section id="latex-section" aria-labelledby="latex-output-title">
+    <div class="section-head">
+      <h2 class="section-title" id="latex-output-title">Optimized LaTeX source</h2>
+      <div class="btn-row">
+        <button id="download-tex" class="btn-primary" type="button">
+          <span>Download .tex</span>
+        </button>
+        <button id="copy-tex" class="btn-secondary" type="button">Copy</button>
+      </div>
+    </div>
+    <div class="latex-wrap">
+      <div class="latex-head">
+        <div class="latex-head-left">
+          <div class="term-dots">
+            <div class="term-dot red"></div>
+            <div class="term-dot amb"></div>
+            <div class="term-dot grn"></div>
+          </div>
+          <span class="latex-file">OUTPUT · OPTIMIZED.TEX</span>
+        </div>
+        <span style="font-family:var(--mono);font-size:11px;color:rgba(234,240,255,.45);letter-spacing:.08em;">LaTeX · UTF-8</span>
+      </div>
+      <pre id="tex-output" role="region" aria-live="polite">% Your optimized LaTeX will appear here after the optimizer runs…</pre>
+    </div>
+  </section>
 
-  <!-- Scripts -->
-  <script src="/static/js/util.js?v=2.1.2" defer></script>
-  <script src="/static/js/ui.js?v=2.1.2" defer></script>
-  <!-- preview.js safely no-ops if #history-list is absent -->
-  <script src="/static/js/preview.js?v=2.1.2" defer></script>
+</main>
 
-  <!-- Minimal boot/wiring -->
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      // Mobile nav toggle
-      const navToggle = document.getElementById('nav-toggle');
-      navToggle?.addEventListener('click', () => {
-        const on = !document.body.classList.contains('nav-open');
-        document.body.classList.toggle('nav-open', on);
-        navToggle.setAttribute('aria-expanded', String(on));
-      });
+<footer>
+  <span>© 2025 <b>HIREX</b> — <b>Sri Akash Kadali</b></span>
+  <span>FastAPI · OpenAI · LaTeX | <a href="https://github.com/Akash-Kadali" target="_blank" rel="noopener noreferrer">GitHub</a></span>
+  <span class="ver-tag">v1.0.0</span>
+</footer>
 
-      (window.ASTRA ?? window.HIREX)?.debugLog?.('PREVIEW PAGE LOADED', { version: 'v2.1.2' });
-    });
-  </script>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="/static/js/util.js?v=1.0.0" defer></script>
+<script src="/static/js/ui.js?v=1.0.0" defer></script>
+<script src="/static/js/preview.js?v=1.0.0" defer></script>
+
+<script>
+document.addEventListener("DOMContentLoaded",()=>{
+
+  const clockEl=document.getElementById("sys-clock");
+  const sessionEl=document.getElementById("session-id");
+  sessionEl.textContent=Math.random().toString(36).slice(2,8).toUpperCase();
+  const tick=()=>{
+    const n=new Date();
+    clockEl.textContent=n.toISOString().slice(11,19)+" UTC";
+  };
+  tick();setInterval(tick,1000);
+
+  const navToggle=document.getElementById("nav-toggle");
+  navToggle?.addEventListener("click",()=>{
+    const on=!document.body.classList.contains("nav-open");
+    document.body.classList.toggle("nav-open",on);
+    navToggle.setAttribute("aria-expanded",String(on));
+  });
+  document.addEventListener("click",e=>{
+    const sb=document.getElementById("sidebar");
+    if(document.body.classList.contains("nav-open")&&
+       !sb.contains(e.target)&&!navToggle.contains(e.target)){
+      document.body.classList.remove("nav-open");
+      navToggle.setAttribute("aria-expanded","false");
+    }
+  });
+
+  // Initialize HIREX_PREVIEW namespace
+  window.HIREX_PREVIEW = window.HIREX_PREVIEW || {};
+  
+  /**
+   * Set the fit score display - handles both preview.js and inline calls
+   * Supports element IDs: fitCircle/fitPct/fitTier (preview.js) and fit-ring/fit-pct/fit-tier (legacy)
+   */
+  window.HIREX_PREVIEW.setFitScore = (score, rounds = null) => {
+
+    if (score === undefined || score === null) {
+      console.warn("[HIREX] Fit score missing from backend.");
+      return;
+    }
+
+    let pct = Number(score);
+    if (isNaN(pct)) pct = 0;
+
+    // Support both 0–1 and 0–100 formats
+    if (pct > 0 && pct <= 1) pct = pct * 100;
+
+    pct = Math.max(0, Math.min(100, Math.round(pct)));
+
+    // Try both ID conventions for compatibility
+    const ring = document.getElementById("fitCircle") || document.getElementById("fit-ring");
+    const pctEl = document.getElementById("fitPct") || document.getElementById("fit-pct");
+    const tier = document.getElementById("fitTier") || document.getElementById("fit-tier");
+    const roundsEl = document.getElementById("fit-rounds");
+
+    if (!ring || !pctEl || !tier) {
+      console.warn("[HIREX] Fit score elements not found in DOM");
+      return;
+    }
+
+    const radius = 42;
+    const circumference = 2 * Math.PI * radius;
+
+    // Animate the ring
+    ring.style.strokeDasharray = circumference;
+    ring.style.strokeDashoffset = circumference - (pct / 100) * circumference;
+
+    // Update percentage text
+    pctEl.textContent = pct;
+
+    // Update rounds if provided
+    if (rounds !== null && roundsEl) {
+      roundsEl.textContent = rounds;
+    }
+
+    // Update tier and color based on score
+    if (pct >= 70) {
+      ring.style.stroke = "var(--ok)";
+      ring.style.filter = "drop-shadow(0 0 4px rgba(52,211,153,.45))";
+      tier.textContent = "Strong fit";
+      tier.style.borderColor = "rgba(52,211,153,.25)";
+      tier.style.color = "rgba(52,211,153,.92)";
+    } else if (pct >= 50) {
+      ring.style.stroke = "var(--warn)";
+      ring.style.filter = "drop-shadow(0 0 4px rgba(251,191,36,.45))";
+      tier.textContent = "Good fit";
+      tier.style.borderColor = "rgba(251,191,36,.25)";
+      tier.style.color = "rgba(251,191,36,.92)";
+    } else {
+      ring.style.stroke = "var(--danger)";
+      ring.style.filter = "drop-shadow(0 0 4px rgba(251,113,133,.45))";
+      tier.textContent = "Needs work";
+      tier.style.borderColor = "rgba(251,113,133,.25)";
+      tier.style.color = "rgba(251,113,133,.92)";
+    }
+
+    console.log(`[HIREX] Fit score updated: ${pct}%`);
+  };
+
+  /**
+   * Render a PDF card for the preview container
+   */
+  window.HIREX_PREVIEW.renderPdfCard = (label, blobUrl, isPreferred, badgeText) => {
+    const card = document.createElement("div");
+    card.className = "pdf-card" + (isPreferred ? " preferred" : "");
+    const badgeClass = isPreferred ? "" : " amber";
+    card.innerHTML = `
+      <div class="pdf-card-head">
+        <span class="pdf-card-id">${label}</span>
+        <span class="pdf-card-badge${badgeClass}">${badgeText || (isPreferred ? "OPTIMIZED" : "HUMANIZED")}</span>
+      </div>
+      <div class="pdf-frame">
+        <iframe src="${blobUrl}" title="${label}" loading="lazy"></iframe>
+      </div>`;
+    return card;
+  };
+
+  /**
+   * Alternative function name for compatibility with preview.js
+   * This ensures renderFit() calls work regardless of how preview.js is structured
+   */
+  window.HIREX_PREVIEW.renderFit = window.HIREX_PREVIEW.setFitScore;
+
+  // Also expose on window.HIREX for backwards compatibility
+  window.HIREX = window.HIREX || {};
+  window.HIREX.setFitScore = window.HIREX_PREVIEW.setFitScore;
+  window.HIREX.renderFit = window.HIREX_PREVIEW.setFitScore;
+
+  // Debug log
+  console.log("[HIREX] Preview page loaded", { version: "v1.0.0" });
+});
+</script>
 </body>
 </html>

@@ -1,5 +1,5 @@
 # ============================================================
-#  ASTRA v2.1.2 — Utility & Diagnostics API (FINAL)
+#  ASTRA v1.0.0 — Utility & Diagnostics API (FINAL)
 #  ------------------------------------------------------------
 #  Endpoints:
 #   • Health-ish ping / version / safe config subset

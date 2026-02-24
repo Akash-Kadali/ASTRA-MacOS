@@ -1,176 +1,762 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="color-scheme" content="dark light" />
-  <meta name="theme-color" content="#0a1020" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <meta name="color-scheme" content="dark light"/>
+  <meta name="theme-color" content="#0B1220"/>
+  <title>Cover Letter · HIREX</title>
+  <meta name="description" content="Generate a JD-optimized, humanized cover letter using stored job description and LaTeX resume."/>
+  <meta name="author" content="Sri Akash Kadali"/>
+  <meta property="og:title" content="Cover Letter · HIREX — Cover Letter Generator"/>
+  <meta property="og:type" content="website"/>
 
-  <title>ASTRA • HIREX — Cover Letter Generator v2.1.2</title>
-  <meta name="description" content="Generate a JD-optimized, humanized cover letter using stored job description and LaTeX resume." />
-  <meta name="author" content="Sri Akash Kadali" />
-  <meta property="og:title" content="ASTRA • HIREX — Cover Letter Generator v2.1.2" />
-  <meta property="og:description" content="Draft and download a JD-specific, LaTeX cover letter with optional tone humanization." />
-  <meta property="og:type" content="website" />
-
-  <!-- CSP: allow blob/data for PDFs, workers, dev websockets, and same-origin HTTPS -->
   <meta http-equiv="Content-Security-Policy"
         content="
           default-src 'self' blob: data:;
           img-src 'self' data: blob:;
-          style-src 'self' 'unsafe-inline';
+          style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+          font-src 'self' data: https://fonts.gstatic.com;
           script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval';
-          connect-src 'self' blob: data: https: http://127.0.0.1:8000 ws://127.0.0.1:8000 http://0.0.0.0:8000 ws://0.0.0.0:8000 https://api.openai.com;
+          connect-src 'self' blob: data: https:
+                       http://127.0.0.1:8000 ws://127.0.0.1:8000
+                       http://0.0.0.0:8000   ws://0.0.0.0:8000
+                       https://api.openai.com;
           frame-src 'self' blob: data: about:;
           child-src 'self' blob:;
           worker-src 'self' blob:;
           media-src 'self' blob: data:;
-          font-src 'self' data:;
           object-src 'none';
           base-uri 'self';
           frame-ancestors 'self';
-        " />
+        "/>
 
-  <link rel="icon" type="image/png" href="/static/assets/favicon.png" />
-  <link rel="stylesheet" href="/static/css/base.css?v=2.1.2" />
-  <link rel="stylesheet" href="/static/css/animations.css?v=2.1.2" />
-  <link rel="stylesheet" href="/static/css/app.css?v=2.1.2" />
+  <link rel="icon" type="image/png" href="/static/assets/favicon.png"/>
 
-  <style>
-    :root{
-      --bg:#0a1020;--accent:#5bd0ff;--accent2:#a678ff;--muted:rgba(255,255,255,0.7);
-      --card-bg:rgba(255,255,255,0.05);--card-border:rgba(255,255,255,0.08);
-      --field-bg:#0f152b;
-    }
-    html, body { background:#0a1020; }
-    body{
-      background: radial-gradient(circle at 30% 20%, var(--bg) 0%, #03060f 80%) fixed;
-      color:#e4ecff;font-family:"Inter","Segoe UI",Roboto,sans-serif;line-height:1.6;margin:0;overflow-x:hidden;
-    }
-    .visually-hidden{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-    ::selection{ background:var(--accent); color:#000; }
-    body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
-      background:repeating-linear-gradient(to right, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px),
-                 repeating-linear-gradient(to bottom, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px);}
-    body::after{content:"";position:fixed;width:420px;height:420px;top:20%;right:10%;pointer-events:none;z-index:0;
-      background: radial-gradient(circle, rgba(91,208,255,0.15), transparent 70%);filter: blur(60px);
-      animation: floatGlow 10s ease-in-out infinite alternate;}
-    @keyframes floatGlow{ from{transform:translateY(0) scale(1);opacity:.9;} to{transform:translateY(-30px) scale(1.05);opacity:.7;} }
-    .menu-toggle,.theme-toggle{display:none!important;}
+  <!-- Google Sans + JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
 
-    /* Sidebar (fixed) */
-    .sidebar{position:fixed;top:0;left:0;width:260px;height:100vh;z-index:5;
-      display:flex;flex-direction:column;padding-top:.25rem;background:rgba(10,16,32,0.65);
-      border-right:1px solid rgba(255,255,255,0.05);backdrop-filter: blur(18px);}
-    .brand{display:flex;align-items:center;gap:.75rem;padding:.6rem 1rem .05rem;}
-    .brand img{width:72px;height:auto;aspect-ratio:1/1;object-fit:contain;
-      filter: drop-shadow(0 0 6px rgba(91,208,255,0.6));transition:transform .25s, filter .25s;}
-    .brand img:hover{transform:scale(1.05);filter: drop-shadow(0 0 12px rgba(91,208,255,0.9));}
-    .logo-text{font-weight:700;font-size:1.35rem;background:linear-gradient(90deg,var(--accent),var(--accent2));
-      -webkit-background-clip:text;background-clip:text;color:transparent;}
-    .vnav{list-style:none;padding:0;margin:.05rem 1rem 1rem;}
-    .vnav li{margin-bottom:.42rem;}
-    .vnav a{display:block;padding:.6rem 1rem;color:#cfd9ff;text-decoration:none;border-radius:10px;transition:background .2s,color .2s;}
-    .vnav a:hover,.vnav a.active-link{background: rgba(91,208,255,0.15); color: var(--accent);}
-    .sidebar .cta-primary{display:none;}
+  <link rel="stylesheet" href="/static/css/animations.css?v=1.0.0"/>
 
-    /* Main */
-    main.console{position:relative;z-index:2;padding:3rem 3rem 5rem;max-width:1600px;min-height:100vh;margin-left:260px;animation:fadeRise 1s;}
-    footer{margin-left:260px;text-align:center;padding:2rem 1rem;color:#9aa7cc;border-top:1px solid rgba(255,255,255,0.05);backdrop-filter:blur(10px);}
-    @media (max-width:880px){
-      .sidebar{position:fixed;left:-100%;width:70%;transition:transform .3s ease;}
-      body.nav-open .sidebar{transform:translateX(100%);}
-      main.console,footer{margin-left:0;padding:1.25rem;}
-      .brand{padding:.5rem 1rem .04rem}.brand img{width:60px}.logo-text{font-size:1.2rem}.vnav{margin:.02rem 1rem 1rem}
-    }
+<style>
+:root{
+  /* Surfaces */
+  --bg0:#0B1220;
+  --bg1:#0E1629;
 
-    /* Content */
-    .page-title{font-size:2.2rem;font-weight:700;margin-bottom:.6rem;text-align:center;
-      background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:1px;}
-    .muted{color:var(--muted);text-align:center;max-width:820px;margin:0 auto 2rem;}
+  /* Text */
+  --text:#EAF0FF;
+  --muted:rgba(234,240,255,.72);
+  --dim:rgba(234,240,255,.42);
 
-    .form-section{background:var(--card-bg);border:1px solid var(--card-border);border-radius:16px;padding:1.75rem 2rem;margin-bottom:2rem;
-      box-shadow:0 0 25px rgba(91,208,255,0.15);backdrop-filter:blur(14px);position:relative;overflow:hidden;transition:transform .4s, box-shadow .4s;}
-    .form-section:hover{transform:translateY(-4px);box-shadow:0 0 35px rgba(91,208,255,0.25);}
-    label{font-size:.85rem;color:var(--muted);display:block;margin-bottom:6px;letter-spacing:.3px;}
-    select{width:100%;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:var(--field-bg);
-      color:#fff;padding:10px 12px;font-size:14px;transition:border-color .25s, box-shadow .25s;appearance:none;}
-    select:focus{border-color:var(--accent);box-shadow:0 0 12px rgba(91,208,255,0.35);outline:none;}
-    option{background:var(--field-bg);color:#fff;}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
-    @media (max-width:720px){.row{grid-template-columns:1fr;}}
+  /* Accents */
+  --accent:#7AA7FF;
+  --ok:#34D399;
+  --warn:#FBBF24;
+  --danger:#FB7185;
 
-    .btn{border:1px solid rgba(255,255,255,0.14);background:rgba(10,16,32,0.85);color:#fff;padding:10px 14px;border-radius:10px;cursor:pointer;
-      font-size:14px;letter-spacing:.3px;transition:background .2s, transform .15s;}
-    .btn:hover{background:rgba(255,255,255,0.08);transform:translateY(-1px);}
-    .btn.accent{border-color:var(--accent);color:var(--accent);box-shadow:0 0 15px rgba(91,208,255,0.15);}
-    #meta_badge{margin-left:1rem;color:var(--muted);font-size:.9rem;}
+  /* Lines + shadows */
+  --line:rgba(255,255,255,.10);
+  --line2:rgba(122,167,255,.18);
+  --shadow:0 18px 50px rgba(0,0,0,.45);
+  --shadow2:0 10px 26px rgba(0,0,0,.32);
 
-    .preview-section{margin-top:1rem;}
-    .tabs{display:flex;gap:.6rem;margin-bottom:.8rem;justify-content:center;flex-wrap:wrap;}
-    .tab{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:8px 12px;color:#c9d4ff;
-      font-size:14px;cursor:pointer;transition:all .2s;}
-    .tab:hover{border-color:var(--accent);color:var(--accent);box-shadow:0 0 12px rgba(91,208,255,0.15);}
-    .tab.active{background:var(--accent);color:#000;border:none;box-shadow:0 0 15px rgba(91,208,255,0.25);}
-    .pane{height:70vh;border-radius:12px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);
-      overflow:hidden;backdrop-filter:blur(12px);box-shadow:0 0 18px rgba(91,208,255,0.08);transition:box-shadow .3s;}
-    .pane.active{box-shadow:0 0 28px rgba(91,208,255,0.25);}
-    .pane pre{margin:0;padding:14px;height:100%;overflow:auto;white-space:pre-wrap;word-break:break-word;
-      font-family:"Fira Code",monospace;font-size:13px;color:#dfe7ff;}
-    .pdf-frame{width:100%;height:100%;border:none;background:#0b0f1e;border-radius:12px;}
+  /* Type */
+  --ui:"Google Sans",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
 
-    #historyWrap{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem}
-    @media (max-width:900px){#historyWrap{grid-template-columns:1fr}}
+  /* Layout */
+  --sidebar:268px;
+  --topbar:52px;
 
-    #dl_btn{display:none;margin-left:.5rem}
-    @keyframes fadeRise{ from{opacity:0; transform:translateY(25px);} to{opacity:1; transform:translateY(0);} }
-    #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:rgba(15,21,43,.95);border:1px solid rgba(255,255,255,.1);
-      color:#eaf2ff;padding:.6rem .9rem;border-radius:10px;display:none;z-index:9999}
-  </style>
+  /* Radius */
+  --r:16px;
+  --r2:14px;
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+::selection{background:rgba(122,167,255,.35);color:#fff;}
+
+body{
+  font-family:var(--ui);
+  background:
+    radial-gradient(900px 520px at 20% -10%, rgba(122,167,255,.18), transparent 60%),
+    radial-gradient(900px 520px at 85% 22%, rgba(185,199,255,.10), transparent 60%),
+    radial-gradient(700px 500px at 65% 110%, rgba(52,211,153,.08), transparent 60%),
+    linear-gradient(180deg, var(--bg0), var(--bg1));
+  color:var(--text);
+  font-size:14px;
+  line-height:1.55;
+  overflow-x:hidden;
+  min-height:100vh;
+}
+
+/* Subtle noise */
+.grain{
+  position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.028;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size:220px 220px;
+}
+
+/* Ambient blobs */
+.ambient{position:fixed;pointer-events:none;z-index:0;border-radius:50%;filter:blur(120px);opacity:.9;}
+.amb-1{
+  width:520px;height:520px;top:-220px;left:calc(var(--sidebar) - 120px);
+  background:radial-gradient(circle,rgba(122,167,255,.26),transparent 70%);
+  animation:drift 26s ease-in-out infinite alternate;
+}
+.amb-2{
+  width:520px;height:520px;bottom:-220px;right:4%;
+  background:radial-gradient(circle,rgba(52,211,153,.14),transparent 72%);
+  animation:drift 30s ease-in-out infinite alternate-reverse;
+}
+@keyframes drift{from{transform:translate(0,0);}to{transform:translate(30px,34px);}}
+
+/* ── TOPBAR ── */
+.topbar{
+  position:fixed;top:0;left:var(--sidebar);right:0;height:var(--topbar);
+  z-index:40;
+  background:rgba(15,22,41,.72);
+  border-bottom:1px solid var(--line);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 1.25rem;
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+}
+.topbar-left,.topbar-right{display:flex;align-items:center;gap:1rem;}
+.sys-online{
+  display:flex;align-items:center;gap:.5rem;
+  font-size:12px;font-weight:600;color:var(--muted);
+}
+.sys-online::before{
+  content:"";width:8px;height:8px;border-radius:999px;
+  background:var(--ok);
+  box-shadow:0 0 0 4px rgba(52,211,153,.10);
+}
+.topbar-tag{
+  font-size:12px;color:var(--dim);
+  display:flex;align-items:center;gap:.35rem;
+}
+.topbar-tag b{color:var(--muted);font-weight:600;}
+#sys-clock{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted);}
+
+/* ── SIDEBAR ── */
+.sidebar{
+  position:fixed;top:0;left:0;width:var(--sidebar);height:100vh;
+  z-index:50;
+  background:rgba(15,22,41,.78);
+  border-right:1px solid var(--line);
+  display:flex;flex-direction:column;
+  overflow:hidden;
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+}
+.sidebar::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.06), transparent 30%),
+    radial-gradient(800px 380px at 20% 0%, rgba(122,167,255,.10), transparent 60%);
+  opacity:.8;
+}
+.brand{
+  position:relative;z-index:2;
+  padding:1.15rem 1.1rem 1rem;
+  border-bottom:1px solid var(--line);
+  display:flex;flex-direction:column;gap:.5rem;
+}
+.brand-row{display:flex;align-items:center;gap:.8rem;}
+.brand-logo{width:44px;height:44px;flex-shrink:0;border-radius:14px;overflow:hidden;}
+.brand-logo img{
+  width:44px;height:44px;object-fit:contain;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:14px;
+}
+.brand-wordmark{display:flex;flex-direction:column;gap:.08rem;}
+.brand-name{font-size:16px;font-weight:700;letter-spacing:.06em;color:var(--text);}
+.brand-tagline{font-size:12px;color:var(--dim);}
+.brand-sysinfo{display:flex;gap:.45rem;flex-wrap:wrap;margin-top:.15rem;}
+.sys-badge{
+  font-family:var(--mono);
+  font-size:11px;
+  color:rgba(234,240,255,.75);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:999px;
+  padding:.18em .65em;
+  background:rgba(255,255,255,.05);
+}
+
+.vnav{list-style:none;padding:.75rem .6rem;flex:1;overflow-y:auto;position:relative;z-index:2;}
+.vnav::-webkit-scrollbar{width:6px;}
+.vnav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:999px;}
+.nav-group-label{
+  font-size:11px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;
+  color:rgba(234,240,255,.42);padding:.75rem .7rem .35rem;
+}
+.vnav a{
+  display:flex;align-items:center;gap:.7rem;
+  color:rgba(234,240,255,.72);
+  text-decoration:none;
+  font-size:13px;font-weight:600;
+  padding:.62rem .75rem;
+  border-radius:12px;border:1px solid transparent;
+  margin-bottom:.2rem;
+  transition:background .15s,border-color .15s,transform .12s,color .15s;
+  position:relative;
+}
+.vnav a .nav-ico{width:22px;text-align:center;opacity:.7;font-size:.92rem;}
+.vnav a:hover{
+  background:rgba(255,255,255,.06);
+  border-color:rgba(255,255,255,.10);
+  transform:translateY(-1px);
+  color:var(--text);
+}
+.vnav a.active-link{
+  background:linear-gradient(90deg, rgba(122,167,255,.22), rgba(255,255,255,.06));
+  border-color:rgba(122,167,255,.25);
+  color:var(--text);
+}
+
+.sidebar-foot{
+  position:relative;z-index:2;
+  padding:.9rem;border-top:1px solid var(--line);
+  display:flex;flex-direction:column;gap:.55rem;
+}
+.btn-exec{
+  width:100%;
+  display:flex;align-items:center;justify-content:center;gap:.5rem;
+  background:linear-gradient(180deg, rgba(122,167,255,.22), rgba(122,167,255,.14));
+  border:1px solid rgba(122,167,255,.28);
+  color:var(--text);
+  font-family:var(--ui);
+  font-size:12px;font-weight:700;letter-spacing:.06em;
+  padding:.72rem .9rem;border-radius:12px;cursor:pointer;
+  transition:transform .12s,box-shadow .2s,background .2s,border-color .2s;
+  box-shadow:0 10px 22px rgba(0,0,0,.20);
+}
+.btn-exec:hover{
+  transform:translateY(-1px);
+  box-shadow:0 0 0 4px rgba(122,167,255,.10), 0 14px 32px rgba(0,0,0,.26);
+}
+
+.btn-kill{
+  width:100%;
+  display:flex;align-items:center;justify-content:center;gap:.5rem;
+  background:rgba(251,113,133,.10);
+  border:1px solid rgba(251,113,133,.22);
+  color:rgba(251,113,133,.92);
+  font-family:var(--ui);
+  font-size:12px;font-weight:800;letter-spacing:.06em;
+  padding:.7rem .9rem;border-radius:12px;cursor:pointer;
+  transition:transform .12s,box-shadow .2s,background .2s,border-color .2s;
+}
+.btn-kill:hover{transform:translateY(-1px);box-shadow:0 0 0 4px rgba(251,113,133,.10);}
+.btn-kill:disabled{opacity:.45;cursor:not-allowed;transform:none;}
+
+/* ── HAMBURGER ── */
+.hamburger{
+  display:none;position:fixed;top:12px;left:12px;z-index:60;
+  background:rgba(15,22,41,.72);
+  border:1px solid var(--line);
+  color:var(--text);
+  font-size:1rem;padding:.46rem .66rem;border-radius:12px;
+  cursor:pointer;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+}
+@media(max-width:700px){
+  .hamburger{display:block;}
+  .sidebar{left:-100%;width:82%;transition:left .28s ease;}
+  body.nav-open .sidebar{left:0;}
+  main.console,.topbar,footer{margin-left:0!important;left:0!important;}
+}
+
+/* ── MAIN ── */
+main.console{
+  margin-left:var(--sidebar);
+  padding:calc(var(--topbar) + 2.2rem) 2.75rem 5rem;
+  position:relative;z-index:2;
+  display:flex;flex-direction:column;align-items:center;
+  min-height:100vh;
+}
+
+@keyframes rise{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+
+/* Page header */
+.page-head{
+  width:100%;max-width:960px;
+  display:flex;align-items:flex-start;justify-content:space-between;
+  margin-bottom:1.6rem;
+  gap:1rem;
+  animation:rise .55s ease both;
+}
+.page-head-text{display:flex;flex-direction:column;gap:.6rem;}
+.page-pre{
+  font-family:var(--mono);
+  font-size:12px;
+  letter-spacing:.10em;
+  text-transform:uppercase;
+  color:rgba(234,240,255,.62);
+}
+h1.page-title{
+  font-size:40px;
+  letter-spacing:-.02em;
+  line-height:1.05;
+  color:var(--text);
+}
+h1.page-title span{
+  display:block;
+  font-size:14px;
+  font-weight:600;
+  letter-spacing:0;
+  color:rgba(234,240,255,.70);
+  margin-top:.45rem;
+}
+.page-desc{
+  font-size:14px;
+  color:rgba(234,240,255,.72);
+  line-height:1.6;
+  max-width:520px;
+}
+
+/* Status badge */
+.status-pill{
+  display:flex;align-items:center;gap:.5rem;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:999px;
+  padding:.42rem .85rem;
+  background:rgba(255,255,255,.05);
+  font-family:var(--ui);
+  font-size:12px;
+  color:rgba(234,240,255,.72);
+  white-space:nowrap;flex-shrink:0;height:fit-content;
+  margin-top:.25rem;
+}
+.status-pill-dot{
+  width:8px;height:8px;border-radius:999px;
+  background:var(--warn);
+  box-shadow:0 0 0 4px rgba(251,191,36,.10);
+}
+.status-pill.ready .status-pill-dot{background:var(--ok);box-shadow:0 0 0 4px rgba(52,211,153,.10);}
+.status-pill.error .status-pill-dot{background:var(--danger);box-shadow:0 0 0 4px rgba(251,113,133,.10);}
+
+/* ── PANELS ── */
+.op-grid{
+  width:100%;max-width:960px;
+  display:grid;grid-template-columns:1fr 1fr;
+  gap:1rem;margin-bottom:1rem;
+  animation:rise .6s .06s ease both;
+}
+
+/* Generic panel */
+.op-panel{
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:18px;
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+  overflow:hidden;
+  position:relative;
+  box-shadow:0 10px 30px rgba(0,0,0,.20);
+  transition:transform .15s,box-shadow .2s,border-color .2s,background .2s;
+}
+.op-panel:hover{
+  transform:translateY(-2px);
+  border-color:rgba(122,167,255,.16);
+  background:rgba(255,255,255,.05);
+  box-shadow:0 18px 44px rgba(0,0,0,.28);
+}
+
+/* disable bracket corners from old theme */
+.op-panel.bracketed::before,.op-panel.bracketed::after,
+.op-panel.bracketed .bc-bl,.op-panel.bracketed .bc-br{display:none!important;}
+
+.panel-hd{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.85rem 1.05rem;
+  background:rgba(255,255,255,.035);
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.panel-id{
+  font-family:var(--ui);
+  font-size:13px;
+  font-weight:800;
+  color:rgba(234,240,255,.86);
+}
+.panel-id::before{display:none!important;}
+.panel-meta{
+  font-family:var(--mono);
+  font-size:11px;
+  letter-spacing:.08em;
+  color:rgba(234,240,255,.45);
+  display:flex;gap:.8rem;
+}
+.panel-meta em{color:rgba(234,240,255,.65);font-style:normal;}
+
+.panel-body{padding:1rem 1.05rem 1.05rem;}
+
+/* ── SELECT DROPDOWNS ── */
+.field{display:flex;flex-direction:column;gap:.5rem;}
+.f-label{
+  font-family:var(--ui);
+  font-size:12px;
+  font-weight:700;
+  color:rgba(234,240,255,.72);
+}
+.f-label::after{display:none!important;}
+
+select{
+  width:100%;
+  background:rgba(255,255,255,.05);
+  color:rgba(234,240,255,.90);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:12px;
+  padding:.8rem .95rem;
+  font-family:var(--ui);
+  font-size:14px;
+  appearance:none;
+  outline:none;
+  cursor:pointer;
+  transition:border-color .2s,box-shadow .2s,background .2s;
+}
+select:focus{
+  border-color:rgba(122,167,255,.30);
+  box-shadow:0 0 0 4px rgba(122,167,255,.12);
+  background:rgba(255,255,255,.06);
+}
+option{background:#0C1426;color:rgba(234,240,255,.92);}
+
+/* ── PARAMS PANEL ── */
+.params-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
+@media(max-width:600px){.params-row{grid-template-columns:1fr;}}
+
+/* ── ACTION ROW ── */
+.action-panel{
+  width:100%;max-width:960px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:18px;
+  padding:1rem 1.05rem;
+  display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;
+  margin-bottom:1rem;
+  box-shadow:0 10px 30px rgba(0,0,0,.20);
+  animation:rise .6s .08s ease both;
+}
+
+.btn-primary,.btn-secondary,.btn-amber,.btn-danger{
+  display:flex;align-items:center;gap:.45rem;
+  font-family:var(--ui);
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.06em;
+  padding:.78rem 1.05rem;
+  border-radius:12px;
+  cursor:pointer;
+  transition:transform .12s,box-shadow .2s,background .2s,border-color .2s;
+}
+.btn-primary{
+  background:linear-gradient(180deg, rgba(122,167,255,.36), rgba(122,167,255,.20));
+  border:1px solid rgba(122,167,255,.34);
+  color:var(--text);
+  box-shadow:0 14px 34px rgba(0,0,0,.25);
+}
+.btn-primary::before{display:none!important;}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 0 0 4px rgba(122,167,255,.12), 0 18px 45px rgba(0,0,0,.32);}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed;box-shadow:none;}
+
+.btn-secondary{
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.12);
+  color:rgba(234,240,255,.78);
+}
+.btn-secondary:hover{transform:translateY(-1px);background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.16);}
+.btn-secondary:disabled{opacity:.5;cursor:not-allowed;}
+
+.btn-amber{
+  background:rgba(251,191,36,.10);
+  border:1px solid rgba(251,191,36,.22);
+  color:rgba(251,191,36,.92);
+}
+.btn-amber:hover{transform:translateY(-1px);box-shadow:0 0 0 4px rgba(251,191,36,.10);}
+
+.btn-danger{
+  background:rgba(251,113,133,.10);
+  border:1px solid rgba(251,113,133,.22);
+  color:rgba(251,113,133,.92);
+}
+.btn-danger:hover{transform:translateY(-1px);box-shadow:0 0 0 4px rgba(251,113,133,.10);}
+
+/* ── OUTPUT PANEL ── */
+.output-panel{
+  width:100%;max-width:960px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:18px;
+  overflow:hidden;
+  box-shadow:0 10px 30px rgba(0,0,0,.20);
+  animation:rise .65s .1s ease both;
+}
+
+/* Tabs */
+.tab-bar{
+  display:flex;align-items:center;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.035);
+  padding:.55rem .75rem;
+  gap:.4rem;
+  overflow-x:auto;
+}
+.tab-bar::-webkit-scrollbar{height:8px;}
+.tab-bar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:999px;}
+
+.term-dots{display:flex;gap:.35rem;margin-right:.6rem;flex-shrink:0;}
+.term-dot{width:10px;height:10px;border-radius:999px;}
+.term-dot.red{background:#ff5f57;box-shadow:0 0 0 4px rgba(255,95,87,.10);}
+.term-dot.amb{background:var(--warn);box-shadow:0 0 0 4px rgba(251,191,36,.10);}
+.term-dot.grn{background:var(--ok);box-shadow:0 0 0 4px rgba(52,211,153,.10);}
+
+.tab{
+  display:flex;align-items:center;gap:.4rem;
+  font-family:var(--ui);
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.06em;
+  color:rgba(234,240,255,.72);
+  background:transparent;
+  border:1px solid transparent;
+  border-radius:12px;
+  padding:.55rem .85rem;
+  cursor:pointer;
+  transition:background .15s,border-color .15s,transform .12s,color .15s;
+  white-space:nowrap;
+}
+.tab:hover{transform:translateY(-1px);background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.10);color:rgba(234,240,255,.86);}
+.tab.active{
+  background:linear-gradient(180deg, rgba(122,167,255,.22), rgba(122,167,255,.12));
+  border-color:rgba(122,167,255,.22);
+  color:rgba(234,240,255,.92);
+}
+
+/* Toolbar strip inside output */
+.output-toolbar{
+  display:flex;gap:.5rem;padding:.85rem 1rem;
+  border-bottom:1px solid rgba(255,255,255,.08);
+  flex-wrap:wrap;
+  background:rgba(255,255,255,.02);
+}
+
+.pane{display:none;height:68vh;}
+.pane.active{display:block;}
+
+.pane pre{
+  margin:0;
+  padding:1rem 1.05rem 1.1rem;
+  height:100%;
+  overflow:auto;
+  white-space:pre-wrap;
+  word-break:break-word;
+  font-family:var(--mono);
+  font-size:12.5px;
+  color:rgba(234,240,255,.86);
+  line-height:1.7;
+}
+.pane pre::-webkit-scrollbar{width:8px;height:8px;}
+.pane pre::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:999px;}
+
+.pdf-frame{width:100%;height:100%;border:none;background:#0A0F1C;}
+
+/* Toast */
+#toast{
+  position:fixed;left:50%;transform:translateX(-50%);bottom:18px;
+  background:rgba(15,22,41,.85);
+  border:1px solid rgba(255,255,255,.12);
+  color:rgba(234,240,255,.86);
+  padding:.7rem 1.05rem;
+  border-radius:12px;
+  display:none;z-index:9999;
+  font-family:var(--ui);font-size:13px;font-weight:700;
+  box-shadow:0 18px 44px rgba(0,0,0,.28);
+}
+
+/* FAB */
+.shutdown-fab{
+  position:fixed;right:18px;bottom:18px;z-index:40;
+  width:44px;height:44px;border-radius:14px;
+  background:rgba(251,113,133,.10);
+  border:1px solid rgba(251,113,133,.22);
+  color:rgba(251,113,133,.92);
+  display:flex;align-items:center;justify-content:center;
+  font-size:1rem;
+  cursor:pointer;
+  transition:transform .12s,box-shadow .2s,background .2s,border-color .2s;
+}
+.shutdown-fab:hover{transform:translateY(-1px);box-shadow:0 0 0 4px rgba(251,113,133,.10), 0 18px 44px rgba(0,0,0,.28);}
+.shutdown-fab:disabled{opacity:.45;cursor:not-allowed;transform:none;}
+
+/* Footer */
+footer{
+  margin-left:var(--sidebar);
+  padding:1rem 2rem;
+  border-top:1px solid rgba(255,255,255,.10);
+  display:flex;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:.5rem;
+  font-size:12px;color:rgba(234,240,255,.55);
+  background:rgba(15,22,41,.65);
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+}
+footer b{color:rgba(234,240,255,.78);}
+.ver-tag{
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.05);
+  color:rgba(234,240,255,.75);
+  padding:.25em .75em;border-radius:999px;
+  font-family:var(--mono);font-size:11px;
+}
+
+/* Responsive */
+@media(max-width:900px){
+  main.console{padding-left:1.75rem;padding-right:1.75rem;}
+  .op-grid{grid-template-columns:1fr;}
+  .page-head{flex-direction:column;}
+}
+@media(max-width:600px){
+  main.console{padding-left:1.1rem;padding-right:1.1rem;}
+  .action-panel{flex-direction:column;align-items:flex-start;}
+}
+</style>
 </head>
 
-<body class="page-enter" data-app="hirex">
-  <!-- Sidebar -->
-  <aside class="sidebar" id="sidebar" role="navigation" aria-label="Primary">
-    <div class="brand">
-      <img src="/static/assets/logo.png" alt="ASTRA Logo" loading="lazy" />
-      <span class="logo-text">ASTRA</span>
+<body class="glass-page">
+
+<div class="grain" aria-hidden="true"></div>
+<div class="ambient amb-1" aria-hidden="true"></div>
+<div class="ambient amb-2" aria-hidden="true"></div>
+
+<button id="nav-toggle" class="hamburger" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">☰</button>
+
+<aside class="sidebar" id="sidebar" role="navigation" aria-label="Primary">
+  <div class="brand">
+    <div class="brand-row">
+      <div class="brand-logo">
+        <img src="/static/assets/logo.png" alt="HIREX" loading="lazy"/>
+      </div>
+      <div class="brand-wordmark">
+        <span class="brand-name">HIREX</span>
+        <span class="brand-tagline">AI Career Ops System</span>
+      </div>
     </div>
-    <ul class="vnav">
-      <li><a href="/index.html">🏠 HIREX</a></li>
-      <li><a href="/preview.html">📄 HIREX Preview</a></li>
-      <li><a href="/coverletter.html" class="active-link" aria-current="page">✉️ HIREX Letter</a></li>
-      <li><a href="/talk.html">💬 Talk to HIREX</a></li>
-      <li><a href="/mastermind.html">🧠 MasterMind</a></li>
-      <li><a href="/superhuman.html">✨ SuperHuman</a></li>
-      <li><a href="/dashboard.html">📊 Dashboard</a></li>
-      <li><a href="/genie.html">🧞 Genie</a></li>
-    </ul>
-  </aside>
+    <div class="brand-sysinfo">
+      <span class="sys-badge">v1.0.0</span>
+      <span class="sys-badge">GPT-4o</span>
+      <span class="sys-badge">ONLINE</span>
+    </div>
+  </div>
 
-  <!-- Main -->
-  <main id="content" class="console" role="main">
-    <div class="main-inner">
-      <h1 class="page-title anim rise">✉️ Cover Letter Generator</h1>
-      <p class="muted">Select a stored <strong>Job Description + Resume</strong> pair, choose tone/length, and generate a tailored cover letter.</p>
+  <ul class="vnav">
+    <li class="nav-group-label">Core</li>
+    <li><a href="/index.html"><span class="nav-ico">⬡</span> HIREX</a></li>
+    <li><a href="/preview.html"><span class="nav-ico">◧</span> Preview</a></li>
+    <li><a href="/coverletter.html" class="active-link" aria-current="page"><span class="nav-ico">◈</span> Cover Letter</a></li>
 
-      <section id="cl-form" class="form-section anim blur-rise" aria-labelledby="cl-form-title">
-        <h2 id="cl-form-title" class="visually-hidden">Generate Cover Letter</h2>
+    <li class="nav-group-label">Intelligence</li>
+    <li><a href="/talk.html"><span class="nav-ico">◎</span> Talk to HIREX</a></li>
+    <li><a href="/mastermind.html"><span class="nav-ico">◉</span> MasterMind</a></li>
+    <li><a href="/superhuman.html"><span class="nav-ico">◈</span> SuperHuman</a></li>
 
-        <div id="historyWrap">
-          <div>
-            <label for="historySelect">Select Previous JD + Resume</label>
-            <select id="historySelect" aria-label="Previous JD and Resume pairs"></select>
-          </div>
-          <div>
-            <label for="clHistorySelect">Cover Letter History</label>
-            <select id="clHistorySelect" aria-label="Previously generated cover letters"></select>
-          </div>
+    <li class="nav-group-label">Analytics</li>
+    <li><a href="/dashboard.html"><span class="nav-ico">▦</span> Dashboard</a></li>
+    <li><a href="/genie.html"><span class="nav-ico">◐</span> Genie</a></li>
+  </ul>
+
+  <div class="sidebar-foot">
+    <button class="btn-exec" type="button" id="sidebar-gen-btn">
+      <span>Generate cover letter</span>
+    </button>
+    <button id="shutdown-btn" class="btn-kill" type="button">⏻ Kill server</button>
+  </div>
+</aside>
+
+<div class="topbar" role="status">
+  <div class="topbar-left">
+    <span class="sys-online">Online</span>
+    <span class="topbar-tag">Module <b>Cover letter</b></span>
+    <span class="topbar-tag">Engine <b>v1.0.0</b></span>
+  </div>
+  <div class="topbar-right">
+    <span class="topbar-tag">Session <b id="session-id">—</b></span>
+    <span id="sys-clock">—</span>
+  </div>
+</div>
+
+<main id="content" class="console" role="main">
+
+  <div class="page-head" style="width:100%;max-width:960px;">
+    <div class="page-head-text">
+      <div class="page-pre">Cover letter module</div>
+      <h1 class="page-title">
+        Cover letter
+        <span>Generate a targeted letter from your saved JD and resume</span>
+      </h1>
+      <p class="page-desc">
+        Select a stored JD + resume pair, choose tone and length,
+        then generate a cover letter compiled to PDF.
+      </p>
+    </div>
+    <div class="status-pill" id="status-pill" aria-live="polite">
+      <div class="status-pill-dot"></div>
+      <span id="meta_badge">Idle</span>
+    </div>
+  </div>
+
+  <div class="op-grid">
+
+    <div class="op-panel bracketed">
+      <div class="bc-bl"></div><div class="bc-br"></div>
+      <div class="panel-hd">
+        <span class="panel-id">Source</span>
+        <div class="panel-meta"><em>Context store</em></div>
+      </div>
+      <div class="panel-body">
+        <div class="field">
+          <label class="f-label" for="historySelect">JD + resume pair</label>
+          <select id="historySelect" aria-label="Previous JD and Resume pairs">
+            <option disabled selected>Loading jobs...</option>
+          </select>
         </div>
+      </div>
+    </div>
 
-        <div class="row" style="margin-top:1rem;">
-          <div>
-            <label for="toneSelect">Tone</label>
+    <div class="op-panel bracketed">
+      <div class="bc-bl"></div><div class="bc-br"></div>
+      <div class="panel-hd">
+        <span class="panel-id">History</span>
+        <div class="panel-meta"><em>Saved letters</em></div>
+      </div>
+      <div class="panel-body">
+        <div class="field">
+          <label class="f-label" for="clHistorySelect">Cover letter history</label>
+          <select id="clHistorySelect" aria-label="Previously generated cover letters">
+            <option disabled selected>No saved cover letters</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="width:100%;max-width:960px;margin-bottom:1rem;animation:rise .6s .08s ease both;">
+    <div class="op-panel bracketed">
+      <div class="bc-bl"></div><div class="bc-br"></div>
+      <div class="panel-hd">
+        <span class="panel-id">Parameters</span>
+        <div class="panel-meta"><em>Tone and length</em></div>
+      </div>
+      <div class="panel-body">
+        <div class="params-row">
+          <div class="field">
+            <label class="f-label" for="toneSelect">Tone</label>
             <select id="toneSelect" aria-label="Cover letter tone">
               <option value="balanced" selected>Balanced (recommended)</option>
               <option value="warm">Warm</option>
@@ -179,8 +765,8 @@
               <option value="concise">Concise</option>
             </select>
           </div>
-          <div>
-            <label for="lengthSelect">Length</label>
+          <div class="field">
+            <label class="f-label" for="lengthSelect">Length</label>
             <select id="lengthSelect" aria-label="Cover letter length">
               <option value="short">Short (~120–180 words)</option>
               <option value="standard" selected>Standard (~180–280 words)</option>
@@ -188,467 +774,221 @@
             </select>
           </div>
         </div>
-
-        <div style="margin-top:1.2rem;text-align:center;">
-          <button class="btn accent" id="generate_btn" type="button">Generate Cover Letter</button>
-          <button class="btn" id="dl_btn" type="button">Download PDF</button>
-          <span id="meta_badge" aria-live="polite">Idle</span>
-        </div>
-      </section>
-
-      <section class="preview-section anim fade" aria-label="Cover letter outputs">
-        <div class="tabs" role="tablist" aria-label="Cover letter preview tabs">
-          <button class="tab active" data-tab="pdf" role="tab" aria-selected="true" aria-controls="pane_pdf">📄 PDF</button>
-          <button class="tab" data-tab="tex" role="tab" aria-selected="false" aria-controls="pane_tex">🧾 LaTeX</button>
-          <button class="tab" data-tab="body" role="tab" aria-selected="false" aria-controls="pane_body">🧠 Body</button>
-        </div>
-
-        <div id="pane_pdf" class="pane active" role="tabpanel">
-          <div class="cl-toolbar" style="display:flex;gap:.5rem;justify-content:flex-end;margin:.5rem;">
-            <button class="btn accent" id="cl_dl_pdf">⬇️ Download PDF</button>
-            <button class="btn" id="cl_dl_tex">⬇️ Download .tex</button>
-            <button class="btn" id="cl_copy_tex">📋 Copy LaTeX</button>
-            <button class="btn" id="cl_cancel_btn" style="display:none;">❌ Cancel</button>
-          </div>
-          <iframe id="pdf_frame" class="pdf-frame" title="Cover Letter PDF" src="about:blank"></iframe>
-        </div>
-        <div id="pane_tex" class="pane" role="tabpanel" hidden>
-          <pre id="cl-tex-output">(waiting…)</pre>
-        </div>
-        <div id="pane_body" class="pane" role="tabpanel" hidden>
-          <pre id="body_output">(waiting…)</pre>
-        </div>
-      </section>
+      </div>
     </div>
-  </main>
+  </div>
 
-  <footer>
-    &copy; 2025 <strong>ASTRA</strong> — Developed by <strong>Sri Akash Kadali</strong> |
-    Powered by <strong>FastAPI</strong> + <strong>OpenAI</strong> + <strong>LaTeX</strong>
-  </footer>
+  <div class="action-panel">
+    <button class="btn-primary" id="generate_btn" type="button">
+      <span>Generate</span>
+    </button>
+    <button class="btn-secondary" id="dl_btn" type="button" style="display:none;">
+      Download PDF
+    </button>
+    <button class="btn-danger" id="cl_cancel_btn" style="display:none;">
+      Cancel
+    </button>
+    <div style="margin-left:auto;font-family:var(--mono);font-size:11px;color:rgba(234,240,255,.45);letter-spacing:.08em;">
+      STATUS <span id="action-status" style="color:rgba(251,191,36,.92);">IDLE</span>
+    </div>
+  </div>
 
-  <div id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/js/util.js?v=2.1.2" defer></script>
-  <script src="/static/js/ui.js?v=2.1.2" defer></script>
+  <div class="output-panel" style="margin-bottom:2rem;">
+    <div class="tab-bar" role="tablist" aria-label="Cover letter output tabs">
+      <div class="term-dots" aria-hidden="true">
+        <div class="term-dot red"></div>
+        <div class="term-dot amb"></div>
+        <div class="term-dot grn"></div>
+      </div>
+      <button class="tab active" data-tab="pdf"  role="tab" aria-selected="true"  aria-controls="pane_pdf">PDF</button>
+      <button class="tab"        data-tab="tex"  role="tab" aria-selected="false" aria-controls="pane_tex">LaTeX</button>
+      <button class="tab"        data-tab="body" role="tab" aria-selected="false" aria-controls="pane_body">Body</button>
+    </div>
 
-  <script>
-    // ------- Mini utils -------
-    const $ = (s, r=document) => r.querySelector(s);
-    const $$ = (s, r=document) => [...r.querySelectorAll(s)];
-    const esc = (v) => String(v ?? "—").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-    const toast = (msg, ms=2500) => { const t=$("#toast"); t.textContent=msg; t.style.display="block"; clearTimeout(window.__t0); window.__t0=setTimeout(()=>t.style.display="none", ms); };
-    const setBadge = (s)=>{ const b=$("#meta_badge"); if(b) b.textContent=s; };
-    const getTS = () => new Date().toISOString().replace(/[:.]/g,"-");
-    const sanitize = s => String(s||"file").replace(/[\\/:*?"<>|]+/g,"_").trim() || "file";
+    <div class="output-toolbar">
+      <button class="btn-amber" id="cl_dl_pdf">Download PDF</button>
+      <button class="btn-secondary" id="cl_dl_tex">Download .tex</button>
+      <button class="btn-secondary" id="cl_copy_tex">Copy LaTeX</button>
+    </div>
 
-    // Robust base64 handling (URL-safe + padding)
-    const normalizeB64 = (b64="") => {
-      let x = String(b64||"").trim();
-      const i = x.indexOf("base64,"); if (i>=0) x = x.slice(i+7);
-      x = x.replace(/[\r\n\s]/g,"").replace(/-/g,"+").replace(/_/g,"/");
-      const pad = x.length % 4; return pad ? x + "=".repeat(4-pad) : x;
-    };
-    const safeAtob = (b64) => { try { return atob(normalizeB64(b64)); } catch { return ""; } };
-    const b64toBlob = (b64, mime="application/pdf") => {
-      const bytes = safeAtob(b64); if (!bytes) return null;
-      const len = bytes.length; const arr = new Uint8Array(len);
-      for (let i=0;i<len;i++) arr[i] = bytes.charCodeAt(i) & 0xff;
-      return new Blob([arr], {type:mime});
-    };
+    <section id="pane_pdf" class="pane active" role="tabpanel">
+      <iframe id="pdf_frame" class="pdf-frame" title="Cover Letter PDF" src="about:blank"></iframe>
+    </section>
+    <section id="pane_tex" class="pane" role="tabpanel" hidden>
+      <pre id="cl-tex-output">// Waiting for generation…</pre>
+    </section>
+    <section id="pane_body" class="pane" role="tabpanel" hidden>
+      <pre id="body_output">// Waiting for generation…</pre>
+    </section>
+  </div>
 
-    const keyFrom = (obj) => {
-      if (obj?.key) return String(obj.key).toLowerCase();
-      const c = (obj?.company || "").toLowerCase().trim().replace(/\s+/g,"_");
-      const r = (obj?.role || "").toLowerCase().trim().replace(/\s+/g,"_");
-      return `${c}__${r}`;
-    };
+</main>
 
-    // De-duplicate by company__role -> keep newest
-    function dedupeByKey(items) {
-      const seen = new Set();
-      const out = [];
-      for (const it of items) {
-        const k = keyFrom(it);
-        if (seen.has(k)) continue;
-        seen.add(k);
-        out.push({ ...it, __key: k });
-      }
-      return out;
+<footer>
+  <span>© 2025 <b>HIREX</b> — <b>Sri Akash Kadali</b></span>
+  <span>FastAPI · OpenAI · LaTeX</span>
+  <span class="ver-tag">v1.0.0</span>
+</footer>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<button id="shutdown-fab" class="shutdown-fab" type="button" aria-label="Shutdown server">⏻</button>
+
+<!-- Core utilities -->
+<script src="/static/js/util.js?v=1.0.0" defer></script>
+<script src="/static/js/ui.js?v=1.0.0" defer></script>
+<!-- Cover letter functionality - handles fetching from backend -->
+<script src="/static/js/coverletter.js?v=1.0.0" defer></script>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  /* ── Mini utils ── */
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+  /* ── Clock ── */
+  const clockEl = $("#sys-clock");
+  const sessionEl = $("#session-id");
+  if (sessionEl) sessionEl.textContent = Math.random().toString(36).slice(2, 8).toUpperCase();
+  
+  const tick = () => {
+    if (clockEl) {
+      const n = new Date();
+      clockEl.textContent = n.toLocaleTimeString("en-GB", { hour12: false }) + " UTC";
     }
+  };
+  tick();
+  setInterval(tick, 1000);
 
-    // ------- Backend calls (aligned to /api/context v2.x) -------
-    async function listContexts(limit=100) {
-      const url = `/api/context/list?limit=${limit}`;
-      const r = await fetch(url, { credentials: "same-origin" });
-      if (!r.ok) throw new Error("Failed to list contexts");
-      const data = await r.json();
-      return Array.isArray(data.items) ? data.items : [];
+  /* ── Mobile nav toggle ── */
+  const navToggle = $("#nav-toggle");
+  navToggle?.addEventListener("click", () => {
+    const on = !document.body.classList.contains("nav-open");
+    document.body.classList.toggle("nav-open", on);
+    navToggle.setAttribute("aria-expanded", String(on));
+  });
+  document.addEventListener("click", (e) => {
+    const sb = $("#sidebar");
+    if (document.body.classList.contains("nav-open") &&
+        !sb?.contains(e.target) && !navToggle?.contains(e.target)) {
+      document.body.classList.remove("nav-open");
+      navToggle?.setAttribute("aria-expanded", "false");
     }
+  });
 
-    async function getContextByKey(key) {
-      const r = await fetch(`/api/context/get?key=${encodeURIComponent(key)}`, { credentials: "same-origin" });
-      if (!r.ok) throw new Error("Context not found");
-      return await r.json();
-    }
-
-    async function getLatestContext() {
-      const r = await fetch(`/api/context/get?latest=1`, { credentials: "same-origin" });
-      if (!r.ok) return null;
-      try { return await r.json(); } catch { return null; }
-    }
-
-    async function saveCoverLetterToContext({ company, role, pdf_b64, tex_string, tone, length }) {
-      const fd = new FormData();
-      fd.append("company", company || "");
-      fd.append("role", role || "");
-      // Dual format for compatibility:
-      fd.append("cover_letter_pdf_b64", pdf_b64 || "");
-      fd.append("cover_letter_tex", tex_string || "");
-      fd.append("cover_letter", JSON.stringify({
-        tex: tex_string || "",
-        pdf_b64: pdf_b64 || "",
-        params: { tone, length }
-      }));
-      const res = await fetch("/api/context/save", { method: "POST", body: fd, credentials: "same-origin" });
-      if (!res.ok) {
-        let msg = "Failed to save cover letter";
-        try { const j = await res.json(); msg = j.detail || msg; } catch {}
-        throw new Error(msg);
-      }
-    }
-
-    // ------- UI helpers -------
-    function populatePairsSelect(select, pairs) {
-      if (!pairs.length) {
-        select.innerHTML = '<option disabled selected>No saved resumes</option>';
-        return;
-      }
-      select.innerHTML = pairs.map(p =>
-        `<option value="${esc(p.__key)}">${esc(p.company)} — ${esc(p.role)}</option>`
-      ).join("");
-    }
-
-    function populateCLHistorySelect(select, covers) {
-      if (!covers.length) {
-        select.innerHTML = '<option disabled selected>No cover letters yet</option>';
-        return;
-      }
-      select.innerHTML = covers.map(p =>
-        `<option value="${esc(p.__key)}">${esc(p.company)} — ${esc(p.role)}</option>`
-      ).join("");
-    }
-
-    let lastPdfUrl = "";
-    function setPdfUrl(url) {
-      const frame = $("#pdf_frame");
-      if (!frame) return;
-      if (lastPdfUrl) { try { URL.revokeObjectURL(lastPdfUrl); } catch{} }
-      lastPdfUrl = url;
-      frame.src = `${url}#view=FitH`;
-    }
-
-    function ensureToolbarHandlers({ url, tex, company, role }) {
-      const btnPdf  = $("#cl_dl_pdf");
-      const btnTex  = $("#cl_dl_tex");
-      const btnCopy = $("#cl_copy_tex");
-
-      const pdfName = sanitize(`HIREX_CoverLetter_${sanitize(company)}_${sanitize(role)}_${getTS()}.pdf`);
-      const texName = sanitize(`HIREX_CoverLetter_${sanitize(company)}_${sanitize(role)}_${getTS()}.tex`);
-
-      if (btnPdf) {
-        btnPdf.onclick = async () => {
-          try {
-            const blob = await fetch(url).then(r=>r.blob());
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
-            a.download = pdfName;
-            document.body.appendChild(a); a.click(); a.remove();
-            setTimeout(()=>URL.revokeObjectURL(a.href), 600);
-          } catch { toast("❌ Failed to download PDF."); }
-        };
-      }
-      if (btnTex) {
-        btnTex.onclick = () => {
-          if (!(tex||"").trim()) return toast("⚠️ No LaTeX to download!");
-          const blob = new Blob([tex], {type:"text/plain"});
-          const a = document.createElement("a");
-          a.href = URL.createObjectURL(blob);
-          a.download = texName;
-          document.body.appendChild(a); a.click(); a.remove();
-          setTimeout(()=>URL.revokeObjectURL(a.href), 600);
-        };
-      }
-      if (btnCopy) {
-        btnCopy.onclick = async () => {
-          if (!(tex||"").trim()) return toast("⚠️ No LaTeX to copy!");
-          try { await navigator.clipboard.writeText(tex); toast("✅ LaTeX copied!"); }
-          catch { toast("⚠️ Clipboard permission denied."); }
-        };
-      }
-
-      // Legacy "Download PDF" button
-      const dl = $("#dl_btn");
-      if (dl) {
-        dl.style.display = "inline-block";
-        dl.onclick = async () => {
-          try {
-            const blob = await fetch(url).then(r=>r.blob());
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
-            a.download = pdfName;
-            document.body.appendChild(a); a.click(); a.remove();
-            setTimeout(()=>URL.revokeObjectURL(a.href), 600);
-          } catch { toast("❌ Failed to download PDF."); }
-        };
-      }
-    }
-
-    // Robust BODY extraction (anchors or document env)
-    function extractBodyFromTex(tex="") {
-      if (!tex) return "";
-      const m = tex.match(/^\s*%[-\s]*BODY-START[-\s]*\s*$([\s\S]*?)^\s*%[-\s]*BODY-END[-\s]*\s*$/im);
-      if (m) return m[1].trim();
-      const d = tex.match(/\\begin\{document\}([\s\S]*?)\\end\{document\}/i);
-      if (d) return d[1].trim();
-      // Fallback heuristic
-      const m2 = tex.match(/Dear[^\n]*?,([\s\S]*?)Sincerely[, ]/i);
-      return (m2 ? m2[1] : "").trim();
-    }
-
-    function renderOutputs(key, company, role, pdf_b64, tex_string) {
-      // PDF
-      const blob = b64toBlob(pdf_b64, "application/pdf");
-      if (!blob) { toast("⚠️ Invalid PDF data"); return; }
-      const url = URL.createObjectURL(blob);
-      setPdfUrl(url);
-
-      // TeX + Body
-      $("#cl-tex-output").textContent = (tex_string || "").trim() || "(no tex returned)";
-      $("#body_output").textContent = extractBodyFromTex(tex_string || "") || "(body not detected)";
-
-      // Wire toolbar
-      ensureToolbarHandlers({ url, tex: tex_string || "", company, role });
-
-      // Persist lightweight client history (overwrite latest per key)
-      const histKey = "hirex_coverletters";
-      const ls = JSON.parse(localStorage.getItem(histKey) || "[]");
-      const filtered = ls.filter(x => (x.__key || keyFrom(x)) !== key);
-      filtered.unshift({
-        __key: key, company, role,
-        pdf_base64: pdf_b64, tex_string,
-        saved_at: new Date().toISOString()
+  /* ── Tab switching ── */
+  const tabs = $$(".tab");
+  const panes = $$(".pane");
+  
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const target = tab.dataset.tab;
+      
+      // Update tabs
+      tabs.forEach((t) => {
+        t.classList.remove("active");
+        t.setAttribute("aria-selected", "false");
       });
-      localStorage.setItem(histKey, JSON.stringify(filtered.slice(0, 20)));
-    }
-
-    // Cancel/timeout plumbing
-    let inflightCtrl = null;
-    let inflightTimer = null;
-    function attachCancel(enable) {
-      const btn = $("#cl_cancel_btn");
-      if (!btn) return;
-      btn.style.display = enable ? "inline-block" : "none";
-      btn.onclick = () => {
-        if (inflightCtrl) {
-          inflightCtrl.abort();
-          toast("🛑 Generation canceled.");
-          setBadge("Canceled");
-          attachCancel(false);
-          if (inflightTimer) { clearTimeout(inflightTimer); inflightTimer = null; }
-        }
-      };
-    }
-
-    async function generateCoverLetterFromKey(key, tone, length) {
-      setBadge("Preparing…");
-      const ctx = await getContextByKey(key);
-
-      const company = ctx.company || ctx.company_name || "";
-      const role = ctx.role || "";
-      const jd = (ctx.jd_text || "").trim();
-      const resume = (ctx.humanized?.tex || ctx.humanized_tex || ctx.resume_tex || "").trim();
-
-      if (!jd || !resume) throw new Error("Selected context is missing JD or Resume text.");
-
-      const useHumanize =
-        (window.HIREX?.getHumanizeState && window.HIREX.getHumanizeState()) ||
-        (localStorage.getItem("hirex_use_humanize") === "true") ||
-        (localStorage.getItem("hirex-use-humanize") !== "off"); // default ON
-
-      const fd = new FormData();
-      fd.append("jd_text", jd);
-      fd.append("resume_tex", resume);
-      fd.append("use_humanize", useHumanize ? "true" : "false");
-      fd.append("tone", tone);
-      fd.append("length", length);
-
-      setBadge("Generating…");
-      inflightCtrl = new AbortController();
-      inflightTimer = setTimeout(() => inflightCtrl.abort(), 180000); // 3m
-      attachCancel(true);
-
-      try {
-        const r = await fetch("/api/coverletter", { method:"POST", body: fd, credentials: "same-origin", signal: inflightCtrl.signal });
-        if (!r.ok) {
-          const err = await r.text().catch(()=>r.statusText);
-          throw new Error(err || "Cover letter generation failed.");
-        }
-        const data = await r.json().catch(()=> ({}));
-
-        const pdf_b64 = data.pdf_base64 || data.cover_letter_pdf_b64 || "";
-        const tex_str = data.tex_string || data.cover_letter_tex || "";
-
-        if (!pdf_b64 && !tex_str) throw new Error("Empty cover letter response from backend.");
-
-        // Render immediately
-        setBadge("Rendering…");
-        renderOutputs(key, company, role, pdf_b64, tex_str);
-
-        // Persist to backend memory
-        try {
-          await saveCoverLetterToContext({
-            company, role, pdf_b64, tex_string: tex_str, tone, length
-          });
-        } catch (e) {
-          console.warn("[HIREX] saveCoverLetterToContext:", e);
-        }
-
-        toast(`✅ Cover letter ready for ${company || "Company"}`);
-        setBadge("Done");
-      } catch (e) {
-        if (e.name === "AbortError") {
-          toast("⚠️ Generation canceled or timed out (3 min).");
-          setBadge("Canceled / Timed out");
-        } else {
-          toast("❌ " + (e.message || "Unexpected error"));
-          setBadge("Error");
-        }
-      } finally {
-        if (inflightTimer) { clearTimeout(inflightTimer); inflightTimer = null; }
-        inflightCtrl = null;
-        attachCancel(false);
-      }
-    }
-
-    // Tabs wiring (ARIA)
-    document.addEventListener("click",(e)=>{
-      const tab = e.target.closest(".tab"); if(!tab) return;
-      $$(".tab").forEach(t=>{t.classList.remove("active");t.setAttribute("aria-selected","false");});
-      tab.classList.add("active"); tab.setAttribute("aria-selected","true");
-      ["pdf","tex","body"].forEach(x=>{
-        const p=$("#pane_"+x); const on=(x===tab.dataset.tab);
-        p.hidden=!on; p.classList.toggle("active", on);
+      tab.classList.add("active");
+      tab.setAttribute("aria-selected", "true");
+      
+      // Update panes
+      panes.forEach((p) => {
+        p.classList.remove("active");
+        p.hidden = true;
       });
-    });
-
-    // ------- Bootstrap -------
-    document.addEventListener("DOMContentLoaded", async () => {
-      const selectPairs = $("#historySelect");
-      const selectCL = $("#clHistorySelect");
-      const genBtn = $("#generate_btn");
-
-      try {
-        setBadge("Loading history…");
-        // 1) List contexts (newest-first)
-        const items = await listContexts(200);
-
-        // 2) Dedupe by key (company__role)
-        const uniq = dedupeByKey(items);
-
-        // 3) Split: contexts with resumes vs contexts with saved cover letters
-        const withCover = uniq.filter(c =>
-          !!(c.cover_letter_pdf_b64 || c.cover_letter_tex || c.cover_letter || c.tex_string && c.pdf_base64)
-        );
-
-        populatePairsSelect(selectPairs, uniq);
-        populateCLHistorySelect(selectCL, withCover);
-
-        // Load a saved CL instantly when chosen
-        selectCL.addEventListener("change", async () => {
-          const key = selectCL.value;
-          if (!key) return;
-          setBadge("Loading cover letter…");
-          try {
-            const c = await getContextByKey(key);
-            const pdf = c.cover_letter_pdf_b64 || c.pdf_base64 || "";
-            const tex = c.cover_letter_tex || c.tex_string || "";
-            if (pdf || tex) {
-              const company = c.company || c.company_name || "";
-              const role = c.role || "";
-              renderOutputs(key, company, role, pdf, tex);
-              setBadge("Loaded");
-              toast("Loaded saved cover letter.");
-              document.querySelector('.tab[data-tab="pdf"]')?.click();
-            } else {
-              toast("Selected entry has no saved cover letter.");
-              setBadge("Idle");
-            }
-          } catch (e) {
-            toast(String(e));
-            setBadge("Idle");
-          }
-        });
-
-        // Generate from selected JD+Resume pair
-        genBtn.addEventListener("click", async () => {
-          const key = selectPairs.value;
-          if (!key) { toast("Please select a JD + Resume pair."); return; }
-          genBtn.disabled = true;
-          try {
-            const tone = $("#toneSelect").value;
-            const length = $("#lengthSelect").value;
-            await generateCoverLetterFromKey(key, tone, length);
-            document.querySelector('.tab[data-tab="pdf"]')?.click();
-          } finally {
-            genBtn.disabled = false;
-          }
-        });
-
-        // Auto-load most recent server memory if nothing rendered yet
-        try {
-          const latest = await getLatestContext();
-          if (latest) {
-            const pdf = latest.cover_letter_pdf_b64 || latest.cover_letter?.pdf_b64 || latest.pdf_base64 || "";
-            const tex = latest.cover_letter_tex || latest.cover_letter?.tex || latest.tex_string || "";
-            if (pdf || tex) {
-              const key = keyFrom(latest);
-              const company = latest.company || latest.company_name || "Company";
-              const role = latest.role || "Role";
-              renderOutputs(key, company, role, pdf, tex);
-              document.querySelector('.tab[data-tab="pdf"]')?.click();
-              setBadge("Loaded latest");
-              toast("☁️ Loaded latest cover letter from server memory.");
-            }
-          }
-        } catch (e) {
-          console.warn("[HIREX] latest fetch failed:", e);
-        }
-
-        setBadge("Idle");
-      } catch (e) {
-        toast("History load failed — check backend.");
-        setBadge("Idle");
-        // Fallback to local-only cover letters (if any)
-        const ls = JSON.parse(localStorage.getItem("hirex_coverletters") || "[]");
-        if (ls.length) {
-          selectCL.innerHTML = ls.map(x => `<option value="${esc(x.__key)}">${esc(x.company)} — ${esc(x.role)}</option>`).join("");
-          selectCL.addEventListener("change", () => {
-            const it = ls.find(a => a.__key===selectCL.value);
-            if (it) renderOutputs(it.__key, it.company, it.role, it.pdf_base64, it.tex_string);
-          });
-        } else {
-          selectCL.innerHTML = '<option disabled selected>No cover letters yet</option>';
-        }
-        selectPairs.innerHTML = '<option disabled selected>History unavailable</option>';
+      const targetPane = $(`#pane_${target}`);
+      if (targetPane) {
+        targetPane.classList.add("active");
+        targetPane.hidden = false;
       }
-
-      window.HIREX?.debugLog?.("COVER LETTER PAGE LOADED",{version:"v2.1.2"});
     });
+  });
 
-    // Revoke last PDF URL on unload
-    window.addEventListener("beforeunload", () => {
-      if (lastPdfUrl) { try { URL.revokeObjectURL(lastPdfUrl); } catch{} }
-    });
-  </script>
+  /* ── Sidebar generate button → main generate button ── */
+  const sidebarGenBtn = $("#sidebar-gen-btn");
+  const mainGenBtn = $("#generate_btn");
+  sidebarGenBtn?.addEventListener("click", () => {
+    mainGenBtn?.click();
+  });
+
+  /* ── Shutdown handlers ── */
+  const shutdownBtn = $("#shutdown-btn");
+  const shutdownFab = $("#shutdown-fab");
+  
+  const shutdownServer = async () => {
+    if (!confirm("Are you sure you want to shutdown the server?")) return;
+    
+    try {
+      const apiBase = window.HIREX?.getApiBase?.() || 
+        (["127.0.0.1", "localhost"].includes(location.hostname) ? "http://127.0.0.1:8000" : location.origin);
+      
+      const res = await fetch(`${apiBase}/shutdown`, { method: "POST" });
+      if (res.ok) {
+        alert("Server is shutting down...");
+      } else {
+        alert("Failed to shutdown server");
+      }
+    } catch (e) {
+      console.error("[HIREX] Shutdown error:", e);
+      alert("Could not connect to server");
+    }
+  };
+  
+  shutdownBtn?.addEventListener("click", shutdownServer);
+  shutdownFab?.addEventListener("click", shutdownServer);
+
+  /* ── Status pill updates ── */
+  const statusPill = $("#status-pill");
+  const metaBadge = $("#meta_badge");
+  const actionStatus = $("#action-status");
+  
+  window.HIREX = window.HIREX || {};
+  window.HIREX.setStatus = (status, type = "idle") => {
+    if (metaBadge) metaBadge.textContent = status;
+    if (actionStatus) actionStatus.textContent = status.toUpperCase();
+    
+    if (statusPill) {
+      statusPill.classList.remove("ready", "error");
+      if (type === "ready" || type === "success") {
+        statusPill.classList.add("ready");
+      } else if (type === "error") {
+        statusPill.classList.add("error");
+      }
+    }
+  };
+
+  /* ── Toast function ── */
+  const toastEl = $("#toast");
+  window.HIREX.toast = (msg, duration = 3000) => {
+    if (!toastEl) {
+      console.log(`[HIREX Toast] ${msg}`);
+      return;
+    }
+    toastEl.textContent = msg;
+    toastEl.style.display = "block";
+    setTimeout(() => {
+      toastEl.style.display = "none";
+    }, duration);
+  };
+
+  /* ── Debug log ── */
+  window.HIREX.debugLog = (msg, data) => {
+    console.log(`[HIREX] ${msg}`, data || "");
+  };
+
+  /* ── API base ── */
+  window.HIREX.getApiBase = () => {
+    if (["127.0.0.1", "localhost"].includes(location.hostname)) {
+      return "http://127.0.0.1:8000";
+    }
+    return location.origin;
+  };
+
+  console.log(
+    "%c✉️ HIREX Cover Letter page loaded — v1.0.0",
+    "background:#5bd0ff;color:#00131c;padding:4px 8px;border-radius:4px;font-weight:bold;"
+  );
+});
+</script>
 </body>
 </html>

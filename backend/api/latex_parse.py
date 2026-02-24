@@ -19,8 +19,8 @@ from typing import Dict, List, Any
 # ============================================================
 def extract_section(tex: str, section_name: str) -> str:
     """
-    Extracts raw LaTeX section content between \section{<section_name>}
-    (or \section*{<section_name>}) and the next section, or a plaintext
+    Extracts raw LaTeX section content between \\section{<section_name>}
+    (or \\section*{<section_name>}) and the next section, or a plaintext
     header line that looks like Title Case.
 
     No stripping or cleanup is applied.
@@ -93,8 +93,8 @@ def _parse_experience(section: str) -> List[Dict[str, Any]]:
     Preserves LaTeX formatting and avoids stripping or normalization.
 
     Supports common patterns:
-      1) \textbf{Role} \hfill \textit{Company} \hfill Date
-      2) \textbf{Company} \hfill \textit{Role} \hfill Date
+      1) \\textbf{Role} \\hfill \\textit{Company} \\hfill Date
+      2) \\textbf{Company} \\hfill \\textit{Role} \\hfill Date
       followed by an itemize block.
     """
     entries: List[Dict[str, Any]] = []

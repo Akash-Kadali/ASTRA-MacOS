@@ -1,5 +1,5 @@
 """
-HIREX • core/security.py (v2.0.0)
+HIREX • core/security.py (v1.0.0)
 Security and validation utilities for uploaded files and user input.
 
 ⚠️ This build preserves full LaTeX content (no sanitization or macro stripping).

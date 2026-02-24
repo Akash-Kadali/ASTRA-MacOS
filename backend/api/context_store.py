@@ -1,5 +1,5 @@
 # ============================================================
-#  HIREX v2.1.0 — context_store.py (FINAL, stable-key + dedupe)
+#  HIREX v1.0.0 — context_store.py (FINAL, stable-key + dedupe)
 #  Store & retrieve JD + (optimized/humanized) resume + cover-letter.
 #  File-per-(Company,Role) using key:  {safe_company}__{safe_role}.json
 #  "title_for_memory" keeps a timestamped title for UI memory only.

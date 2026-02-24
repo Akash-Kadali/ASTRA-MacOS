@@ -1,5 +1,5 @@
 /* ============================================================
-   ASTRA • mastermind.js (v2.1.0 — MasterMind Chat Core)
+   ASTRA • mastermind.js (v1.0.0 — MasterMind Chat Core)
    ------------------------------------------------------------
    Features:
    • Chat assistant powered by /api/mastermind (backend sessions)
@@ -14,7 +14,7 @@
 
 document.addEventListener("DOMContentLoaded", () => {
   const APP = "ASTRA";
-  const APP_VERSION = "v2.1.0";
+  const APP_VERSION = "v1.0.0";
   const TIMEOUT_MS = 180000; // 3 minutes
 
   /* ------------------------------------------------------------

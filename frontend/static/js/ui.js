@@ -1,5 +1,5 @@
 /* ============================================================
-   HIREX • ui.js (v2.1.2 — Unified Global UI Layer)
+   HIREX • ui.js (v1.0.0 — Unified Global UI Layer)
    ------------------------------------------------------------
    Global UI behavior for all pages:
    • Smooth sidebar (desktop + mobile adaptive)
@@ -27,7 +27,7 @@
 })();
 
 document.addEventListener("DOMContentLoaded", () => {
-  const APP_VERSION   = "v2.1.2";
+  const APP_VERSION   = "v1.0.0";
   const THEME_KEY     = "hirex-theme";
   const HUMANIZE_KEY  = "hirex-use-humanize";   // "on" | "off"
   const HUMANIZE_BOOL = "hirex_use_humanize";   // "true" | "false" (legacy/alt)
@@ -533,7 +533,7 @@ document.addEventListener("DOMContentLoaded", () => {
      ✅ INIT LOG
      ============================================================ */
   console.log(
-    "%c⚙️ HIREX ui.js initialized — v2.1.2",
+    "%c⚙️ HIREX ui.js initialized — v1.0.0",
     "background:#5bd0ff;color:#fff;padding:4px 8px;border-radius:4px;font-weight:bold;"
   );
   HIREX.debugLog("UI LOADED", {

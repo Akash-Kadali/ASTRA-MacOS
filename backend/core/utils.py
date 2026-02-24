@@ -1,5 +1,5 @@
 """
-ASTRA • core/utils.py (v2.1.2)
+ASTRA • core/utils.py (v1.0.0)
 Common utility functions shared across backend modules.
 For this version: No LaTeX escaping or text cleaning — passes LaTeX as-is.
 Author: Sri Akash Kadali

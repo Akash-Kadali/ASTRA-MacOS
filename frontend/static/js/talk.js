@@ -1,5 +1,5 @@
 /* ============================================================
-   HIREX • talk.js (v2.1.4 — Talk to HIREX)
+   HIREX • talk.js (v1.0.0 — Talk to HIREX)
    ------------------------------------------------------------
    Connectivity fixes:
    • Auto-detect & cache working API base (127.0.0.1 ↔ localhost ↔ same-origin)
@@ -12,7 +12,7 @@
    ============================================================ */
 
 document.addEventListener("DOMContentLoaded", () => {
-  const APP_VERSION = "v2.1.4";
+  const APP_VERSION = "v1.0.0";
   const LS_KEY = "hirex_talk_history";
   const LS_API_BASE = "hirex_api_base";
   const MAX_HISTORY = 40;

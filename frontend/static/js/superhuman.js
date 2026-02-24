@@ -1,5 +1,5 @@
 /* ============================================================
-   HIREX • superhuman.js (v2.1.2 — Humanizer Engine)
+   HIREX • superhuman.js (v1.0.0 — Humanizer Engine)
    ------------------------------------------------------------
    Features:
    • Sends text (resume, paragraph, or cover letter body)
@@ -16,7 +16,7 @@
    ============================================================ */
 
 document.addEventListener("DOMContentLoaded", () => {
-  const APP_VERSION = "v2.1.2";
+  const APP_VERSION = "v1.0.0";
   const LS_KEY = "hirex_superhuman_cache";
   const TIMEOUT_MS = 120000;
   const HUMANIZE_KEY_NEW = "hirex_use_humanize";

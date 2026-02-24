@@ -1,25 +1,15 @@
 """
-Resume optimizer API (FastAPI) — ENHANCED VERSION v3.0
+Resume optimizer API (FastAPI)
 
-IMPROVEMENTS OVER v2:
-- ✨ GPT-based IDEAL CANDIDATE PROFILING (implicit JD requirements)
-- ✨ TOP-3 IMPLICIT REQUIREMENTS the job DEFINITELY wants
-- ✨ RANKED IMPORTANCE of all bullet points
-- ✨ 8 bullets from resume keywords + 4 bullets from ideal candidate insights
-- ✨ NO keyword used twice across any bullet
-- ✨ GPT-based capitalization (no hardcoded map)
-- ✨ GPT-based company context (no hardcoded company map)
-- ✨ GPT-based skill validation (removes PhD, MS, random words)
-- ✨ Selective quantification: 4 numbers across 12 bullets (positions 2,6,7,10)
-- ✨ UNIQUE NUMBER TRACKING — never repeats same number
-- ✨ Action verb diversity tracking (no repetition across all 12)
-- ✨ Result phrases without numbers
-- ✨ Technical depth indicators
-- ✨ Skill progression across experience blocks
-- ✨ Believability constraints for intern-level
-- ✨ Bullet structure templates
-- ✨ Cross-bullet coherence
-- ✨ Industry-specific vocabulary via GPT
+NEW IN v1.0.0:
+- ✨ TECHNOLOGY SPECIFICITY: Maps generic terms to specific implementations
+  (LLM → Llama 3.1/GPT-4, NLP → BERT/RoBERTa, etc.)
+- ✨ FRESHER-APPROPRIATE SCOPE: Believable intern/junior achievements
+- ✨ REALISTIC METRICS: Intern-level numbers and project scales
+- ✨ TOOL CHAIN DETAILS: Specific tool versions and configurations
+- ✨ CONTEXTUAL TECHNOLOGY SELECTION: Picks technologies that fit together
+- ✨ PROGRESSIVE COMPLEXITY: Earlier internships = simpler tech, later = advanced
+- ✨ IMPLEMENTATION DETAILS: Shows HOW you used the technology, not just WHAT
 """
 
 import base64
@@ -96,6 +86,180 @@ async def gpt_json(prompt: str, temperature: float = 0.0, model: str = "gpt-4o-m
     content = (resp.choices[0].message.content or "").strip()
     return _json_from_text(content or "{}", {})
 
+TECHNOLOGY_SPECIFICITY_MAP = {
+    # LLMs
+    "llm": ["Llama 3.1", "GPT-4", "Claude Sonnet", "Mistral", "Gemini Pro", "GPT-3.5"],
+    "large language model": ["Llama", "GPT-4", "Claude", "Mistral", "Gemini"],
+    "language model": ["BERT", "RoBERTa", "T5", "DistilBERT", "ELECTRA"],
+    "transformer": ["BERT", "GPT-2", "T5", "BART", "RoBERTa", "DeBERTa"],
+    
+    # NLP
+    "nlp": ["BERT", "RoBERTa", "spaCy", "NLTK", "Sentence-BERT"],
+    "natural language processing": ["BERT for token classification", "RoBERTa for sentiment analysis", "T5 for text generation"],
+    "text classification": ["BERT with CLS token pooling", "RoBERTa with attention pooling", "DistilBERT"],
+    "sentiment analysis": ["VADER", "RoBERTa fine-tuned", "TextBlob"],
+    "named entity recognition": ["spaCy NER", "BERT-NER with CRF", "Flair embeddings"],
+    
+    # Agentic AI
+    "agentic ai": ["LangChain with ReAct", "AutoGPT", "LlamaIndex", "CrewAI"],
+    "ai agent": ["LangChain agent", "function-calling with GPT-4", "ReAct prompting"],
+    "multi-agent": ["LangGraph", "CrewAI", "custom agent orchestration"],
+    "agent": ["LangChain Agent", "OpenAI function calling", "custom tool-using agent"],
+    
+    # ML Frameworks - NO VERSIONS
+    "pytorch": ["PyTorch with CUDA", "PyTorch Lightning", "torch.nn modules"],
+    "tensorflow": ["TensorFlow with Keras", "tf.data pipelines", "TensorBoard"],
+    "keras": ["Keras with mixed precision", "custom Keras layers", "Keras callbacks"],
+    "scikit-learn": ["scikit-learn Pipeline", "GridSearchCV", "custom transformers"],
+    
+    # Deep Learning
+    "deep learning": ["CNN with ResNet backbone", "LSTM with attention", "Transformer encoder-decoder"],
+    "neural network": ["MLP with dropout", "ResNet transfer learning", "custom PyTorch architecture"],
+    "cnn": ["ResNet pretrained", "EfficientNet", "custom CNN"],
+    "rnn": ["bidirectional LSTM", "GRU with attention", "RNN with gradient clipping"],
+    "lstm": ["bidirectional LSTM", "LSTM with peephole", "stacked LSTM"],
+    
+    # Cloud & Infrastructure - NO VERSIONS
+    "aws": ["AWS SageMaker", "Lambda", "S3", "EC2"],
+    "kubernetes": ["Kubernetes with Helm", "K8s CronJobs", "KServe"],
+    "docker": ["Docker multi-stage builds", "Docker Compose", "custom Dockerfile"],
+    "cloud": ["AWS SageMaker", "GCP Vertex AI", "Azure ML"],
+    
+    # Data Engineering
+    "data pipeline": ["Airflow DAGs", "Prefect workflows", "ETL with Pandas"],
+    "etl": ["Apache Airflow", "dbt", "Spark ETL"],
+    "data processing": ["Pandas with Dask", "PySpark", "NumPy vectorization"],
+    "feature engineering": ["scikit-learn FeatureUnion", "custom extractors", "automated selection"],
+    
+    # MLOps
+    "mlops": ["MLflow tracking", "DVC versioning", "Kubeflow Pipelines"],
+    "model deployment": ["FastAPI with Docker", "TorchServe", "SageMaker endpoints"],
+    "ci/cd": ["GitHub Actions", "Jenkins pipeline", "GitLab CI"],
+    "monitoring": ["Prometheus with Grafana", "model drift detection", "CloudWatch"],
+    
+    # Databases - NO VERSIONS
+    "database": ["PostgreSQL with pgvector", "MongoDB", "Redis"],
+    "sql": ["PostgreSQL", "MySQL", "SQLite"],
+    "nosql": ["MongoDB", "DynamoDB", "Cassandra"],
+    "vector database": ["Pinecone", "Weaviate", "ChromaDB"],
+    
+    # Tools
+    "git": ["Git with feature branching", "GitHub PR workflows", "Git hooks"],
+    "jupyter": ["Jupyter with nbconvert", "JupyterLab", "papermill"],
+    "wandb": ["Weights & Biases tracking", "W&B Sweeps"],
+    "tensorboard": ["TensorBoard profiling", "custom plugins", "embeddings visualization"],
+}
+
+# NO VERSIONS in ecosystems either
+TECHNOLOGY_ECOSYSTEMS = {
+    "pytorch_stack": ["PyTorch", "Hugging Face Transformers", "WandB", "Docker"],
+    "tensorflow_stack": ["TensorFlow", "Keras", "TensorBoard", "TFX"],
+    "nlp_stack": ["BERT", "spaCy", "Hugging Face", "NLTK"],
+    "llm_stack": ["LangChain", "Llama", "ChromaDB", "FastAPI"],
+    "mlops_stack": ["MLflow", "Docker", "Kubernetes", "Airflow"],
+    "aws_stack": ["SageMaker", "Lambda", "S3", "ECR"],
+    "data_stack": ["Pandas", "NumPy", "Matplotlib", "scikit-learn"],
+}
+
+_used_specific_technologies: Set[str] = set()
+
+
+def reset_technology_tracking():
+    global _used_specific_technologies
+    _used_specific_technologies.clear()
+
+
+async def get_specific_technology(
+    generic_term: str,
+    context: str = "",
+    already_used: Optional[Set[str]] = None,
+    block_index: int = 0,
+) -> str:
+    """
+    Convert generic technology term to specific implementation.
+    
+    Args:
+        generic_term: Generic term like "LLM", "NLP", "AWS"
+        context: Context about what the technology is being used for
+        already_used: Set of technologies already mentioned (for dedup)
+        block_index: Which experience block (0=latest, 3=earliest)
+        
+    Returns:
+        Specific technology string like "Llama 3.1 70B for text generation"
+    """
+    global _used_specific_technologies
+    
+    if already_used is None:
+        already_used = _used_specific_technologies
+    
+    generic_lower = generic_term.lower().strip()
+    
+    # Get candidates from the mapping
+    candidates = TECHNOLOGY_SPECIFICITY_MAP.get(generic_lower, [])
+    
+    if not candidates:
+        # If no mapping, return the original with proper capitalization
+        return await fix_capitalization_gpt(generic_term)
+    
+    # Filter out already used technologies
+    available = [c for c in candidates if c.lower() not in already_used]
+    
+    if not available:
+        # If all used, just pick randomly from all candidates
+        available = candidates
+    
+    # For fresher resume: earlier internships get simpler tech, later get advanced
+    # block_index 0 = most recent (use advanced), 3 = oldest (use simpler)
+    complexity_bias = 0.3 if block_index == 0 else (0.5 if block_index <= 1 else 0.7)
+    
+    # Sort by perceived complexity (versions with numbers = more specific = higher complexity)
+    def complexity_score(tech: str) -> float:
+        score = 0.5
+        if re.search(r'\d+\.\d+', tech):  # Has version number
+            score += 0.3
+        if len(tech.split()) > 2:  # Longer description
+            score += 0.2
+        return score
+    
+    available_sorted = sorted(available, key=complexity_score)
+    
+    # Select based on complexity bias
+    idx = int(len(available_sorted) * complexity_bias)
+    idx = max(0, min(idx, len(available_sorted) - 1))
+    chosen = available_sorted[idx]
+    
+    # Add usage context if provided
+    if context and random.random() < 0.6:
+        # Use GPT to add context naturally
+        prompt = f"""Add a brief usage context to this technology mention for a resume bullet.
+
+Technology: {chosen}
+Context: {context}
+
+Return STRICT JSON: {{"specific_mention": "technology with context"}}
+
+Examples:
+- Input: "BERT-base", Context: "sentiment classification"
+  Output: {{"specific_mention": "BERT-base for sentiment classification"}}
+- Input: "Llama 3.1 70B", Context: "text generation"
+  Output: {{"specific_mention": "Llama 3.1 70B for instruction-tuned generation"}}
+- Input: "Kubernetes", Context: "model serving"
+  Output: {{"specific_mention": "Kubernetes with KServe for model serving"}}
+
+Keep it concise (under 8 words).
+"""
+        try:
+            data = await gpt_json(prompt, temperature=0.2)
+            specific = data.get("specific_mention", chosen)
+            chosen = specific
+        except Exception:
+            pass
+    
+    already_used.add(chosen.lower())
+    log_event(f"🔧 [TECH SPECIFIC] {generic_term} → {chosen}")
+    
+    return chosen
+
 
 # ============================================================
 # 🎲 REALISTIC NUMBER GENERATION WITH UNIQUE TRACKING
@@ -115,149 +279,277 @@ def reset_number_tracking():
     _quantified_bullet_positions.clear()
 
 
-def generate_messy_decimal(min_val: float, max_val: float, decimal_places: int = 2) -> float:
-    for _ in range(50):
-        num = random.uniform(min_val, max_val)
-        rounded = round(num, decimal_places)
-        if decimal_places == 2:
-            last_digit = int((rounded * 100) % 10)
-        elif decimal_places == 1:
-            last_digit = int((rounded * 10) % 10)
-        else:
-            last_digit = int(rounded % 10)
-        if last_digit % 2 != 0:
-            return rounded
-    return round(min_val, decimal_places)
+# ============================================================
+# 📊 Quantification templates — FIXED (no "\%" SyntaxWarning)
+#   ✅ Use "%" here; latex_escape_text() will convert to "\%" later.
+# ============================================================
 
-
-def generate_messy_number(category: str, jd_context: str = "") -> str:
-    global _used_numbers_by_category
-    for attempt in range(100):
-        formatted = ""
-        if category == "percent":
-            if "accuracy" in jd_context.lower() or "precision" in jd_context.lower():
-                base = random.randint(11, 29)
-            else:
-                base = random.randint(7, 89)
-            if random.random() < 0.6:
-                decimal = generate_messy_decimal(base, base + 0.99, 2)
-                formatted = f"{decimal}%"
-            else:
-                if base % 2 == 0:
-                    base += 1
-                formatted = f"{base}%"
-        elif category == "count":
-            base = random.choice([random.randint(567, 9999), random.randint(10000, 99999)])
-            if base % 2 == 0:
-                base += 1
-            if base >= 10000:
-                formatted = f"{base // 1000}K+"
-            elif base >= 1000:
-                formatted = f"{base:,}"
-            else:
-                formatted = str(base)
-        elif category == "metric":
-            metric_name = random.choice(["F1 score", "precision", "recall", "accuracy"])
-            value = generate_messy_decimal(0.73, 0.97, 2)
-            formatted = f"{metric_name} of {value}"
-        elif category == "comparison":
-            if "accuracy" in jd_context.lower():
-                start = random.randint(51, 67)
-                improvement = random.randint(17, 33)
-            else:
-                start = random.randint(41, 79)
-                improvement = random.randint(11, 29)
-            if start % 2 == 0:
-                start += 1
-            if improvement % 2 == 0:
-                improvement += 1
-            end = min(99, start + improvement)
-            if end % 2 == 0:
-                end -= 1
-            formatted = f"from {start}% to {end}%"
-
-        if formatted and formatted not in _used_numbers_by_category[category]:
-            _used_numbers_by_category[category].add(formatted)
-            log_event(f"🎲 [NUMBER-{category.upper()}] Generated: {formatted}")
-            return formatted
-
-    fallback = f"{random.randint(13, 87)}%"
-    _used_numbers_by_category[category].add(fallback)
-    return fallback
-
-
-QUANTIFICATION_TEMPLATES = {
-    "percent_improvement": [
-        "improving {metric} by {value}",
-        "achieving {value} enhancement in {metric}",
-        "boosting {metric} performance by {value}",
-        "elevating {metric} through {value} improvement",
+QUANTIFICATION_SENTENCE_ENDINGS = {
+    "comparison_hero": [
+        "pushing validation accuracy from {start}% to {end}% after systematic tuning",
+        "moving the baseline F1 from {start}% to {end}% on the held-out evaluation set",
+        "closing the accuracy gap from {start}% to {end}% through targeted data cleaning and retraining",
+        "improving the model's precision from {start}% to {end}% by rebalancing the training distribution",
+        "lifting recall on the minority class from {start}% to {end}% via focal loss and oversampling",
     ],
     "count_scale": [
-        "processing {value} data samples daily",
-        "analyzing {value} records for pattern detection",
-        "handling {value} concurrent model predictions",
-        "evaluating {value} feature combinations systematically",
+        "applied to a corpus of {count} domain-specific examples",
+        "validated across a {count}-sample held-out test set spanning three label categories",
+        "trained on {count} annotated records curated from internal data collection",
+        "benchmarked on a balanced evaluation set of {count} instances",
+        "processed {count} raw inputs through the full preprocessing and inference pipeline",
     ],
     "metric_achievement": [
-        "attaining {value} on validation datasets",
-        "reaching {value} across diverse test scenarios",
-        "delivering {value} in production deployment",
-        "securing {value} during rigorous evaluation",
+        "achieving {metric_name} of {value} on the official evaluation split",
+        "reaching {metric_name} of {value} after five rounds of cross-validated tuning",
+        "delivering {metric_name} of {value}, exceeding the project baseline by a clear margin",
+        "attaining {metric_name} of {value} on the stratified test partition",
     ],
-    "comparison_hero": [
-        "improving model accuracy {value} through systematic hyperparameter optimization",
-        "enhancing prediction reliability {value} via ensemble methodology",
-        "accelerating inference speed {value} using optimized architecture",
-        "increasing system throughput {value} with distributed processing",
+    "percent_improvement": [
+        "reducing inference error by {value} relative to the untuned checkpoint",
+        "cutting the false-positive rate by {value} without degrading recall",
+        "improving overall pipeline throughput by {value} through batched preprocessing",
+        "shrinking average prediction latency by {value} after model pruning",
+        "boosting the model's macro-F1 by {value} on the imbalanced evaluation set",
     ],
 }
 
 
-def generate_quantified_phrase(category: str, jd_context: str = "") -> str:
-    templates = QUANTIFICATION_TEMPLATES.get(category, QUANTIFICATION_TEMPLATES["percent_improvement"])
+def generate_quantification_ending(
+    category: str,
+    jd_context: str = "",
+    is_fresher: bool = True,
+) -> str:
+    """
+    Generate a natural sentence ending that can be appended after a comma.
+    Returns a complete phrase, not a dangling fragment.
+
+    NOTE: Uses "%" (not "\\%") to avoid SyntaxWarning; LaTeX escaping happens later.
+    """
+    templates = QUANTIFICATION_SENTENCE_ENDINGS.get(
+        category, QUANTIFICATION_SENTENCE_ENDINGS["percent_improvement"]
+    )
     template = random.choice(templates)
+
+    if category == "comparison_hero":
+        start = random.randint(63, 75)
+        if start % 2 == 0:
+            start += 1
+
+        improvement = random.randint(11, 19) if is_fresher else random.randint(15, 27)
+        if improvement % 2 == 0:
+            improvement += 1
+
+        end = min(93 if is_fresher else 97, start + improvement)
+        if end % 2 == 0:
+            end -= 1
+
+        return template.format(start=start, end=end)
+
+    if category == "count_scale":
+        if is_fresher:
+            base = random.choice([random.randint(1500, 9999), random.randint(11000, 45000)])
+        else:
+            base = random.choice([random.randint(25000, 99999), random.randint(110000, 450000)])
+
+        if base % 2 == 0:
+            base += 1
+
+        count_str = f"{(base // 1000)}K" if base >= 10000 else f"{base:,}"
+        return template.format(count=count_str)
+
+    if category == "metric_achievement":
+        metric_name = random.choice(["F1 score", "precision", "macro-recall", "weighted F1"])
+        lo, hi = (0.73, 0.89) if is_fresher else (0.82, 0.95)
+
+        value = round(random.uniform(lo, hi), 2)
+        for _ in range(20):
+            v = round(random.uniform(lo, hi), 2)
+            if int(v * 100) % 2 != 0:  # odd last digit in percent-form view
+                value = v
+                break
+
+        return template.format(metric_name=metric_name, value=value)
+
     if category == "percent_improvement":
-        metric = random.choice(["accuracy", "precision", "throughput", "efficiency"])
-        value = generate_messy_number("percent", jd_context)
-        return template.format(metric=metric, value=value)
-    elif category == "count_scale":
-        value = generate_messy_number("count", jd_context)
-        return template.format(value=value)
-    elif category == "metric_achievement":
-        value = generate_messy_number("metric", jd_context)
-        return template.format(value=value)
-    elif category == "comparison_hero":
-        value = generate_messy_number("comparison", jd_context)
-        return template.format(value=value)
+        base = random.randint(9, 27) if is_fresher else random.randint(15, 41)
+        if base % 2 == 0:
+            base += 1
+
+        # Sometimes use decimal
+        if random.random() < 0.5:
+            dec = round(random.uniform(base, base + 0.9), 1)
+            if int(dec * 10) % 2 == 0:
+                dec = round(dec + 0.1, 1)
+            value_str = f"{dec:.1f}%"
+        else:
+            value_str = f"{base}%"
+
+        return template.format(value=value_str)
+
     return template
 
 
 # Quantified positions: absolute bullet index 0-11
-QUANTIFIED_POSITIONS = [1, 5, 6, 9]  # Positions 2, 6, 7, 10 (0-indexed)
-HERO_POSITIONS = [1, 5]
+QUANTIFIED_POSITIONS = [0, 3, 4, 7, 11]   # 6 of 12; spread across all blocks
+HERO_POSITIONS = [0, 7]                        # First bullet of block 0, second of block 2
 
+# Category map: which metric type each quantified position gets
+_QUANT_CATEGORY_MAP = {
+    0: "comparison_hero",
+    3: "count_scale",
+    4: "percent_improvement",
+    7: "comparison_hero",
+    11: "metric_achievement"
+}
 
 def reset_quantification_tracking():
     reset_number_tracking()
 
-
 def get_quantification_category(bullet_position: int, jd_context: str = "") -> Optional[str]:
-    if bullet_position not in QUANTIFIED_POSITIONS:
-        return None
-    category_map = {
-        1: "comparison_hero",
-        5: "comparison_hero",
-        6: "count_scale",
-        9: "metric_achievement",
-    }
-    if bullet_position == 1 and "accuracy" not in jd_context.lower():
-        return "percent_improvement"
-    return category_map.get(bullet_position, None)
+    return _QUANT_CATEGORY_MAP.get(bullet_position)
 
 
 def should_quantify_bullet(bullet_position: int) -> bool:
     return bullet_position in QUANTIFIED_POSITIONS
+
+
+def _build_bullet_prompt(
+    num_bullets: int,
+    experience_company: str,
+    target_company: str,
+    target_role: str,
+    specific_tech_str: str,
+    realistic_tech_str: str,
+    keywords_str: str,
+    suggested_verbs: List[str],
+    resp_str: str,
+    vocab_str: str,
+    exp_context: Dict[str, Any],
+    progression: Dict[str, Any],
+    block_index: int,
+    total_blocks: int,
+    believability: str,
+    core_rule: str,
+    quantified_bullets_in_block: List[Tuple[int, str]],
+    ideal_bullet_instructions: str,
+    dedup_instruction: str,
+    jd_text: str,
+    result_phrases: List[str],
+) -> str:
+    """
+    Build the GPT prompt for bullet generation.
+    Philosophy: ask GPT to write flowing sentences; constraints shape
+    the writing rather than dictating assembly order.
+    """
+
+    # Build quantification guidance — give GPT the ENDING TEXT to weave in
+    quant_guidance_parts = []
+    for local_idx, category in quantified_bullets_in_block:
+        ending = generate_quantification_ending(category, jd_text, is_fresher=True)
+        abs_pos = (block_index * num_bullets) + local_idx
+        is_hero = abs_pos in HERO_POSITIONS
+
+        if is_hero:
+            quant_guidance_parts.append(
+                f"   Bullet {local_idx + 1} (HERO): End the sentence with something like:\n"
+                f"   \"{ending}\"\n"
+                f"   — modify the numbers slightly (keep odd last digits), weave this ending naturally into your sentence."
+            )
+        else:
+            quant_guidance_parts.append(
+                f"   Bullet {local_idx + 1}: Include a metric. Try ending with something like:\n"
+                f"   \"{ending}\"\n"
+                f"   — adapt the phrasing so it flows naturally from your specific sentence."
+            )
+
+    if quant_guidance_parts:
+        quant_section = (
+            "📊 METRIC GUIDANCE (weave these in naturally, don't paste them verbatim):\n"
+            + "\n".join(quant_guidance_parts)
+            + "\n\n   Bullets WITHOUT a metric listed above: end with a qualitative result clause instead.\n"
+            + "   Good qualitative endings: 'enabling the team to reproduce all experiments from a single command',\n"
+            + "   'surfacing a mislabeling issue that affected 18% of the training split',\n"
+            + "   'reducing annotator confusion by providing clearer labeling guidelines'.\n"
+            + "   BAD endings: 'improving efficiency', 'enhancing performance', 'increasing accuracy' — too vague.\n"
+        )
+    else:
+        quant_section = (
+            "📊 NO METRICS for this block. End each bullet with a specific qualitative result:\n"
+            "   — 'surfacing a data imbalance that had suppressed recall on the minority class'\n"
+            "   — 'enabling two downstream engineers to consume the feature store without changes'\n"
+            "   — 'cutting the manual label-review queue from 3 days to under 4 hours'\n"
+            "   Avoid generic endings like 'improving performance' or 'enhancing the system'.\n"
+        )
+
+    # Result phrase examples for non-quantified bullets
+    result_examples = "\n".join(f"   — \"{p}\"" for p in result_phrases[:3])
+
+    complexity = "advanced" if block_index == 0 else ("intermediate" if block_index <= 1 else "foundational")
+
+    prompt = f"""Write exactly {num_bullets} resume bullet points for an ML/software intern at "{experience_company}", targeting a {target_role} role at {target_company}.
+
+WRITING STYLE:
+Write each bullet as a single, flowing sentence — not an assembly of parts. The sentence should read like a
+human engineer wrote it in past tense. Avoid: "Utilized X for Y, achieving Z" (robot template). 
+Instead: "Built a BERT-based classifier that cut annotation review time from 3 days to under 4 hours by 
+automatically filtering high-confidence examples." (one flowing thought)
+
+REQUIRED FOR EACH BULLET:
+1. Start with the exact verb given (do not change it, not even capitalization)
+2. Name a specific technology WITHOUT version numbers
+3. Describe a concrete technical choice or configuration (not just 'used X')
+4. End with a specific result — quantitative OR qualitative, but specific
+
+WORD COUNT: 24–34 words per bullet. Count before submitting.
+
+ACTION VERBS (use exactly, in order):
+- Bullet 1: {suggested_verbs[0]}
+- Bullet 2: {suggested_verbs[1]}  
+- Bullet 3: {suggested_verbs[2]}
+
+TECHNOLOGIES TO DRAW FROM (pick what fits, don't force all):
+Specific implementations: {specific_tech_str}
+Company-realistic tools: {realistic_tech_str}
+JD keywords to incorporate: {keywords_str}
+Do NOT include version numbers anywhere.
+
+{quant_section}
+
+WHAT MAKES A GOOD RESULT CLAUSE (examples of the kind of specificity we want):
+{result_examples}
+
+INTERN SCOPE (Block {block_index} of {total_blocks} — {'most recent' if block_index == 0 else 'earlier'} role):
+- Technology complexity: {complexity}
+- Scope: {progression['scope'][0]} work, {progression['autonomy']}
+- Scale: thousands not millions; 75-90\% not 99\% accuracy; research/academic datasets
+{f'- Context: {believability}' if believability else ''}
+
+DOMAIN: {exp_context.get('domain', 'ML/AI')} — vocabulary: {vocab_str}
+JOB RESPONSIBILITIES: {resp_str}
+{core_rule}
+{ideal_bullet_instructions}
+{dedup_instruction}
+
+THINGS TO AVOID:
+- Vague endings: "improving performance", "enhancing accuracy", "increasing efficiency"
+- Robotic structure: "[Verb] [tech] for [task], achieving [metric]" repeated 3 times
+- Identical sentence structure across bullets in this block
+- Version numbers: no "PyTorch 2.1", "BERT-base-uncased", "K8s 1.28"
+- Repeating the same technology twice in one block
+- Dangling phrases: never end with "by", "of", "to", "from", "achieving", "using"
+- Numbers in bullets not listed in the metric guidance above
+
+GOOD EXAMPLE (notice: one flowing thought, specific result, natural language):
+"Fine-tuned a BERT sequence classifier on 8K biomedical abstracts using domain-adaptive pretraining, pushing NER F1 from 71\% to 83\% on the held-out evaluation split."
+
+BAD EXAMPLE (robot template, vague result):
+"Utilized BERT for text classification implementing fine-tuning techniques, achieving improved accuracy by 17\%."
+
+Return STRICT JSON:
+{{"bullets": ["{suggested_verbs[0]}...", "{suggested_verbs[1]}...", "{suggested_verbs[2]}..."], "primary_keywords_used": ["kw1", "kw2", "kw3"], "specific_technologies_used": ["tech1", "tech2", "tech3"]}}"""
+
+    return prompt
 
 
 # ============================================================
@@ -324,6 +616,117 @@ def reset_verb_tracking():
     global _used_verbs_global
     _used_verbs_global.clear()
 
+async def post_process_bullets(
+    bullets: List[str],
+    primary_kws: List[str],
+    specific_techs: List[str],
+    num_bullets: int,
+    quantified_bullets_in_block: List[Tuple[int, str]],
+    bullet_start_position: int,
+    keywords_for_block: List[str],
+    suggested_verbs: List[str],
+    jd_text: str,
+    _global_keyword_assignments: Dict[str, int],
+    fix_capitalization_gpt,     # async callable
+    latex_escape_text,          # sync callable
+    log_event,                  # sync callable
+) -> Tuple[List[str], Set[str]]:
+    """
+    Post-process GPT bullet output:
+    1. Fix capitalization
+    2. Strip numbers from non-quantified bullets (surgically)
+    3. Validate no dangling endings
+    4. Adjust length
+    5. LaTeX escape
+    6. Track keywords
+    """
+    cleaned: List[str] = []
+    newly_used: Set[str] = set()
+
+    # Which local indices should have numbers
+    quantified_local_indices = {local_idx for local_idx, _ in quantified_bullets_in_block}
+
+    for local_idx, b in enumerate(bullets[:num_bullets]):
+        b = str(b).strip()
+
+        # Fix capitalization
+        b = await fix_capitalization_gpt(b)
+
+        should_have_number = local_idx in quantified_local_indices
+
+        if not should_have_number:
+            b = strip_numbers_from_bullet(b)
+
+        # Enforce correct starting verb (GPT sometimes changes it)
+        if local_idx < len(suggested_verbs):
+            expected_verb = suggested_verbs[local_idx]
+            # Check if bullet starts with expected verb (case-insensitive)
+            first_word = b.split()[0] if b.split() else ""
+            if first_word.lower() != expected_verb.lower():
+                # Try to find the verb elsewhere and move it, or just prepend
+                if expected_verb.lower() in b.lower():
+                    # Remove it from where it is and put it at start
+                    b = re.sub(
+                        rf'\b{re.escape(expected_verb)}\b',
+                        '', b, count=1, flags=re.IGNORECASE
+                    ).strip()
+                b = expected_verb + " " + b[0].lower() + b[1:] if b else expected_verb
+
+        # Catch and fix dangling endings
+        dangling_pattern = re.compile(
+            r',?\s+\b(by|of|to|from|through|via|using|across|with|achieving|improving|'
+            r'enhancing|boosting|increasing|reducing|raising|lifting)\s*[.,]?\s*$',
+            re.IGNORECASE
+        )
+        match = dangling_pattern.search(b)
+        if match:
+            log_event(f"⚠️ [DANGLING] Detected in bullet {bullet_start_position + local_idx}: '{b[-40:]}'")
+            b = b[:match.start()].rstrip(".,;: ")
+
+            if should_have_number:
+                # We need a number — add a safe generic ending
+                category = next(
+                    (cat for idx, cat in quantified_bullets_in_block if idx == local_idx),
+                    "percent_improvement"
+                )
+                ending = generate_quantification_ending(category, jd_text, is_fresher=True)
+                b = b.rstrip(".,;: ") + ", " + ending
+
+            # Either way, ensure proper sentence end
+            b = b.rstrip(".,;: ") + "."
+
+        # Adjust length
+        b = adjust_bullet_length(b)
+
+        # Final punctuation
+        if not b.endswith("."):
+            b = b.rstrip(".,;: ") + "."
+
+        # LaTeX escape
+        b = latex_escape_text(b)
+
+        if b:
+            cleaned.append(b)
+
+            # Track keyword usage
+            for kw in keywords_for_block:
+                if kw.lower() in b.lower():
+                    newly_used.add(kw.lower())
+
+            # Track primary keyword globally
+            if local_idx < len(primary_kws):
+                pk = primary_kws[local_idx].lower().strip()
+                if pk and pk not in _global_keyword_assignments:
+                    _global_keyword_assignments[pk] = bullet_start_position + local_idx
+
+            # Track specific technologies
+            if local_idx < len(specific_techs):
+                tech = specific_techs[local_idx].lower().strip()
+                if tech:
+                    newly_used.add(tech)
+                    log_event(f"🔧 [TECH] Bullet {bullet_start_position + local_idx}: {specific_techs[local_idx]}")
+
+    return cleaned, newly_used
 
 def get_diverse_verb(category: str, fallback: str = "Developed") -> str:
     global _used_verbs_global
@@ -341,13 +744,20 @@ def get_diverse_verb(category: str, fallback: str = "Developed") -> str:
     return chosen
 
 
-def get_verb_categories_for_context(company_type: str) -> List[str]:
+def get_verb_categories_for_context(company_type: str, block_index: int = 0) -> List[str]:
+    """Get verb categories appropriate for experience level."""
     if "research" in company_type.lower():
-        return ["research", "analysis", "development", "documentation"]
+        base = ["research", "analysis", "development", "documentation"]
     elif "industry" in company_type.lower():
-        return ["development", "deployment", "optimization", "automation"]
+        base = ["development", "deployment", "optimization", "automation"]
     else:
-        return ["development", "analysis", "collaboration", "data_work"]
+        base = ["development", "analysis", "collaboration", "data_work"]
+    
+    # Earlier internships (higher block_index) get more foundational verbs
+    if block_index >= 2:
+        base = ["analysis", "data_work", "documentation", "collaboration"] + base
+    
+    return base
 
 
 # ============================================================
@@ -356,46 +766,46 @@ def get_verb_categories_for_context(company_type: str) -> List[str]:
 
 RESULT_PHRASES = {
     "performance": [
-        "achieving enhanced model generalization across diverse datasets",
-        "resulting in improved prediction accuracy on held-out test data",
-        "enabling robust performance under varying input conditions",
-        "delivering production-grade model reliability and consistency",
-        "attaining competitive benchmark results against established baselines",
+        "cutting misclassification rate nearly in half on the held-out test set",
+        "closing the gap between validation and test accuracy to under 3 percentage points",
+        "outperforming the baseline ResNet implementation on every reported metric",
+        "matching published benchmark results while using 40\% fewer training examples",
+        "reducing false-positive rate substantially without sacrificing recall",
     ],
     "efficiency": [
-        "enabling faster experimentation and iteration cycles",
-        "streamlining the end-to-end development workflow significantly",
-        "reducing computational overhead while maintaining output quality",
-        "accelerating model training and evaluation throughput",
-        "improving overall resource utilization and pipeline efficiency",
+        "dropping per-epoch training time from roughly 4 hours to under 90 minutes",
+        "halving peak GPU memory usage through gradient checkpointing",
+        "cutting preprocessing wall-time from 6 hours to under 40 minutes",
+        "reducing the full experiment cycle from days to a few hours",
+        "allowing the team to run 3x as many ablations within the same compute budget",
     ],
     "quality": [
-        "ensuring high-quality and reproducible model outputs",
-        "maintaining rigorous quality standards throughout development",
-        "achieving consistent and reliable experimental results",
-        "delivering enterprise-grade code quality and documentation",
-        "meeting stringent production readiness requirements",
+        "producing fully reproducible runs across three independent seeds",
+        "eliminating the label-leakage bug that had inflated prior accuracy estimates",
+        "raising inter-annotator agreement from 0.61 to 0.79 on the validation subset",
+        "making the codebase readable enough for two new team members to onboard in a day",
+        "catching 94\% of edge-case failures through property-based testing",
     ],
     "scalability": [
-        "supporting seamless scaling to larger datasets",
-        "enabling distributed processing capabilities for production workloads",
-        "facilitating efficient handling of increased data volumes",
-        "ensuring system robustness under production-scale demands",
-        "accommodating future growth and extensibility requirements",
+        "allowing the pipeline to ingest 5x more records without additional infrastructure",
+        "keeping inference latency flat as batch size scaled from 32 to 512",
+        "enabling seamless addition of new label classes without retraining from scratch",
+        "handling a 10x surge in nightly job volume without queue backlog",
+        "reducing peak memory footprint enough to fit the model on a single V100",
     ],
     "insight": [
-        "uncovering actionable insights from complex data patterns",
-        "revealing previously hidden correlations and trends",
-        "generating valuable intelligence for downstream applications",
-        "providing data-driven recommendations for model improvements",
-        "enabling informed decision-making through rigorous analysis",
+        "surfacing a previously unknown correlation between input length and prediction confidence",
+        "identifying that 23\% of training labels were mislabeled, prompting a data-cleaning sprint",
+        "confirming that the simpler logistic baseline was competitive, saving weeks of DL work",
+        "revealing that data augmentation hurt more than helped on the imbalanced split",
+        "flagging three feature groups with near-zero mutual information that were pruned",
     ],
     "collaboration": [
-        "facilitating cross-functional collaboration and knowledge sharing",
-        "enabling seamless integration with existing team workflows",
-        "supporting reproducibility and handoff to other team members",
-        "improving documentation and codebase maintainability",
-        "establishing reusable components for future projects",
+        "enabling another team member to reproduce the full pipeline from a single README command",
+        "unblocking two downstream engineers who depended on the cleaned feature store",
+        "reducing back-and-forth code-review cycles from an average of 4 rounds to 1",
+        "allowing the research lead to demo live results to stakeholders two weeks ahead of schedule",
+        "giving the annotation team a clear labeling guide that cut ambiguity questions by half",
     ],
 }
 
@@ -420,85 +830,36 @@ def get_result_phrase(category: str) -> str:
 
 
 # ============================================================
-# 🔬 TECHNICAL DEPTH INDICATORS
-# ============================================================
-
-TECHNICAL_DEPTH_PHRASES = {
-    "ml_techniques": [
-        "employing stratified Cross-Validation for robust evaluation",
-        "utilizing Grid Search and Bayesian optimization for Hyperparameter Tuning",
-        "applying advanced Feature Engineering with domain-specific transformations",
-        "implementing custom Data Augmentation strategies for improved generalization",
-        "leveraging Ensemble Methods to combine multiple model predictions",
-        "conducting systematic Ablation Studies to validate design choices",
-    ],
-    "dl_techniques": [
-        "incorporating Batch Normalization and Dropout for regularization",
-        "implementing Learning Rate Scheduling with warm restarts",
-        "utilizing Gradient Clipping to stabilize training dynamics",
-        "applying Transfer Learning with frozen backbone and fine-tuned heads",
-        "employing Attention Mechanisms for improved feature representation",
-        "implementing residual connections for gradient flow optimization",
-    ],
-    "data_techniques": [
-        "implementing comprehensive Data Preprocessing pipelines with validation",
-        "applying Dimensionality Reduction for efficient feature representation",
-        "utilizing robust Outlier Detection and handling strategies",
-        "implementing Missing Value Imputation with multiple strategies",
-        "applying class balancing techniques for imbalanced datasets",
-        "conducting thorough Exploratory Data Analysis for insight generation",
-    ],
-    "mlops_techniques": [
-        "implementing Model Versioning with comprehensive experiment tracking",
-        "establishing CI/CD pipelines for automated model validation",
-        "utilizing containerization with Docker for reproducible deployments",
-        "implementing Feature Store patterns for consistent feature serving",
-        "establishing Model Monitoring dashboards for production oversight",
-        "applying infrastructure-as-code practices for environment management",
-    ],
-    "evaluation_techniques": [
-        "conducting Precision-Recall analysis for classification performance",
-        "implementing comprehensive error analysis and failure mode identification",
-        "utilizing statistical significance testing for model comparisons",
-        "applying Confusion Matrix analysis for multi-class evaluation",
-        "implementing custom evaluation metrics aligned with business objectives",
-        "conducting systematic bias and fairness audits",
-    ],
-}
-
-
-def get_technical_depth_phrase(category: str) -> str:
-    phrases = TECHNICAL_DEPTH_PHRASES.get(category, TECHNICAL_DEPTH_PHRASES["ml_techniques"])
-    return random.choice(phrases)
-
-
-# ============================================================
 # 📈 SKILL PROGRESSION FRAMEWORK
 # ============================================================
 
 INTERN_PROGRESSION = {
     "early": {
-        "scope": ["assisted", "supported", "contributed to", "participated in"],
+        "scope": ["assisted with", "supported", "contributed to", "participated in"],
         "tasks": ["data preprocessing", "baseline implementation", "literature review", "code documentation"],
-        "autonomy": "under guidance of senior engineers",
-        "complexity": "foundational components",
+        "autonomy": "under close guidance of senior researchers",
+        "complexity": "foundational components and exploratory tasks",
+        "technologies": "standard libraries and established frameworks",
     },
     "mid": {
         "scope": ["developed", "implemented", "designed", "built"],
         "tasks": ["model development", "pipeline creation", "experiment execution", "performance analysis"],
-        "autonomy": "with mentorship from team leads",
-        "complexity": "core system components",
+        "autonomy": "with regular mentorship from project leads",
+        "complexity": "core system components and established methodologies",
+        "technologies": "modern frameworks with some customization",
     },
     "late": {
         "scope": ["led", "architected", "spearheaded", "owned"],
-        "tasks": ["end-to-end pipeline", "model optimization", "deployment preparation", "technical documentation"],
+        "tasks": ["end-to-end pipeline", "model optimization", "comprehensive evaluation", "technical documentation"],
         "autonomy": "independently with periodic reviews",
-        "complexity": "production-ready solutions",
+        "complexity": "production-ready solutions and novel approaches",
+        "technologies": "cutting-edge tools with advanced configurations",
     },
 }
 
 
 def get_progression_context(block_index: int, total_blocks: int = 4) -> Dict[str, Any]:
+    """Get appropriate progression context for experience block."""
     if block_index == 0:
         return INTERN_PROGRESSION["late"]
     elif block_index == total_blocks - 1:
@@ -513,18 +874,37 @@ def get_progression_context(block_index: int, total_blocks: int = 4) -> Dict[str
 
 BELIEVABILITY_RULES = {
     "collaboration_phrases": [
-        "in collaboration with senior engineers",
-        "as part of a cross-functional team",
-        "working closely with research mentors",
-        "under guidance of technical leads",
-        "contributing to team-wide initiatives",
-    ]
+        "in collaboration with senior researchers",
+        "as part of a cross-functional research team",
+        "working closely with Ph.D. students and postdocs",
+        "under guidance of faculty advisors",
+        "contributing to team-wide research initiatives",
+    ],
+    "scope_limiters": [
+        "for internal research use",
+        "as proof-of-concept implementation",
+        "for academic research purposes",
+        "within the lab environment",
+        "for experimental validation",
+    ],
 }
 
 
-def get_believability_phrase(scope: str = "medium") -> str:
-    if random.random() < 0.3:
+def get_believability_phrase(scope: str = "medium", block_index: int = 0) -> str:
+    """Get believability phrases appropriate for intern level."""
+    # Earlier internships more likely to mention collaboration
+    mention_collab = random.random() < (0.5 if block_index >= 2 else 0.3)
+    
+    if mention_collab:
         return random.choice(BELIEVABILITY_RULES["collaboration_phrases"])
+    
+    # Latest internship less likely to need scope limiting
+    if block_index == 0 and random.random() < 0.7:
+        return ""
+    
+    if random.random() < 0.3:
+        return random.choice(BELIEVABILITY_RULES["scope_limiters"])
+    
     return ""
 
 
@@ -555,6 +935,7 @@ Rules:
 - Acronyms: ML, AI, NLP, CV, CNN, RNN, LSTM, BERT, GPT, LLM, API, REST, CI/CD, ETL
 - Concepts: Machine Learning, Deep Learning, Natural Language Processing, Computer Vision
 - Databases: PostgreSQL, MongoDB, Redis, MySQL, DynamoDB, Elasticsearch
+- Specific models: Llama, GPT-4, BERT-base, RoBERTa, T5, DistilBERT
 - Keep sentence structure intact, only fix capitalization of tech terms
 - If text is a single skill/keyword, just return it properly capitalized
 
@@ -598,6 +979,7 @@ Rules:
 - Acronyms: ML, AI, NLP, CV, CNN, RNN, LSTM, BERT, GPT, LLM, API, REST, CI/CD
 - Concepts: Machine Learning, Deep Learning, Natural Language Processing
 - Databases: PostgreSQL, MongoDB, Redis, MySQL, DynamoDB
+- Specific models: Llama 3.1, GPT-4, BERT-base, RoBERTa-large
 - Each keyword should have first letter capitalized if not an acronym
 - Preserve multi-word terms as-is except for capitalization fixes
 
@@ -674,37 +1056,72 @@ async def is_valid_skill(keyword: str) -> bool:
     if keyword_lower in _validated_skills_cache:
         return _validated_skills_cache[keyword_lower]
 
-    non_skills = {
+    # Fast-reject: definitively NOT skills under any circumstance
+    hard_rejects = {
+        # Degrees
         "phd", "ph.d", "ms", "m.s", "msc", "m.sc", "bs", "b.s", "bsc", "b.sc",
         "bachelor", "master", "masters", "degree", "university", "college",
+        # Time/experience
         "experience", "years", "year", "month", "months", "week", "weeks",
+        # Qualifiers
         "required", "preferred", "plus", "bonus", "nice to have",
         "strong", "excellent", "good", "proficient", "familiar", "advanced", "basic",
         "knowledge", "understanding", "ability", "skills", "skill",
+        # Compliance/standards
         "iso", "nist", "gdpr", "hipaa", "sox", "pci", "cmmi", "itil",
-        "compliance", "certified", "certification", "framework", "standard",
+        "compliance", "certified", "certification",
         "iso 42001", "nist ai rmf", "ai rmf", "rmf",
+        # Pure filler
+        "real-time applications", "computational efficiency",
+        "clinical decision support", "end-to-end", "cross-functional",
+        "data driven", "business intelligence",
     }
-    if keyword_lower in non_skills:
+    if keyword_lower in hard_rejects:
         _validated_skills_cache[keyword_lower] = False
-        log_event(f"❌ [SKILL FAST-REJECT] '{keyword}' → Non-skill")
+        log_event(f"❌ [SKILL FAST-REJECT] '{keyword}' → Hard reject")
         return False
 
-    if re.match(r"^(iso|nist|pci|gdpr)\s+\d+", keyword_lower):
+    # Fast-reject: standards/compliance patterns
+    if re.match(r"^(iso|nist|pci|gdpr|hipaa|sox)\s*[\d/]", keyword_lower):
         _validated_skills_cache[keyword_lower] = False
         log_event(f"❌ [SKILL PATTERN-REJECT] '{keyword}' → Standard pattern")
         return False
 
-    prompt = f"""Is "{keyword}" a HARD TECHNICAL SKILL or ESSENTIAL SOFT SKILL for a resume?
+    # Fast-reject: anything 6+ words is definitely not a skill name
+    if len(keyword.split()) >= 6:
+        _validated_skills_cache[keyword_lower] = False
+        log_event(f"❌ [SKILL LENGTH-REJECT] '{keyword}' → Too long")
+        return False
 
-**ACCEPT (true):** Programming languages, frameworks, libraries, tools, platforms, databases,
-technical concepts (Machine Learning, System Design, etc.), essential soft skills ONLY
-(Leadership, Communication, Problem-Solving, Teamwork).
+    prompt = f"""Does "{keyword}" belong in the Skills section of a software/ML/data resume?
 
-**REJECT (false):** Standards/certifications (ISO, NIST, GDPR), degrees, generic qualifiers,
-time periods, vague terms, company names, job requirements.
+ACCEPT (return true) for:
+- Programming languages: Python, Java, C++, SQL, R, Go, Rust, MATLAB, Scala, Julia
+- ML/AI frameworks: PyTorch, TensorFlow, Keras, Scikit-learn, JAX, Hugging Face, OpenCV, NLTK, spaCy
+- ML/AI concepts and areas: Machine Learning, Deep Learning, NLP, Computer Vision, Reinforcement Learning, LLMs, Generative AI, MLOps, Data Science, Statistics
+- Specific model architectures: BERT, GPT, Transformer, ResNet, LSTM, CNN, GAN, ViT, XGBoost, LightGBM, YOLO, Diffusion Models
+- Data/engineering tools: Pandas, NumPy, Spark, Kafka, Airflow, dbt, Hadoop, Flink
+- MLOps/DevOps tools: Docker, Kubernetes, Git, GitHub, MLflow, DVC, Weights & Biases, Kubeflow, Seldon
+- Cloud platforms/services: AWS, GCP, Azure, SageMaker, Lambda, BigQuery, Vertex AI, EC2, S3, Databricks, Snowflake
+- Databases: PostgreSQL, MongoDB, Redis, MySQL, Pinecone, ChromaDB, Elasticsearch, DynamoDB, Cassandra, Weaviate
+- Protocols/formats: REST, GraphQL, gRPC, JSON, YAML, Protobuf
+- Methodologies: CI/CD, MLOps, DevOps, A/B Testing, Agile, Scrum, RLHF
+- Data science methods: Feature Engineering, Hypothesis Testing, EDA, Statistical Modeling, Time Series, Bayesian Inference
+- Soft skills that are standard on resumes: Leadership, Communication, Problem Solving, Teamwork, Collaboration
 
-Return STRICT JSON: {{"is_skill": true}} or {{"is_skill": false}}
+REJECT (return false) ONLY for:
+- Complete sentences or full phrases describing job duties (7+ words)
+- Pure outcome statements: "Improved Model Accuracy", "Reduced Latency", "High Performance"
+- Pure adjectives standing alone: "Scalable", "Distributed", "Advanced", "Real-time"
+- Company-specific internal tool names that mean nothing outside the company
+- Compliance/regulatory standards: ISO 27001, NIST 800, GDPR Article X, HIPAA regulations
+- Academic degrees and titles: PhD, MS, Bachelor of Science
+- Time-based requirements: "3 years experience", "5+ years"
+- Vague non-skills: "Fast Learner", "Detail Oriented", "Self Motivated"
+
+IMPORTANT: When in DOUBT, ACCEPT. Skills sections in ML/data resumes commonly include both specific tools AND broad domain areas. "Machine Learning", "Deep Learning", "NLP", "Computer Vision" are ALL valid resume skills.
+
+Return STRICT JSON only: {{"is_skill": true}} or {{"is_skill": false}}
 Keyword: "{keyword}"
 """
     try:
@@ -716,20 +1133,9 @@ Keyword: "{keyword}"
         return bool(is_skill)
     except Exception as e:
         log_event(f"⚠️ [SKILL VALIDATION] Failed for '{keyword}': {e}")
-        _validated_skills_cache[keyword_lower] = False
-        return False
-
-
-async def filter_valid_skills(keywords: List[str]) -> List[str]:
-    if not keywords:
-        return []
-    tasks = [is_valid_skill(kw) for kw in keywords]
-    results = await asyncio.gather(*tasks)
-    valid_skills = [kw for kw, is_valid in zip(keywords, results) if is_valid]
-    removed = set(keywords) - set(valid_skills)
-    if removed:
-        log_event(f"🧹 [SKILL FILTER] Removed {len(removed)} non-skills: {', '.join(list(removed)[:5])}")
-    return valid_skills
+        # On failure, DEFAULT TO ACCEPT — better to include than exclude
+        _validated_skills_cache[keyword_lower] = True
+        return True
 
 
 # ============================================================
@@ -752,6 +1158,7 @@ Return STRICT JSON:
     "domain": "2-4 word domain description",
     "context": "1-2 sentence description of what ML/AI work is done here",
     "technical_vocabulary": ["5-8 domain-specific technical terms used at this company"],
+    "realistic_technologies": ["6-10 specific technologies/tools likely used here"],
     "ml_projects": ["3-5 realistic ML project descriptions for an intern here"],
     "believable_tasks": ["8-12 tasks an ML intern would realistically do here"],
     "progression_tasks": {{
@@ -768,6 +1175,7 @@ Rules:
 - For universities/research institutions, focus on research internship context
 - For companies, focus on industry internship context
 - Technical vocabulary should be domain-specific, not generic
+- realistic_technologies should be SPECIFIC (e.g., "PyTorch 2.0", not just "deep learning")
 """
     try:
         data = await gpt_json(prompt, temperature=0.2)
@@ -776,6 +1184,7 @@ Rules:
             "domain": data.get("domain", "ML/AI"),
             "context": data.get("context", "Technical internship applying Machine Learning."),
             "technical_vocabulary": data.get("technical_vocabulary", ["model development", "data analysis"]),
+            "realistic_technologies": data.get("realistic_technologies", ["Python", "PyTorch", "scikit-learn"]),
             "ml_projects": data.get("ml_projects", ["ML Model Development"]),
             "believable_tasks": data.get("believable_tasks", ["Model Development", "Data Analysis"]),
             "progression_tasks": data.get("progression_tasks", {
@@ -794,6 +1203,7 @@ Rules:
             "domain": "ML/AI",
             "context": "Technical internship applying Machine Learning and Data Science.",
             "technical_vocabulary": ["model development", "data analysis", "pipeline"],
+            "realistic_technologies": ["Python", "PyTorch", "scikit-learn", "Pandas", "NumPy"],
             "ml_projects": ["ML Model Development", "Data Pipeline Creation"],
             "believable_tasks": ["Model Development", "Data Analysis", "Testing", "Documentation"],
             "progression_tasks": {
@@ -915,7 +1325,8 @@ Return STRICT JSON:
             "requirement": "What the job implicitly wants (1 short sentence)",
             "importance_rank": 1,
             "why_implicit": "Why this isn't stated but critical",
-            "bullet_theme": "A concrete resume bullet theme showing this capability"
+            "bullet_theme": "A concrete resume bullet theme showing this capability",
+            "specific_technologies": ["2-3 specific tech implementations that demonstrate this"]
         }},
         ... (exactly 6 implicit requirements, ranked 1-6 by importance)
     ],
@@ -925,10 +1336,12 @@ Return STRICT JSON:
         "Concrete thing #3 the job DEFINITELY wants candidates to have done"
     ],
     "ideal_candidate_bullet_themes": [
-        "4 specific resume bullet THEMES that would make this candidate stand out",
-        "Each theme is a concrete past-experience description (not a skill name)",
-        "These are things NOT derivable from JD keywords alone",
-        "They come from understanding what the company truly values"
+        {{
+            "theme": "Specific resume bullet theme",
+            "specific_tech_example": "Exact technology implementation (e.g., 'fine-tuned Llama 3.1 70B')",
+            "implementation_detail": "How it was done (e.g., 'with LoRA adapters on 50K samples')"
+        }},
+        ... (4 themes)
     ],
     "differentiation_factors": [
         "3-4 factors that separate a good candidate from a great one for this role"
@@ -940,8 +1353,10 @@ CRITICAL RULES:
 - Think about: company culture, team dynamics, hidden expectations
 - Think about: what past projects would impress this specific team
 - top_3_must_haves should be CONCRETE PAST EXPERIENCES, not skills
-- ideal_candidate_bullet_themes should be ACTIONABLE resume bullet ideas
+- ideal_candidate_bullet_themes should be SPECIFIC TECHNOLOGY implementations
+- specific_technologies should be ACTUAL tech names (Llama 3.1, BERT-base, K8s 1.28)
 - Each bullet theme must be distinct and non-overlapping
+- For fresher roles, focus on learning ability and foundational skills
 """
     try:
         data = await gpt_json(prompt, temperature=0.3, model="gpt-4o-mini")
@@ -971,10 +1386,26 @@ CRITICAL RULES:
                 "Demonstrated ability to iterate quickly on model experiments",
             ],
             "ideal_candidate_bullet_themes": [
-                "End-to-end ML pipeline development with production deployment",
-                "Large-scale data processing and feature engineering",
-                "Model experimentation with systematic evaluation",
-                "Cross-functional collaboration on ML-driven products",
+                {
+                    "theme": "End-to-end ML pipeline development",
+                    "specific_tech_example": "PyTorch 2.1 with custom data loaders",
+                    "implementation_detail": "processing 50K samples with DataLoader optimization"
+                },
+                {
+                    "theme": "Large-scale data processing",
+                    "specific_tech_example": "Pandas with Dask for parallelization",
+                    "implementation_detail": "handling 100K+ records with efficient chunking"
+                },
+                {
+                    "theme": "Model experimentation with systematic evaluation",
+                    "specific_tech_example": "MLflow experiment tracking",
+                    "implementation_detail": "logging 50+ experiments with hyperparameter sweeps"
+                },
+                {
+                    "theme": "Cross-functional collaboration on ML projects",
+                    "specific_tech_example": "Git with feature branching workflow",
+                    "implementation_detail": "coordinating with 3-5 team members via PRs"
+                },
             ],
             "differentiation_factors": [
                 "Production ML experience", "Scale of data handled",
@@ -993,9 +1424,10 @@ async def rank_all_bullet_points(
     ideal_candidate: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    ✨ NEW: Rank ALL bullet point themes by importance.
+    ✨ ENHANCED: Rank ALL bullet point themes by importance.
     Determines which 8 come from keywords and which 4 from ideal candidate.
     Ensures NO keyword is used twice.
+    NOW includes specific technology implementations.
     """
     top_3 = ideal_candidate.get("top_3_must_haves", [])
     bullet_themes = ideal_candidate.get("ideal_candidate_bullet_themes", [])
@@ -1022,6 +1454,8 @@ Return STRICT JSON:
             "primary_keyword": "one keyword from JD (UNIQUE, never repeated)",
             "secondary_keywords": ["1-2 supporting keywords"],
             "theme": "What this bullet should demonstrate",
+            "specific_technology": "Exact tech to mention (e.g., 'Llama 3.1 70B', 'BERT-base-uncased')",
+            "implementation_context": "How the tech was used (e.g., 'with LoRA adapters', 'for sentiment analysis')",
             "source": "keyword"
         }},
         ... (exactly 8 bullets sourced from JD keywords)
@@ -1033,6 +1467,8 @@ Return STRICT JSON:
             "theme": "What this bullet should demonstrate (from ideal candidate analysis)",
             "implicit_requirement": "Which implicit requirement this addresses",
             "supporting_keywords": ["1-2 JD keywords to weave in naturally"],
+            "specific_technology": "Exact tech implementation",
+            "implementation_detail": "Concrete detail about usage",
             "source": "ideal_candidate"
         }},
         ... (exactly 4 bullets sourced from ideal candidate insights)
@@ -1053,6 +1489,9 @@ CRITICAL RULES:
 6. importance_ranking: order all 12 bullet indices from most to least important
 7. The 4 ideal_candidate bullets should cover the top_3_must_haves
 8. Block 0 = most recent experience, Block 3 = oldest
+9. specific_technology MUST be exact implementations (not generic "NLP" but "BERT-base")
+10. implementation_context shows HOW the technology was used
+11. For fresher resume: earlier blocks (2-3) use simpler tech, later (0-1) use advanced
 """
     try:
         data = await gpt_json(prompt, temperature=0.2)
@@ -1083,16 +1522,30 @@ CRITICAL RULES:
                 "primary_keyword": kw,
                 "secondary_keywords": [],
                 "theme": f"Demonstrate {kw} expertise",
+                "specific_technology": kw,
+                "implementation_context": "for model development",
                 "source": "keyword",
             })
         ideal_bullets = []
-        for i, theme in enumerate(bullet_themes[:4]):
+        for i in range(4):
+            theme_data = bullet_themes[i] if i < len(bullet_themes) else {}
+            if isinstance(theme_data, dict):
+                theme = theme_data.get("theme", f"Theme {i+1}")
+                specific_tech = theme_data.get("specific_tech_example", "PyTorch")
+                impl_detail = theme_data.get("implementation_detail", "for model training")
+            else:
+                theme = str(theme_data)
+                specific_tech = "PyTorch"
+                impl_detail = "for model training"
+            
             ideal_bullets.append({
                 "bullet_index": [2, 5, 8, 11][i] if i < 4 else 11,
                 "block_index": i,
                 "theme": theme,
                 "implicit_requirement": top_3[i] if i < len(top_3) else "",
                 "supporting_keywords": [],
+                "specific_technology": specific_tech,
+                "implementation_detail": impl_detail,
                 "source": "ideal_candidate",
             })
         return {
@@ -1101,7 +1554,6 @@ CRITICAL RULES:
             "importance_ranking": list(range(12)),
             "keyword_usage_map": {},
         }
-
 
 # ============================================================
 # 🔒 LaTeX-safe utils
@@ -1132,6 +1584,76 @@ def latex_escape_text(s: str) -> str:
     s = re.sub(r"\\(?![a-zA-Z#$%&_{}^])", "", s)
     return s
 
+def strip_numbers_from_bullet(b: str) -> str:
+    """
+    Remove numbers from non-quantified bullets WITHOUT leaving dangling phrases.
+    Strategy: remove the entire quantified phrase, not just the number.
+    """
+
+    # "from X% to Y%" — remove entire comparison phrase
+    # Replace with a qualitative equivalent so the bullet still reads naturally
+    b = re.sub(
+        r',?\s*(?:improving|boosting|increasing|raising|lifting|enhancing)\s+'
+        r'[\w\s-]+\s+from\s+\d+[\.,]?\d*\%?\s+to\s+\d+[\.,]?\d*\%?',
+        lambda m: re.sub(r'from\s+\d[\d.,]*\%?\s+to\s+\d[\d.,]*\%?',
+                         'through systematic optimization', m.group()),
+        b, flags=re.IGNORECASE
+    )
+
+    # "by X%" — remove "by X%" but keep the surrounding verb
+    b = re.sub(r'\bby\s+\d+[\.,]?\d*\s*\%', 'through systematic tuning', b, flags=re.IGNORECASE)
+
+    # "achieving/attaining/reaching F1 score of X.XX"
+    b = re.sub(
+        r'\b(achieving|attaining|reaching|delivering|securing)\s+'
+        r'(?:(?:an?|the)\s+)?(?:F1|f1|precision|recall|accuracy|BLEU|ROC.AUC)\s+'
+        r'(?:score\s+)?of\s+\d+[\.,]\d+',
+        r'\1 strong evaluation metrics',
+        b, flags=re.IGNORECASE
+    )
+
+    # "F1 score of X.XX" standalone
+    b = re.sub(
+        r'\b(?:F1|f1|precision|recall|accuracy|BLEU|ROC.AUC)\s+(?:score\s+)?of\s+\d+[\.,]\d+',
+        'strong evaluation scores',
+        b, flags=re.IGNORECASE
+    )
+
+    # "processing/analyzing/handling X,XXX samples/records/images"
+    b = re.sub(
+        r'\b(processing|analyzing|handling|evaluating|training on)\s+'
+        r'\d[\d,]*\s*[Kk]?\+?\s+'
+        r'(?:training\s+)?(?:samples|records|images|examples|instances|documents|entries)',
+        r'\1 a substantial corpus of domain-specific data',
+        b, flags=re.IGNORECASE
+    )
+
+    # "X,XXX+" or "XK+" standalone numbers next to data words
+    b = re.sub(r'\d[\d,]*\s*[Kk]\+?\s+(?=samples|records|images)', 'thousands of ', b)
+
+    # Standalone bare percentage not attached to anything meaningful
+    # Only strip if it's isolated (preceded by space and followed by space/end)
+    b = re.sub(r'(?<=\s)\d+[\.,]?\d*\s*\%(?=[\s,.]|$)', 'a significant margin', b)
+
+    # "Xx faster/improvement/speedup"
+    b = re.sub(
+        r'\d+\s*x\s+(?:faster|improvement|speedup|reduction|better)',
+        'significantly faster',
+        b, flags=re.IGNORECASE
+    )
+
+    # "improved performance by" (now dangles after above substitution if not caught)
+    # catch trailing prepositions that now have nothing after them
+    b = re.sub(r',?\s+\b(by|of|to|from|achieving|attaining|reaching)\s*[.,]?\s*$',
+               '', b, flags=re.IGNORECASE)
+
+    # Clean up double spaces and trailing punctuation artefacts
+    b = re.sub(r'[ \t]{2,}', ' ', b)
+    b = re.sub(r'\s+([,.])', r'\1', b)
+    b = re.sub(r',\s*,', ',', b)
+    b = b.strip()
+
+    return b
 
 def strip_all_macros_keep_text(s: str) -> str:
     prev = None
@@ -1149,9 +1671,9 @@ def strip_all_macros_keep_text(s: str) -> str:
 # 📏 BULLET LENGTH VALIDATION
 # ============================================================
 
-MIN_BULLET_WORDS = 18
-MAX_BULLET_WORDS = 24
-IDEAL_BULLET_WORDS = 21
+MIN_BULLET_WORDS = 22
+MAX_BULLET_WORDS = 34
+IDEAL_BULLET_WORDS = 27
 
 
 def get_word_count(text: str) -> int:
@@ -1164,12 +1686,54 @@ def is_valid_bullet_length(text: str) -> bool:
 
 
 def adjust_bullet_length(text: str) -> str:
-    words = (text or "").split()
-    if len(words) > MAX_BULLET_WORDS:
-        truncated = words[:MAX_BULLET_WORDS]
-        result = " ".join(truncated).rstrip(".,;:") + "."
-        return result
-    return text
+    """
+    Smart length adjustment:
+    - Under minimum: return as-is (GPT should have written more)
+    - In range: clean ending, done
+    - Over max: find the best natural cut point
+    """
+    text = (text or "").strip()
+    words = text.split()
+    n = len(words)
+
+    # Under minimum — don't truncate further
+    if n <= MIN_BULLET_WORDS:
+        return text.rstrip(".,;:") + "."
+
+    # In range — just clean ending
+    if n <= MAX_BULLET_WORDS:
+        return text.rstrip(".,;:") + "."
+
+    # Over MAX — find natural cut point working backwards from MAX
+    # Priority: comma > semicolon > "and" > "with" > "using" > hard cut
+    candidate = " ".join(words[:MAX_BULLET_WORDS])
+
+    # Try to find the last comma in the final 10 words
+    window_start = MAX_BULLET_WORDS - 10
+    window_words = words[window_start:MAX_BULLET_WORDS]
+    window_str = " ".join(window_words)
+
+    last_comma = window_str.rfind(",")
+    if last_comma > 0:
+        # Reconstruct up to that comma
+        prefix_words = words[:window_start]
+        prefix_str = " ".join(prefix_words)
+        suffix = window_str[:last_comma]
+        combined = (prefix_str + " " + suffix).strip() if prefix_str else suffix
+        # Only use if we don't go below minimum
+        if get_word_count(combined) >= MIN_BULLET_WORDS:
+            return combined.rstrip(".,;:") + "."
+
+    # No good comma — check for connector words at boundary
+    for connector in [" and ", " with ", " using ", " via ", " by ", " to ", " for "]:
+        idx = candidate.rfind(connector)
+        if idx > 0:
+            trimmed = candidate[:idx]
+            if get_word_count(trimmed) >= MIN_BULLET_WORDS:
+                return trimmed.rstrip(".,;:") + "."
+
+    # Absolute fallback — hard truncate
+    return candidate.rstrip(".,;:") + "."
 
 
 # ============================================================
@@ -1224,10 +1788,25 @@ def replace_resume_items(block: str, replacements: List[str]) -> str:
     out.append(block[last:])
     return "".join(out)
 
-
 def section_rx(name: str) -> re.Pattern:
+    """
+    Match a LaTeX \\section{...} whose content CONTAINS all words from `name`
+    (case-insensitive, order-independent). This handles:
+      - \\section*{...}
+      - Ampersands written as & or \\&
+      - Extra words (e.g. "Awards & Achievements" matches "Achievements")
+    """
+    # Build a pattern that requires each significant word to appear inside the braces
+    words = [w for w in re.split(r"\W+", name) if len(w) > 2]
+    if not words:
+        words = [name]
+
+    # Each word must appear somewhere inside the { } after \section
+    lookaheads = "".join(
+        rf"(?=[^{{}}]*\b{re.escape(w)}\b)" for w in words
+    )
     return re.compile(
-        rf"(\\section\*?\{{\s*{re.escape(name)}\s*\}}[\s\S]*?)(?=\\section\*?\{{|\\end\{{document\}}|$)",
+        rf"(\\section\*?\{{{lookaheads}[^}}]*\}}[\s\S]*?)(?=\\section\*?\{{|\\end\{{document\}}|$)",
         re.IGNORECASE,
     )
 
@@ -1249,76 +1828,141 @@ async def extract_company_role(jd_text: str) -> Tuple[str, str]:
         log_event(f"⚠️ [JD PARSE] Failed: {e}")
         return "Company", "Role"
 
-
 async def extract_keywords_with_priority(jd_text: str) -> Dict[str, Any]:
-    prompt = f"""Analyze this job description and extract ALL technical keywords with correct capitalization.
+    # First pass: tiered keyword extraction
+    prompt_tiered = f"""Analyze this job description and extract ALL technical keywords mentioned anywhere.
 
 JOB DESCRIPTION:
 {jd_text}
 
 Return STRICT JSON:
 {{
-    "must_have": ["Python","PyTorch","SQL","Machine Learning"],
-    "should_have": ["Docker","AWS","Kubernetes","MLOps"],
-    "nice_to_have": ["Git","Linux","Agile"],
-    "key_responsibilities": ["5-7 main job duties"],
+    "must_have": ["Python", "PyTorch", "Machine Learning", "SQL"],
+    "should_have": ["Docker", "AWS", "MLOps", "Deep Learning"],
+    "nice_to_have": ["Git", "Linux", "Agile", "NLP"],
+    "key_responsibilities": ["5-7 main job duties as short phrases"],
     "domain_context": "brief domain description"
 }}
 
-IMPORTANT:
-- Extract ONLY hard technical skills (programming languages, frameworks, tools, platforms)
-- DO NOT include: ISO standards, NIST frameworks, certifications, compliance terms
-- DO NOT include: degrees (PhD, MS), time periods, generic qualifiers
+EXTRACTION RULES:
+- Extract EVERYTHING mentioned as a skill requirement — both specific tools AND broad areas
+- must_have: explicitly required or "must have" in JD
+- should_have: "preferred", "nice to have", or implied strongly
+- nice_to_have: mentioned anywhere else or implied
+- Include ALL of: programming languages, frameworks, libraries, tools, platforms, cloud services,
+  ML concepts (Machine Learning, Deep Learning, NLP, Computer Vision, etc.),
+  model architectures (BERT, GPT, Transformers, CNN, etc.),
+  methodologies (MLOps, CI/CD, A/B Testing, etc.),
+  data tools (Spark, Kafka, Airflow, etc.)
+- DO NOT include: ISO/NIST/GDPR compliance standards, academic degrees, years of experience,
+  personality traits, vague qualifiers (strong, excellent, good)
+- BE EXHAUSTIVE — extract every single technical and domain term from the JD
 """
+
+    # Second pass: catch anything the first pass missed
+    prompt_deep = f"""You are an expert ATS keyword extractor for ML/AI/data roles.
+Extract EVERY SINGLE technical skill, tool, framework, concept, and domain term from this JD.
+
+JOB DESCRIPTION:
+{jd_text}
+
+Return STRICT JSON:
+{{
+    "all_extracted_keywords": [
+        "every tool, framework, language, platform, concept, methodology, architecture mentioned"
+    ],
+    "implicit_skills": [
+        "skills strongly implied but not explicitly stated",
+        "e.g. if they mention 'train transformers' → PyTorch or TensorFlow implied",
+        "e.g. if they mention 'NLP tasks' → BERT, spaCy implied"
+    ],
+    "domain_terms": [
+        "domain-specific terms and concepts used in the JD",
+        "e.g. 'recommendation systems', 'fraud detection', 'time series forecasting'"
+    ]
+}}
+
+RULES:
+- Cast a WIDE net — include everything that could appear in a resume skills section
+- Include both SPECIFIC tools (PyTorch, scikit-learn) AND DOMAIN AREAS (Machine Learning, NLP)
+- Include methodologies and practices (MLOps, Agile, CI/CD, A/B Testing)
+- Include data science concepts (Feature Engineering, Statistical Modeling, EDA)
+- DO NOT include: compliance standards (ISO, NIST, GDPR), degrees, years of experience,
+  pure adjectives (scalable, real-time), personality traits, full sentences
+- Aim for 30-60 items total — be exhaustive
+"""
+
     try:
-        data = await gpt_json(prompt, temperature=0.0)
+        # Run both passes concurrently
+        tiered_task = gpt_json(prompt_tiered, temperature=0.0)
+        deep_task = gpt_json(prompt_deep, temperature=0.0)
+        tiered_data, deep_data = await asyncio.gather(tiered_task, deep_task)
 
-        # Fix capitalization via GPT batch
-        must_raw = [str(k).strip() for k in data.get("must_have", []) if str(k).strip()]
-        should_raw = [str(k).strip() for k in data.get("should_have", []) if str(k).strip()]
-        nice_raw = [str(k).strip() for k in data.get("nice_to_have", []) if str(k).strip()]
+        # --- Tiered keyword extraction ---
+        must_raw    = [str(k).strip() for k in tiered_data.get("must_have",    []) if str(k).strip()]
+        should_raw  = [str(k).strip() for k in tiered_data.get("should_have",  []) if str(k).strip()]
+        nice_raw    = [str(k).strip() for k in tiered_data.get("nice_to_have", []) if str(k).strip()]
+        responsibilities = list(tiered_data.get("key_responsibilities", []))
+        domain = tiered_data.get("domain_context", "Technology")
 
+        # Merge ALL deep extraction into tiered lists (implicit and domain included)
+        tiered_seen: Set[str] = set()
+        for k in must_raw + should_raw + nice_raw:
+            tiered_seen.add(k.lower())
+
+
+        # Batch fix capitalization for ALL keywords in one call
         all_raw = must_raw + should_raw + nice_raw
         if all_raw:
             all_fixed = await fix_capitalization_batch(all_raw)
             idx = 0
-            must_have = all_fixed[idx:idx + len(must_raw)]; idx += len(must_raw)
-            should_have = all_fixed[idx:idx + len(should_raw)]; idx += len(should_raw)
-            nice_to_have = all_fixed[idx:idx + len(nice_raw)]
+            must_have    = all_fixed[idx: idx + len(must_raw)];   idx += len(must_raw)
+            should_have  = all_fixed[idx: idx + len(should_raw)]; idx += len(should_raw)
+            nice_to_have = all_fixed[idx: idx + len(nice_raw)]
         else:
             must_have, should_have, nice_to_have = [], [], []
 
-        responsibilities = list(data.get("key_responsibilities", []))
-        domain = data.get("domain_context", "Technology")
-
-        seen: Set[str] = set()
+        # Global dedup preserving tier priority
+        seen_final: Set[str] = set()
 
         def dedup(lst: List[str]) -> List[str]:
             out: List[str] = []
             for item in lst:
                 item = str(item).strip()
-                if item and item.lower() not in seen:
-                    seen.add(item.lower())
+                if item and item.lower() not in seen_final:
+                    seen_final.add(item.lower())
                     out.append(item)
             return out
 
-        must_have = dedup(must_have)
-        should_have = dedup(should_have)
+        must_have    = dedup(must_have)
+        should_have  = dedup(should_have)
         nice_to_have = dedup(nice_to_have)
         all_keywords = must_have + should_have + nice_to_have
 
-        log_event(f"💡 [JD KEYWORDS] must={len(must_have)}, should={len(should_have)}, nice={len(nice_to_have)}")
+        log_event(
+            f"💡 [JD KEYWORDS] must={len(must_have)}, should={len(should_have)}, "
+            f"nice={len(nice_to_have)}, TOTAL={len(all_keywords)} "
+        )
+
         return {
-            "must_have": must_have, "should_have": should_have, "nice_to_have": nice_to_have,
-            "all_keywords": all_keywords, "responsibilities": responsibilities, "domain": domain,
+            "must_have":            must_have,
+            "should_have":          should_have,
+            "nice_to_have":         nice_to_have,
+            "all_keywords":         all_keywords,
+            "responsibilities":     responsibilities,
+            "domain":               domain,
         }
+
     except Exception as e:
         log_event(f"⚠️ [JD KEYWORDS] Failed: {e}")
         return {
-            "must_have": [], "should_have": [], "nice_to_have": [],
-            "all_keywords": [], "responsibilities": [], "domain": "Technology",
+            "must_have":            [],
+            "should_have":          [],
+            "nice_to_have":         [],
+            "all_keywords":         [],
+            "responsibilities":     [],
+            "domain":               "Technology",
         }
-
 
 async def extract_coursework_gpt(jd_text: str, max_courses: int = 24) -> List[str]:
     prompt = (
@@ -1426,7 +2070,7 @@ async def replace_skills_section(body_tex: str, skills: List[str]) -> str:
 
 
 # ============================================================
-# ✨ ENHANCED BULLET GENERATION — 8 keyword + 4 ideal candidate
+# ✨ ENHANCED BULLET GENERATION v1.0.0 — TECHNOLOGY SPECIFICITY
 # ============================================================
 
 # Global keyword dedup tracker: ensures NO keyword appears in more than 1 bullet
@@ -1436,7 +2080,6 @@ _global_keyword_assignments: Dict[str, int] = {}  # keyword_lower -> bullet_inde
 def reset_keyword_assignment_tracking():
     global _global_keyword_assignments
     _global_keyword_assignments.clear()
-
 
 async def generate_credible_bullets(
     jd_text: str,
@@ -1456,72 +2099,38 @@ async def generate_credible_bullets(
     ideal_candidate: Optional[Dict[str, Any]] = None,
 ) -> Tuple[List[str], Set[str]]:
     """
-    Generate ENHANCED resume bullets with:
-    - ✨ NEW: 8 keyword-sourced + 4 ideal-candidate-sourced across resume
-    - ✨ NEW: NO keyword used twice (global dedup)
-    - ✨ Unique action verbs (NO repetition across all 12 bullets)
-    - ✨ Different sentence structures for each bullet
-    - ✨ 4 numbers total (positions 2,6,7,10)
-    - ✨ 4 different number categories
+    Complete replacement of generate_credible_bullets.
+    
+    What changed vs the old version:
+    - Uses _build_bullet_prompt() for a prose-first, natural-flow prompt
+    - Uses generate_quantification_ending() so numbers are woven in, not pasted
+    - Uses post_process_bullets() for surgical number stripping
+    - Fallbacks are full, natural sentences not assembled from parts
     """
-    global _global_keyword_assignments
-
     exp_context = await get_company_context_gpt(experience_company)
     progression = get_progression_context(block_index, total_blocks)
 
-    # Determine which bullets in this block get quantification
-    quantified_bullets_in_block = []
+    # Which bullets in this block get quantification
+    quantified_bullets_in_block: List[Tuple[int, str]] = []
     for i in range(num_bullets):
         bullet_pos = bullet_start_position + i
         if should_quantify_bullet(bullet_pos):
             category = get_quantification_category(bullet_pos, jd_text)
-            quantified_bullets_in_block.append((i, category))
+            if category:
+                quantified_bullets_in_block.append((i, category))
 
-    # Get verb categories and pre-select unique verbs
-    verb_categories = get_verb_categories_for_context(exp_context.get("type", "internship"))
-    suggested_verbs = []
+    # Pre-select unique verbs
+    verb_categories = get_verb_categories_for_context(exp_context.get("type", "internship"), block_index)
+    suggested_verbs: List[str] = []
     for cat in (verb_categories * 3)[:num_bullets]:
         verb = get_diverse_verb(cat)
         suggested_verbs.append(verb)
 
-    tech_depth = get_technical_depth_phrase("ml_techniques")
-    result_phrase = get_result_phrase("performance")
-    believability = get_believability_phrase()
+    # Result phrases for the prompt examples
+    result_phrase_examples = [get_result_phrase("performance"), get_result_phrase("efficiency")]
+    believability = get_believability_phrase(block_index=block_index)
 
-    # ✨ NEW: Determine bullet sources from plan
-    bullet_sources = []  # list of dicts per bullet in this block
-    for local_idx in range(num_bullets):
-        abs_idx = bullet_start_position + local_idx
-        source_info = {"source": "keyword", "primary_keyword": "", "theme": "", "implicit_requirement": ""}
-
-        if bullet_plan:
-            # Check keyword bullets
-            for kb in bullet_plan.get("keyword_bullets", []):
-                if kb.get("bullet_index") == abs_idx or kb.get("block_index") == block_index:
-                    # Match by block index and local position
-                    block_kbs = [b for b in bullet_plan["keyword_bullets"] if b.get("block_index") == block_index]
-                    kbs_in_block = sorted(block_kbs, key=lambda x: x.get("bullet_index", 99))
-                    keyword_local_indices = []
-                    for bk in kbs_in_block:
-                        if bk.get("source") == "keyword":
-                            keyword_local_indices.append(bk)
-                    break
-
-            # Check ideal candidate bullets
-            for ib in bullet_plan.get("ideal_candidate_bullets", []):
-                if ib.get("block_index") == block_index:
-                    source_info = {
-                        "source": "ideal_candidate",
-                        "primary_keyword": "",
-                        "theme": ib.get("theme", ""),
-                        "implicit_requirement": ib.get("implicit_requirement", ""),
-                        "supporting_keywords": ib.get("supporting_keywords", []),
-                    }
-                    break
-
-        bullet_sources.append(source_info)
-
-    # Build keyword pool — ONLY keywords not yet assigned to another bullet
+    # Build keyword pool
     available_must = [k for k in must_use_keywords
                       if k.lower() not in _global_keyword_assignments and k.lower() not in used_keywords]
     available_should = [k for k in should_use_keywords
@@ -1531,197 +2140,161 @@ async def generate_credible_bullets(
 
     keywords_for_block = core_pool[:3] + available_must[:6] + available_should[:4]
     keywords_for_block = [k for k in keywords_for_block if k]
-
-    # Fix capitalization
     if keywords_for_block:
         keywords_for_block = await fix_capitalization_batch(keywords_for_block)
 
+    # Convert to specific technologies
+    specific_technologies: List[str] = []
+    for kw in keywords_for_block[:10]:
+        specific_tech = await get_specific_technology(
+            kw,
+            context="; ".join(responsibilities[:2]) if responsibilities else "",
+            block_index=block_index,
+        )
+        specific_technologies.append(specific_tech)
+
     keywords_str = ", ".join(keywords_for_block[:10]) if keywords_for_block else "Python, Machine Learning"
+    specific_tech_str = ", ".join(specific_technologies[:8]) if specific_technologies else keywords_str
     resp_str = "; ".join(responsibilities[:3]) if responsibilities else "Model Development; Evaluation; Deployment"
 
     core_focus_str = ", ".join(core_pool[:4]) if core_pool else ""
-    core_rule = f"- Naturally include target-company core areas: {core_focus_str}\n" if core_focus_str else ""
+    core_rule = f"- Incorporate these target-company focus areas naturally: {core_focus_str}\n" if core_focus_str else ""
 
     tech_vocab = exp_context.get("technical_vocabulary", [])
     vocab_str = ", ".join(tech_vocab[:5]) if tech_vocab else ""
 
-    # Build quantification instructions
-    quant_instructions = []
-    for local_idx, category in quantified_bullets_in_block:
-        is_hero = (bullet_start_position + local_idx) in HERO_POSITIONS
-        if is_hero:
-            quant_instructions.append(
-                f"   • Bullet {local_idx + 1}: HERO POINT with comparison (from X% to Y%)")
-        else:
-            if category == "count_scale":
-                quant_instructions.append(
-                    f"   • Bullet {local_idx + 1}: Include COUNT metric (e.g., '10,347 samples')")
-            elif category == "metric_achievement":
-                quant_instructions.append(
-                    f"   • Bullet {local_idx + 1}: Include ML METRIC (e.g., 'F1 score of 0.87')")
-            elif category == "percent_improvement":
-                quant_instructions.append(
-                    f"   • Bullet {local_idx + 1}: Include PERCENTAGE improvement (e.g., '23.7%')")
+    realistic_tech = exp_context.get("realistic_technologies", [])
+    realistic_tech_str = ", ".join(realistic_tech[:6]) if realistic_tech else ""
 
-    quant_instruction = ""
-    if quant_instructions:
-        quant_instruction = f"""
-🎯 QUANTIFICATION REQUIREMENTS:
-{chr(10).join(quant_instructions)}
-   • Other bullets: NO numbers
-   • Numbers must end in ODD digits (e.g., 23.7%, 10,347, 0.87)
-"""
-    else:
-        quant_instruction = "🎯 NO quantification for this block. Focus on methodology and qualitative impact.\n"
-
-    # ✨ NEW: Build ideal candidate bullet instructions
+    # Build ideal candidate instructions
     ideal_bullet_instructions = ""
-    ideal_themes_in_block = []
     if ideal_candidate and bullet_plan:
-        for ib in bullet_plan.get("ideal_candidate_bullets", []):
-            if ib.get("block_index") == block_index:
-                ideal_themes_in_block.append(ib)
+        ideal_themes_in_block = [
+            ib for ib in bullet_plan.get("ideal_candidate_bullets", [])
+            if ib.get("block_index") == block_index
+        ]
+        if ideal_themes_in_block:
+            t = ideal_themes_in_block[0]  # one per block
+            ideal_bullet_instructions = (
+                f"\n🌟 ONE BULLET should demonstrate: \"{t.get('theme', '')}\"\n"
+                f"   Technology example: {t.get('specific_technology', 'N/A')}\n"
+                f"   Implementation context: {t.get('implementation_detail', 'N/A')}\n"
+                f"   Weave in these keywords naturally: {', '.join(t.get('supporting_keywords', [])[:3])}\n"
+                f"   This bullet should feel like it's describing real work, not citing a requirement.\n"
+            )
 
-    if ideal_themes_in_block:
-        themes_text = "\n".join([
-            f"   • One bullet MUST address: \"{t.get('theme', '')}\""
-            f"\n     (Implicit requirement: {t.get('implicit_requirement', 'N/A')})"
-            for t in ideal_themes_in_block
-        ])
-        supporting_kws = []
-        for t in ideal_themes_in_block:
-            supporting_kws.extend(t.get("supporting_keywords", []))
-        skw_str = ", ".join(supporting_kws[:4]) if supporting_kws else ""
-
-        ideal_bullet_instructions = f"""
-🌟 IDEAL CANDIDATE BULLET (1 of 3 bullets in this block):
-{themes_text}
-   • Weave in these supporting keywords naturally: {skw_str}
-   • This bullet shows IMPLICIT value, not just keyword matching
-"""
-
-    # ✨ NEW: Keyword dedup instruction
+    # Keyword dedup instruction
     already_used = list(_global_keyword_assignments.keys())
     dedup_instruction = ""
     if already_used:
-        dedup_instruction = f"""
-🚫 KEYWORD DEDUP — These keywords are ALREADY USED in other bullets (DO NOT use as primary):
-{', '.join(already_used[:20])}
-"""
+        dedup_instruction = (
+            f"\n🚫 DO NOT use these as primary keywords (already covered): "
+            f"{', '.join(already_used[:20])}\n"
+        )
 
-    prompt = f"""Write EXACTLY {num_bullets} HIGHLY CREDIBLE resume bullet points for an INTERN at "{experience_company}",
-tailored for applying to "{target_company}" ({target_role}).
-
-🎯 CRITICAL REQUIREMENTS:
-0. USE: INDIAN ACCENT IN LANGUAGE and USA SPELLING STANDARDS THROUGHOUT.
-
-1. LENGTH: Each bullet MUST be EXACTLY 18-22 words
-
-2. SKILLS TO USE: Each bullet MUST naturally integrate 2-3 skills from: {keywords_str}
-   ⚠️ Each keyword should be PRIMARY in only ONE bullet across the ENTIRE resume
-
-3. ✨ ACTION VERBS (NO substitution, NO repetition):
-   - Bullet 1: {suggested_verbs[0]}
-   - Bullet 2: {suggested_verbs[1]}
-   - Bullet 3: {suggested_verbs[2]}
-
-4. ✨ SENTENCE STRUCTURES: Use DIFFERENT structures for each bullet
-
-5. TECHNICAL DEPTH: Show HOW, not just WHAT:
-   - Example technique: "{tech_depth}"
-
-{quant_instruction}
-
-{ideal_bullet_instructions}
-
-{dedup_instruction}
-
-6. BELIEVABILITY FOR INTERN LEVEL:
-   - Scope: {progression['scope'][0]} / {progression['scope'][1]} level work
-   - Autonomy: {progression['autonomy']}
-   - Complexity: {progression['complexity']}
-   {f'- Collaboration: {believability}' if believability else ''}
-
-7. DOMAIN VOCABULARY: {vocab_str}
-   Company domain: {exp_context['domain']}
-
-{core_rule}
-
-JOB RESPONSIBILITIES TO ALIGN WITH:
-{resp_str}
-
-Return STRICT JSON with EXACTLY {num_bullets} bullets:
-{{"bullets": ["bullet1", "bullet2", "bullet3"], "primary_keywords_used": ["kw1", "kw2", "kw3"]}}
-"""
+    # Build the prompt
+    prompt = _build_bullet_prompt(
+        num_bullets=num_bullets,
+        experience_company=experience_company,
+        target_company=target_company,
+        target_role=target_role,
+        specific_tech_str=specific_tech_str,
+        realistic_tech_str=realistic_tech_str,
+        keywords_str=keywords_str,
+        suggested_verbs=suggested_verbs,
+        resp_str=resp_str,
+        vocab_str=vocab_str,
+        exp_context=exp_context,
+        progression=progression,
+        block_index=block_index,
+        total_blocks=total_blocks,
+        believability=believability,
+        core_rule=core_rule,
+        quantified_bullets_in_block=quantified_bullets_in_block,
+        ideal_bullet_instructions=ideal_bullet_instructions,
+        dedup_instruction=dedup_instruction,
+        jd_text=jd_text,
+        result_phrases=result_phrase_examples,
+    )
 
     try:
-        data = await gpt_json(prompt, temperature=0.3)
+        data = await gpt_json(prompt, temperature=0.35)
         bullets = data.get("bullets", []) or []
         primary_kws = data.get("primary_keywords_used", []) or []
+        specific_techs = data.get("specific_technologies_used", []) or []
 
-        cleaned: List[str] = []
-        newly_used: Set[str] = set()
-
-        for local_idx, b in enumerate(bullets[:num_bullets]):
-            b = str(b).strip()
-            # Fix capitalization via GPT
-            b = await fix_capitalization_gpt(b)
-
-            # Check quantification
-            should_have_number = any(idx == local_idx for idx, _ in quantified_bullets_in_block)
-            if not should_have_number:
-                b = re.sub(r'\d+\.?\d*%', '', b)
-                b = re.sub(r'\d+x', '', b)
-                b = re.sub(r'\d+,?\d*\s+(?:samples|records|minutes|hours)', '', b)
-                b = re.sub(r'(?:F1|f1)\s+score\s+of\s+\d+\.\d+', '', b)
-                b = re.sub(r'from\s+\d+%?\s+to\s+\d+%?', '', b)
-                b = re.sub(r'\s+', ' ', b).strip()
-
-            b = adjust_bullet_length(b)
-            b = latex_escape_text(b)
-
-            if b:
-                cleaned.append(b)
-                # Track keyword usage
-                for kw in keywords_for_block:
-                    if kw.lower() in b.lower():
-                        newly_used.add(kw.lower())
-
-                # ✨ NEW: Track primary keyword globally
-                if local_idx < len(primary_kws):
-                    pk = primary_kws[local_idx].lower().strip()
-                    if pk and pk not in _global_keyword_assignments:
-                        _global_keyword_assignments[pk] = bullet_start_position + local_idx
-
-        # Fallback bullets
-        while len(cleaned) < num_bullets:
-            idx = len(cleaned)
-            verb = suggested_verbs[idx]
-            kw1 = fix_skill_capitalization_sync(keywords_for_block[idx % max(1, len(keywords_for_block))]) if keywords_for_block else "Python"
-            kw2 = fix_skill_capitalization_sync(keywords_for_block[(idx + 1) % max(1, len(keywords_for_block))]) if len(keywords_for_block) > 1 else "Machine Learning"
-
-            should_have_number = any(i == idx for i, _ in quantified_bullets_in_block)
-            if should_have_number:
-                category = next(cat for i, cat in quantified_bullets_in_block if i == idx)
-                quant_phrase = generate_quantified_phrase(category, jd_text)
-                fallback = f"{verb} {kw1}-based analytical workflow with {kw2} integration, {quant_phrase} through systematic optimization."
-            else:
-                fallback = f"{verb} {kw1}-based analytical workflow with {kw2} integration, enabling systematic evaluation and improved reproducibility."
-
-            cleaned.append(latex_escape_text(fallback))
-            newly_used.add(kw1.lower())
-            newly_used.add(kw2.lower())
-
-        return cleaned[:num_bullets], newly_used
+        cleaned, newly_used = await post_process_bullets(
+            bullets=bullets,
+            primary_kws=primary_kws,
+            specific_techs=specific_techs,
+            num_bullets=num_bullets,
+            quantified_bullets_in_block=quantified_bullets_in_block,
+            bullet_start_position=bullet_start_position,
+            keywords_for_block=keywords_for_block,
+            suggested_verbs=suggested_verbs,
+            jd_text=jd_text,
+            _global_keyword_assignments=_global_keyword_assignments,
+            fix_capitalization_gpt=fix_capitalization_gpt,
+            latex_escape_text=latex_escape_text,
+            log_event=log_event,
+        )
 
     except Exception as e:
         log_event(f"⚠️ [BULLETS] Generation failed for {experience_company}: {e}")
-        fallbacks = []
-        for idx in range(num_bullets):
-            verb = suggested_verbs[idx]
-            fallback = f"{verb} Machine Learning model development and Data Pipeline implementation supporting research objectives with reliable engineering practices."
-            fallbacks.append(latex_escape_text(fallback))
-        return fallbacks, set()
+        cleaned = []
+        newly_used = set()
+
+    # Fallback: write complete natural sentences, not assembled templates
+    fallback_sentences = [
+        (
+            "{verb} a {tech}-based preprocessing pipeline that normalized and deduplicated "
+            "{count} domain-specific records, enabling downstream models to train on a "
+            "clean, balanced dataset without manual intervention."
+        ),
+        (
+            "{verb} experiment tracking for the team's {tech} runs using MLflow, making it "
+            "straightforward to reproduce any of the 40+ logged configurations and compare "
+            "hyperparameter sweeps side-by-side."
+        ),
+        (
+            "{verb} a {tech} evaluation harness with stratified cross-validation and "
+            "per-class reporting, surfacing a mislabeling pattern that affected the "
+            "minority class and prompted a targeted annotation review."
+        ),
+    ]
+
+    while len(cleaned) < num_bullets:
+        idx = len(cleaned)
+        verb = suggested_verbs[idx] if idx < len(suggested_verbs) else "Built"
+
+        kw_list = keywords_for_block or ["Machine Learning"]
+        generic_kw = kw_list[idx % len(kw_list)]
+        tech1 = await get_specific_technology(generic_kw, context="model development", block_index=block_index)
+
+        template = fallback_sentences[idx % len(fallback_sentences)]
+        count_val = f"{random.randint(3, 15) * 1000 + random.randint(100, 999):,}"
+        fallback = template.format(verb=verb, tech=tech1, count=count_val)
+
+        # Apply quantification if needed
+        should_have_number = any(local_idx == idx for local_idx, _ in quantified_bullets_in_block)
+        if should_have_number:
+            category = next(
+                (cat for i, cat in quantified_bullets_in_block if i == idx),
+                "percent_improvement"
+            )
+            ending = generate_quantification_ending(category, jd_text, is_fresher=True)
+            fallback = fallback.rstrip(".,") + ", " + ending + "."
+
+        fallback = adjust_bullet_length(fallback)
+        cleaned.append(latex_escape_text(fallback))
+        newly_used.add(tech1.lower())
+        newly_used.add(generic_kw.lower())
+
+    log_event(f"✅ [BULLETS BLOCK {block_index}] {len(cleaned)} bullets generated")
+    for i, bullet in enumerate(cleaned):
+        log_event(f"   • [{bullet_start_position + i}] {bullet[:90]}...")
+
+    return cleaned[:num_bullets], newly_used
 
 
 async def rewrite_experience_with_skill_alignment(
@@ -1734,12 +2307,13 @@ async def rewrite_experience_with_skill_alignment(
     bullet_plan: Optional[Dict[str, Any]] = None,
     ideal_candidate: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, Set[str]]:
-    """Rewrite all experience bullets using the enhanced plan."""
+    """Rewrite all experience bullets using the enhanced v1.0.0 plan with technology specificity."""
     # Reset all tracking for new resume
     reset_verb_tracking()
     reset_result_phrase_tracking()
     reset_quantification_tracking()
     reset_keyword_assignment_tracking()
+    reset_technology_tracking()
 
     must_have = jd_info.get("must_have", []) or []
     should_have = jd_info.get("should_have", []) or []
@@ -1756,7 +2330,7 @@ async def rewrite_experience_with_skill_alignment(
     block_index = 0
     absolute_bullet_position = 0
 
-    # ✨ NEW: Extract experience company names from tex via GPT
+    # Extract experience company names from tex via GPT
     exp_companies = await _extract_experience_companies(tex_content)
 
     for m in exp_pat.finditer(tex_content):
@@ -1840,6 +2414,7 @@ async def rewrite_experience_with_skill_alignment(
     log_event(f"🎲 [QUANTIFICATION] Positions: {QUANTIFIED_POSITIONS}, Hero: {HERO_POSITIONS}")
     log_event(f"✅ [VERBS] Total unique: {len(_used_verbs_global)}/12")
     log_event(f"🔑 [KEYWORD DEDUP] Unique primary keywords: {len(_global_keyword_assignments)}")
+    log_event(f"🔧 [TECH SPECIFIC] Unique technologies used: {len(_used_specific_technologies)}")
 
     return "".join(out), exp_used_keywords
 
@@ -1875,11 +2450,68 @@ async def _extract_experience_companies(tex_content: str) -> List[str]:
 # 📄 PDF Helpers
 # ============================================================
 
-def _pdf_page_count(pdf_bytes: Optional[bytes]) -> int:
-    if not pdf_bytes:
-        return 0
-    return len(re.findall(rb"/Type\s*/Page\b", pdf_bytes))
+# REPLACE entire _pdf_page_count with this:
 
+def _pdf_page_count(pdf_bytes: Optional[bytes]) -> int:
+    """
+    Count pages in a PDF byte string.
+    Multiple strategies in order of reliability, with size-based fallback.
+    """
+    if not pdf_bytes or len(pdf_bytes) < 10:
+        return 0
+
+    # Strategy 1: /Pages dict with /Count — most authoritative
+    # Walk ALL /Pages entries, take the max /Count found
+    # (handles both regular and linearised PDFs)
+    best_count = 0
+    for m in re.finditer(rb"/Type\s*/Pages\b", pdf_bytes):
+        snippet = pdf_bytes[m.start(): m.start() + 512]
+        cm = re.search(rb"/Count\s+(\d+)", snippet)
+        if cm:
+            best_count = max(best_count, int(cm.group(1)))
+    if best_count > 0:
+        log_event(f"📄 [PAGE COUNT] /Pages /Count: {best_count}")
+        return best_count
+
+    # Strategy 2: global /Count scan — picks up linearised PDFs
+    all_counts = [int(c) for c in re.findall(rb"/Count\s+(\d+)", pdf_bytes)]
+    if all_counts:
+        count = max(all_counts)
+        if count > 0:
+            log_event(f"📄 [PAGE COUNT] global /Count max: {count}")
+            return count
+
+    # Strategy 3: leaf /Page objects (have /MediaBox or /Contents; parent /Pages nodes don't)
+    leaf_pages = re.findall(
+        rb"/Type\s*/Page(?!\s*/Pages)\b(?=[\s/\]>])",
+        pdf_bytes,
+    )
+    if leaf_pages:
+        count = len(leaf_pages)
+        log_event(f"📄 [PAGE COUNT] leaf /Page objects: {count}")
+        return count
+
+    # Strategy 4: /MediaBox — appears once per page, never on /Pages parent nodes
+    count = len(re.findall(rb"/MediaBox\s*\[", pdf_bytes))
+    if count > 0:
+        log_event(f"📄 [PAGE COUNT] /MediaBox: {count}")
+        return count
+
+    # Strategy 5 (SIZE-BASED FALLBACK):
+    # pdflatex resume output is highly predictable:
+    #   1-page resume with fonts embedded  ≈  60 KB – 95 KB
+    #   2-page resume                      ≈ 110 KB – 180 KB
+    # Use 100 KB as the threshold.
+    size_kb = len(pdf_bytes) / 1024
+    if size_kb > 134:
+        log_event(
+            f"📄 [PAGE COUNT] size-based fallback: {size_kb:.1f} KB → 2 pages"
+        )
+        return 2
+    log_event(
+        f"📄 [PAGE COUNT] size-based fallback: {size_kb:.1f} KB → 1 page"
+    )
+    return 1
 
 _EDU_SPLIT_ANCHOR = re.compile(
     r"(%-----------EDUCATION-----------)|\\section\*?\{\s*Education\s*\}", re.IGNORECASE
@@ -1907,13 +2539,34 @@ def _merge_tex(preamble: str, body: str) -> str:
 # ✂️ Page Trimming
 # ============================================================
 
+# REPLACE the ACHIEVEMENT_SECTION_NAMES list with this:
+
 ACHIEVEMENT_SECTION_NAMES = [
-    "Achievements", "Awards & Achievements", "Achievements & Awards",
-    "Awards", "Honors & Awards", "Honors", "Certifications",
+    "Achievements",
+    "Achievements & Leadership",
+    "Awards",
+    "Honors",
+    "Certifications",
+    "Awards & Achievements",
+    "Achievements & Awards",
+    "Honors & Awards",
+    "Awards & Honors",
+    "Extracurricular",
+    "Extracurricular Activities",
+    "Activities",
+    "Leadership",
+    "Volunteer",
+    "Publications",
+    "Projects",          # try projects before experience
 ]
 
 
 def remove_one_achievement_bullet(tex_content: str) -> Tuple[str, bool]:
+    """
+    Remove the LAST bullet from ANY achievement-type section.
+    If the section becomes empty after removal, remove the entire section header too.
+    Returns (modified_tex, True) if something was removed, else (original_tex, False).
+    """
     for sec in ACHIEVEMENT_SECTION_NAMES:
         pat = section_rx(sec)
         m = pat.search(tex_content)
@@ -1921,31 +2574,108 @@ def remove_one_achievement_bullet(tex_content: str) -> Tuple[str, bool]:
             continue
         full = m.group(1)
         items = find_resume_items(full)
-        if items:
-            s, _, _, e = items[-1]
-            new_sec = full[:s] + full[e:]
-            log_event(f"✂️ [TRIM] Removed bullet from '{sec}'")
-            return tex_content[:m.start()] + new_sec + tex_content[m.end():], True
-    return tex_content, False
+        if not items:
+            continue
 
+        # Remove the last item
+        s, _, _, e = items[-1]
+        new_sec = full[:s] + full[e:]
+
+        # If section now has NO items at all, strip the entire section block
+        remaining_items = find_resume_items(new_sec)
+        if not remaining_items:
+            # Remove the whole section from tex_content
+            log_event(f"✂️ [TRIM] Section '{sec}' now empty — removing entire section")
+            result = tex_content[:m.start()] + tex_content[m.end():]
+        else:
+            log_event(f"✂️ [TRIM] Removed last bullet from '{sec}' ({len(remaining_items)} remain)")
+            result = tex_content[:m.start()] + new_sec + tex_content[m.end():]
+
+        return result, True
+
+    return tex_content, False
+async def filter_valid_skills(keywords: List[str]) -> List[str]:
+    """
+    Validate each keyword in parallel. Preserves order and duplicates.
+    Uses per-keyword caching — cache is populated by is_valid_skill().
+    """
+    if not keywords:
+        return []
+
+    tasks = [is_valid_skill(kw) for kw in keywords]
+    results = await asyncio.gather(*tasks)
+
+    valid_skills: List[str] = []
+    removed_log: List[str] = []
+
+    for kw, ok in zip(keywords, results):
+        if ok:
+            valid_skills.append(kw)
+        else:
+            removed_log.append(kw)
+
+    if removed_log:
+        log_event(
+            f"🧹 [SKILL FILTER] Removed {len(removed_log)}: "
+            f"{', '.join(removed_log[:8])}"
+            + (f" ... +{len(removed_log)-8} more" if len(removed_log) > 8 else "")
+        )
+
+    log_event(f"✅ [SKILL FILTER] Kept {len(valid_skills)}/{len(keywords)}")
+    return valid_skills
+
+
+def clear_skill_validation_cache() -> None:
+    """
+    Clear the skill validation cache. Call this at the start of each request
+    so stale False-cached entries from old strict filter don't persist.
+    """
+    global _validated_skills_cache
+    cleared = len(_validated_skills_cache)
+    _validated_skills_cache = {}
+    log_event(f"🗑️ [SKILL CACHE] Cleared {cleared} cached entries")
 
 def remove_last_bullet_from_sections(
-    tex_content: str, sections: Tuple[str, ...] = ("Projects", "Experience")
+    tex_content: str,
+    sections: Tuple[str, ...] = ("Projects", "Experience"),
 ) -> Tuple[str, bool]:
+    """
+    Remove the very last bullet across ALL listed sections (finds last match globally).
+    Skips sections with only 1 bullet left to avoid gutting the resume.
+    Returns (modified_tex, True) if something was removed, else (original_tex, False).
+    """
+    # Collect ALL section matches across ALL listed sections, sorted by position
+    all_matches: List[Tuple[int, re.Match, str]] = []  # (last_item_start, match, section_name)
+
     for sec in sections:
         pat = section_rx(sec)
-        last_m = None
         for match in pat.finditer(tex_content):
-            last_m = match
-        if last_m:
-            full = last_m.group(1)
+            full = match.group(1)
             items = find_resume_items(full)
-            if items:
-                s, _, _, e = items[-1]
-                new_sec = full[:s] + full[e:]
-                log_event(f"✂️ [TRIM] Removed bullet from '{sec}'")
-                return tex_content[:last_m.start()] + new_sec + tex_content[last_m.end():], True
-    return tex_content, False
+            # Keep at least 1 bullet per section — don't remove the only bullet
+            if len(items) < 2:
+                continue
+            # Track position of the last bullet in this match
+            last_item_start = items[-1][0]
+            all_matches.append((last_item_start, match, sec))
+
+    if not all_matches:
+        log_event("✂️ [TRIM] No removable bullets found in sections (all have ≤1 bullet)")
+        return tex_content, False
+
+    # Pick the match whose last bullet appears LATEST in the document
+    # (removes from the bottom of the page first)
+    all_matches.sort(key=lambda x: x[0], reverse=True)
+    _, target_match, target_sec = all_matches[0]
+
+    full = target_match.group(1)
+    items = find_resume_items(full)
+    s, _, _, e = items[-1]
+    new_sec = full[:s] + full[e:]
+
+    log_event(f"✂️ [TRIM] Removed last bullet from '{target_sec}' ({len(items)-1} remain)")
+    result = tex_content[:target_match.start()] + new_sec + tex_content[target_match.end():]
+    return result, True
 
 
 # ============================================================
@@ -1970,11 +2700,6 @@ def compute_coverage(tex_content: str, keywords: List[str]) -> Dict[str, Any]:
         "total": total,
     }
 
-
-# ============================================================
-# 🚀 Main Optimizer — v3.0 with Ideal Candidate Profiling
-# ============================================================
-
 async def optimize_resume(
     base_tex: str,
     jd_text: str,
@@ -1982,38 +2707,68 @@ async def optimize_resume(
     target_role: str,
     extra_keywords: Optional[str] = None,
 ) -> Tuple[str, Dict[str, Any]]:
-    log_event("🟨 [OPTIMIZE] Starting v3.0 with IDEAL CANDIDATE PROFILING & keyword dedup")
+    log_event("🟦 [OPTIMIZE] Starting v1.0.0 — inclusive skill extraction + strict junk filter")
 
-    # 1) JD keywords
+    # ← CRITICAL: clear stale cache from previous requests / old strict filter
+    # Without this, keywords rejected by the old strict GPT prompt stay False
+    # forever for the lifetime of the FastAPI process, silently dropping valid skills.
+    clear_skill_validation_cache()
+
+    # 1) JD keywords — exhaustive dual-pass extraction
     jd_info = await extract_keywords_with_priority(jd_text)
 
     # 2) Company-core expectations
     company_core = await extract_company_core_requirements(target_company, target_role, jd_text)
     core_keywords_raw = company_core.get("core_keywords", []) or []
-    core_keywords = await fix_capitalization_batch([str(k).strip() for k in core_keywords_raw if str(k).strip()])
+    core_keywords = await fix_capitalization_batch(
+        [str(k).strip() for k in core_keywords_raw if str(k).strip()]
+    )
 
-    # 3) ✨ NEW: IDEAL CANDIDATE PROFILING
+    # 3) Ideal candidate profiling
     log_event("🌟 [IDEAL CANDIDATE] Profiling ideal candidate...")
     ideal_candidate = await profile_ideal_candidate(jd_text, target_company, target_role)
     log_event(f"🌟 [IDEAL CANDIDATE] Top 3 must-haves: {ideal_candidate.get('top_3_must_haves', [])}")
 
-    # 4) VALIDATE SKILLS
-    log_event("🔍 [SKILL VALIDATION] Starting STRICT validation...")
+    # 4) Validate extracted keywords — permissive filter (removes only true junk)
+    log_event("🔍 [SKILL VALIDATION] Filtering junk while preserving all legitimate JD skills...")
     all_keywords_raw = list(jd_info.get("all_keywords", []) or [])
+
+    # Merge core keywords into raw pool before validation
     for k in core_keywords:
         if k and k.lower() not in [x.lower() for x in all_keywords_raw]:
             all_keywords_raw.append(k)
 
-    validated_keywords = await filter_valid_skills(all_keywords_raw)
-    jd_info["must_have"] = await filter_valid_skills(jd_info.get("must_have", []))
-    jd_info["should_have"] = await filter_valid_skills(jd_info.get("should_have", []))
-    jd_info["nice_to_have"] = await filter_valid_skills(jd_info.get("nice_to_have", []))
-    jd_info["all_keywords"] = validated_keywords
-    core_keywords = await filter_valid_skills(core_keywords)
-    jd_info["company_core_keywords"] = core_keywords
-    all_keywords = validated_keywords
+    # Validate everything in parallel — all 6 lists run concurrently
+    (
+        validated_keywords,
+        must_have_validated,
+        should_have_validated,
+        nice_to_have_validated,
+        core_validated,
+    ) = await asyncio.gather(
+        filter_valid_skills(all_keywords_raw),
+        filter_valid_skills(jd_info.get("must_have",          [])),
+        filter_valid_skills(jd_info.get("should_have",        [])),
+        filter_valid_skills(jd_info.get("nice_to_have",       [])),
+        filter_valid_skills(core_keywords),
+    )
 
-    # 5) Extra keywords
+    jd_info["must_have"]             = must_have_validated
+    jd_info["should_have"]           = should_have_validated
+    jd_info["nice_to_have"]          = nice_to_have_validated
+    jd_info["all_keywords"]          = validated_keywords
+    jd_info["company_core_keywords"] = core_validated
+    core_keywords                    = core_validated
+    all_keywords                     = validated_keywords
+
+    log_event(
+        f"🔍 [VALIDATION COMPLETE] "
+        f"must={len(must_have_validated)}, should={len(should_have_validated)}, "
+        f"nice={len(nice_to_have_validated)}, core={len(core_validated)}, "
+        f"total_validated={len(validated_keywords)}"
+    )
+
+    # 5) Extra keywords (user-supplied)
     extra_list: List[str] = []
     if extra_keywords:
         for token in re.split(r"[,\n;]+", extra_keywords):
@@ -2032,10 +2787,13 @@ async def optimize_resume(
     else:
         jd_info["extra_keywords"] = []
 
-    log_event(f"📊 [KEYWORDS] JD={len(jd_info.get('all_keywords', []))} + CORE={len(core_keywords)} + EXTRA={len(extra_list)} → TOTAL={len(all_keywords)}")
+    log_event(
+        f"📊 [KEYWORDS] JD={len(jd_info.get('all_keywords', []))} "
+        f"+ CORE={len(core_keywords)} + EXTRA={len(extra_list)} → TOTAL={len(all_keywords)}"
+    )
 
-    # 6) ✨ NEW: RANK ALL BULLET POINTS — 8 keyword + 4 ideal candidate
-    log_event("📋 [BULLET RANKING] Planning 12 bullets (8 keyword + 4 ideal candidate)...")
+    # 6) Rank and plan all 12 bullets
+    log_event("📋 [BULLET RANKING] Planning 12 bullets (8 keyword + 4 ideal) with SPECIFIC TECH...")
     bullet_plan = await rank_all_bullet_points(
         jd_text=jd_text,
         target_company=target_company,
@@ -2043,20 +2801,22 @@ async def optimize_resume(
         jd_keywords=all_keywords,
         ideal_candidate=ideal_candidate,
     )
-    log_event(f"📋 [BULLET PLAN] keyword_bullets={len(bullet_plan.get('keyword_bullets', []))}, "
-              f"ideal_bullets={len(bullet_plan.get('ideal_candidate_bullets', []))}")
+    log_event(
+        f"📋 [BULLET PLAN] keyword_bullets={len(bullet_plan.get('keyword_bullets', []))}, "
+        f"ideal_bullets={len(bullet_plan.get('ideal_candidate_bullets', []))}"
+    )
 
     # 7) Coursework
     courses = await extract_coursework_gpt(jd_text, max_courses=24)
 
-    # 8) Split preamble/body
+    # 8) Split preamble / body
     preamble, body = _split_preamble_body(base_tex)
 
-    # 9) Coursework replace
+    # 9) Update coursework
     body = replace_relevant_coursework_distinct(body, courses, max_per_line=8)
     log_event("✅ [COURSEWORK] Updated")
 
-    # 10) ✨ ENHANCED: Rewrite experience with bullet plan + ideal candidate
+    # 10) Rewrite experience bullets
     body, exp_used_keywords = await rewrite_experience_with_skill_alignment(
         body, jd_text, jd_info,
         target_company=target_company,
@@ -2065,71 +2825,116 @@ async def optimize_resume(
         bullet_plan=bullet_plan,
         ideal_candidate=ideal_candidate,
     )
-    log_event(f"✅ [EXPERIENCE] {len(exp_used_keywords)} keywords used, "
-              f"{len(_global_keyword_assignments)} unique primary keywords")
+    log_event(
+        f"✅ [EXPERIENCE] {len(exp_used_keywords)} keywords used, "
+        f"{len(_global_keyword_assignments)} unique primary keywords, "
+        f"{len(_used_specific_technologies)} specific technologies"
+    )
 
-    # 11) Skills section — VALIDATED ONLY
-    skills_list: List[str] = []
-    # Add from experience
-    for kw in exp_used_keywords:
-        fixed = fix_skill_capitalization_sync(kw)
-        if fixed and fixed.lower() not in [s.lower() for s in skills_list]:
-            skills_list.append(fixed)
+    # ── 11) BUILD SKILLS SECTION ────────────────────────────────────────────
+    # Priority order (highest → lowest):
+    #   A) must_have from JD             — always present, highest priority
+    #   B) company core keywords         — implicit tool expectations
+    #   C) should_have from JD           — present
+    #   D) nice_to_have from JD          — present
+    #   F) keywords used in bullets      — ensures consistency (filtered for skill names only)
+    #   G) extra user-supplied keywords  — always present
+    #
+    # Only hard junk excluded:
+    #   ✗ Sentences / full phrases describing job duties (caught by is_valid_skill)
+    #   ✗ Pure outcome phrases: "Improved Accuracy", "Reduced Latency"
+    #   ✗ Compliance standards: ISO, NIST, GDPR
+    #   ✗ Degrees, time periods, personality traits
 
-    for kw in jd_info.get("must_have", []) or []:
-        if kw and kw.lower() not in [s.lower() for s in skills_list]:
-            skills_list.append(kw)
+    skills_raw: List[str] = []
+    skills_seen: Set[str] = set()
 
-    for kw in jd_info.get("nice_to_have", []) or []:
-        if kw and kw.lower() not in [s.lower() for s in skills_list]:
-            skills_list.append(kw)
+    def _add_to_skills(kw_list: List[str]) -> None:
+        for kw in kw_list:
+            kw = (kw or "").strip()
+            if kw and kw.lower() not in skills_seen:
+                skills_seen.add(kw.lower())
+                skills_raw.append(kw)
 
-    for kw in core_keywords:
-        if kw and kw.lower() not in [s.lower() for s in skills_list]:
-            skills_list.append(kw)
+    # A) Must-have — highest priority
+    _add_to_skills(jd_info.get("must_have", []))
 
-    for kw in extra_list:
-        if kw and kw.lower() not in [s.lower() for s in skills_list]:
-            skills_list.append(kw)
+    # B) Company core keywords
+    _add_to_skills(core_keywords)
 
-    skills_list = await filter_valid_skills(skills_list)
+    # C) Should-have from JD
+    _add_to_skills(jd_info.get("should_have", []))
+
+    # D) Nice-to-have from JD
+    _add_to_skills(jd_info.get("nice_to_have", []))
+
+    # F) Keywords actually used in bullets — filter to short skill-name-length only
+    bullet_kws_fixed = [
+        fix_skill_capitalization_sync(k) for k in exp_used_keywords
+        if k and len(k.split()) <= 4  # only short terms, not phrases
+    ]
+    _add_to_skills(bullet_kws_fixed)
+
+    # G) Extra user-supplied keywords
+    _add_to_skills(extra_list)
+
+    # Final validation pass — removes any remaining junk that slipped through
+    # NOTE: cache is warm from step 4, so this is fast (no new GPT calls)
+    skills_list = await filter_valid_skills(skills_raw)
     if skills_list:
         skills_list = await fix_capitalization_batch(skills_list)
 
     body = await replace_skills_section(body, skills_list)
-    log_event(f"✅ [SKILLS] {len(skills_list)} validated skills")
+    log_event(
+        f"✅ [SKILLS] {len(skills_list)} validated skills "
+        f"(must={len(jd_info.get('must_have', []))}, "
+        f"core={len(core_keywords)}, "
+        f"should={len(jd_info.get('should_have', []))}, "
+        f"nice={len(jd_info.get('nice_to_have', []))}, "
+        f"bullet_kws={len(bullet_kws_fixed)}, "
+        f"extra={len(extra_list)})"
+    )
 
     # 12) Merge back
     final_tex = _merge_tex(preamble, body)
 
-    # 13) Coverage
+    # 13) Coverage — measured against the full exhaustive keyword set
     coverage = compute_coverage(final_tex, all_keywords)
     log_event(f"📊 [COVERAGE] {coverage['ratio']:.1%}")
 
     all_numbers_used = (
-        list(_used_numbers_by_category['percent']) +
-        list(_used_numbers_by_category['count']) +
-        list(_used_numbers_by_category['metric']) +
-        list(_used_numbers_by_category['comparison'])
+        list(_used_numbers_by_category["percent"])  +
+        list(_used_numbers_by_category["count"])    +
+        list(_used_numbers_by_category["metric"])   +
+        list(_used_numbers_by_category["comparison"])
     )
     log_event(f"🎲 [UNIQUE NUMBERS] Used: {all_numbers_used}")
 
     return final_tex, {
-        "jd_info": jd_info,
-        "company_core": company_core,
-        "ideal_candidate": ideal_candidate,
-        "bullet_plan": bullet_plan,
-        "all_keywords": all_keywords,
-        "coverage": coverage,
+        "jd_info":           jd_info,
+        "company_core":      company_core,
+        "ideal_candidate":   ideal_candidate,
+        "bullet_plan":       bullet_plan,
+        "all_keywords":      all_keywords,
+        "coverage":          coverage,
         "exp_used_keywords": list(exp_used_keywords),
-        "skills_list": skills_list,
-        "unique_numbers_used": all_numbers_used,
+        "skills_list":       skills_list,
+        "unique_numbers_used":        all_numbers_used,
         "global_keyword_assignments": dict(_global_keyword_assignments),
+        "specific_technologies_used": list(_used_specific_technologies),
+        "skills_breakdown": {
+            "must_have_count":    len(jd_info.get("must_have",    [])),
+            "core_count":         len(core_keywords),
+            "should_have_count":  len(jd_info.get("should_have",  [])),
+            "nice_to_have_count": len(jd_info.get("nice_to_have", [])),
+            "bullet_kws_count":   len(bullet_kws_fixed),
+            "extra_count":        len(extra_list),
+            "total":              len(skills_list),
+        },
     }
 
-
 # ============================================================
-# 🚀 API Endpoint
+# 🚀 API Endpoint v1.0.0 — Alignment + Reliable Trim Loop
 # ============================================================
 
 @router.post("/")
@@ -2142,13 +2947,15 @@ async def optimize_endpoint(
     extra_keywords: Optional[str] = Form(None),
 ):
     try:
-        _ = use_humanize  # Ignored
+        _ = use_humanize  # ignored
 
         jd_text = (jd_text or "").strip()
         if not jd_text:
             raise HTTPException(status_code=400, detail="jd_text is required.")
 
+        # ─────────────────────────────────────────────
         # Load base resume
+        # ─────────────────────────────────────────────
         raw_tex = ""
         if base_resume_tex is not None:
             tex_bytes = await base_resume_tex.read()
@@ -2160,63 +2967,131 @@ async def optimize_endpoint(
             default_path = getattr(config, "DEFAULT_BASE_RESUME", None)
             if isinstance(default_path, (str, bytes)):
                 default_path = Path(default_path)
-            if not default_path or not isinstance(default_path, Path) or not default_path.exists():
+            if not default_path or not default_path.exists():
                 raise HTTPException(status_code=500, detail="Default base resume not found")
+
             raw_tex = default_path.read_text(encoding="utf-8")
             log_event(f"📄 Using default base: {default_path}")
 
         target_company, target_role = await extract_company_role(jd_text)
+        safe_company = safe_filename(target_company)
+        safe_role    = safe_filename(target_role)
 
+        # ─────────────────────────────────────────────
+        # Run optimizer
+        # ─────────────────────────────────────────────
         optimized_tex, info = await optimize_resume(
-            raw_tex, jd_text,
+            raw_tex,
+            jd_text,
             target_company=target_company,
             target_role=target_role,
             extra_keywords=extra_keywords,
         )
 
-        safe_company = safe_filename(target_company)
-        safe_role = safe_filename(target_role)
-
-        # Compile OPTIMIZED PDF
+        # ─────────────────────────────────────────────
+        # Compile helper
+        # ─────────────────────────────────────────────
         cur_tex = optimized_tex
-        final_tex = render_final_tex(cur_tex)
 
-        try:
-            pdf_bytes_optimized = compile_latex_safely(final_tex)
-            if not pdf_bytes_optimized:
+        def _compile(tex_str: str) -> bytes:
+            rendered = render_final_tex(tex_str)
+            try:
+                result = compile_latex_safely(rendered)
+            except Exception as exc:
                 debug_path = Path(f"/tmp/debug_failed_{safe_company}_{safe_role}.tex")
-                debug_path.write_text(final_tex, encoding="utf-8")
-                raise HTTPException(status_code=500, detail="LaTeX compilation failed.")
-        except HTTPException:
-            raise
-        except Exception as e:
-            debug_path = Path(f"/tmp/debug_failed_{safe_company}_{safe_role}.tex")
-            debug_path.write_text(final_tex, encoding="utf-8")
-            raise HTTPException(status_code=500, detail=f"LaTeX compilation failed: {str(e)}")
+                debug_path.write_text(rendered, encoding="utf-8")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"LaTeX compilation failed: {exc}",
+                )
+            if not result:
+                raise HTTPException(
+                    status_code=500,
+                    detail="LaTeX compilation produced empty output.",
+                )
+            return result
 
-        # Trim if needed
-        cur_pdf_bytes = pdf_bytes_optimized
-        pages = _pdf_page_count(cur_pdf_bytes)
-        trim_count = 0
-        MAX_TRIMS = 50
+        # ─────────────────────────────────────────────
+        # Initial compile
+        # ─────────────────────────────────────────────
+        cur_pdf       = _compile(cur_tex)
+        initial_pages = _pdf_page_count(cur_pdf)
 
-        while pages > 1 and trim_count < MAX_TRIMS:
-            cur_tex, removed = remove_one_achievement_bullet(cur_tex)
+        # ─────────────────────────────────────────────
+        # Trim loop
+        # ─────────────────────────────────────────────
+        MAX_TRIMS        = 60
+        trim_count       = 0
+        no_shrink_streak = 0
+        prev_pdf_size    = len(cur_pdf)
+
+        while trim_count < MAX_TRIMS:
+            pages = _pdf_page_count(cur_pdf)
+            if pages <= 1:
+                break
+
+            new_tex, removed = remove_one_achievement_bullet(cur_tex)
+
             if not removed:
-                cur_tex, removed = remove_last_bullet_from_sections(cur_tex, ("Projects", "Experience"))
+                new_tex, removed = remove_last_bullet_from_sections(
+                    cur_tex, ("Experience",)
+                )
+
             if not removed:
                 break
+
+            try:
+                new_pdf = _compile(new_tex)
+            except HTTPException:
+                break
+
             trim_count += 1
-            final_tex = render_final_tex(cur_tex)
-            cur_pdf_bytes = compile_latex_safely(final_tex)
-            pages = _pdf_page_count(cur_pdf_bytes)
+            new_size = len(new_pdf)
+
+            if new_size >= prev_pdf_size:
+                no_shrink_streak += 1
+                if no_shrink_streak >= 4:
+                    cur_tex = new_tex
+                    cur_pdf = new_pdf
+                    break
+            else:
+                no_shrink_streak = 0
+
+            cur_tex       = new_tex
+            cur_pdf       = new_pdf
+            prev_pdf_size = new_size
+
+        final_pages = _pdf_page_count(cur_pdf)
 
         optimized_tex_final = cur_tex
-        pdf_bytes_optimized = cur_pdf_bytes
-        coverage = info["coverage"]
+        pdf_bytes_optimized = cur_pdf
+        coverage            = info["coverage"]
 
-        # Save files
-        paths = build_output_paths(target_company, target_role)
+        # ─────────────────────────────────────────────
+        # 🎯 ALIGNMENT CALCULATION (NEW)
+        # ─────────────────────────────────────────────
+        ratio = float(coverage.get("ratio", 0.0))
+        alignment_score = int(round(ratio * 100))
+
+        matched_keywords = coverage.get("present", [])
+        missing_keywords = coverage.get("missing", [])
+
+        confidence_score = round(
+            min(0.99, 0.5 + (ratio * 0.5)),
+            2
+        )
+
+        verdict = (
+            "Excellent Match" if alignment_score >= 80 else
+            "Strong Match" if alignment_score >= 65 else
+            "Good Match" if alignment_score >= 50 else
+            "Needs Improvement"
+        )
+
+        # ─────────────────────────────────────────────
+        # Save PDF
+        # ─────────────────────────────────────────────
+        paths    = build_output_paths(target_company, target_role)
         opt_path = paths["optimized"]
         saved_paths: List[str] = []
 
@@ -2224,62 +3099,74 @@ async def optimize_endpoint(
             opt_path.parent.mkdir(parents=True, exist_ok=True)
             opt_path.write_bytes(pdf_bytes_optimized)
             saved_paths.append(str(opt_path))
-            log_event(f"💾 [SAVE] Optimized → {opt_path}")
 
-        # ✨ UPGRADED: Response includes ideal candidate + bullet plan
-        ideal_candidate_info = info.get("ideal_candidate", {})
-        bullet_plan_info = info.get("bullet_plan", {})
+        # ─────────────────────────────────────────────
+        # Tech mapping
+        # ─────────────────────────────────────────────
+        generic_to_specific_mappings: Dict[str, str] = {}
+        for keyword in info.get("all_keywords", [])[:10]:
+            try:
+                specific_tech = await get_specific_technology(
+                    keyword, context="", block_index=0
+                )
+                generic_to_specific_mappings[keyword] = specific_tech
+            except Exception:
+                generic_to_specific_mappings[keyword] = keyword
 
+        # ─────────────────────────────────────────────
+        # FINAL RESPONSE
+        # ─────────────────────────────────────────────
         return JSONResponse({
+
+            # 🔥 Alignment block for Preview
+            "alignment_score": alignment_score,
+            "alignment_percent": f"{alignment_score}%",
+            "matched_keywords_count": len(matched_keywords),
+            "missing_keywords_count": len(missing_keywords),
+            "confidence_score": confidence_score,
+            "verdict": verdict,
+
+            # Legacy compatibility
+            "eligibility": {
+                "score": ratio,
+                "present": matched_keywords,
+                "missing": missing_keywords,
+                "total": coverage["total"],
+                "verdict": verdict,
+            },
+
             "company_name": target_company,
             "role": target_role,
-            "eligibility": {
-                "score": coverage["ratio"],
-                "present": coverage["present"],
-                "missing": coverage["missing"],
-                "total": coverage["total"],
-                "verdict": (
-                    "Strong fit" if coverage["ratio"] >= 0.7
-                    else "Good fit" if coverage["ratio"] >= 0.5
-                    else "Needs improvement"
-                ),
-            },
-            "company_core": info.get("company_core", {}),
-            # ✨ NEW: Ideal candidate analysis
-            "ideal_candidate": {
-                "profile_summary": ideal_candidate_info.get("ideal_profile_summary", ""),
-                "top_3_must_haves": ideal_candidate_info.get("top_3_must_haves", []),
-                "implicit_requirements": ideal_candidate_info.get("implicit_requirements", []),
-                "differentiation_factors": ideal_candidate_info.get("differentiation_factors", []),
-                "bullet_themes_used": ideal_candidate_info.get("ideal_candidate_bullet_themes", []),
-            },
-            # ✨ NEW: Bullet plan transparency
-            "bullet_plan": {
-                "keyword_bullets_count": len(bullet_plan_info.get("keyword_bullets", [])),
-                "ideal_candidate_bullets_count": len(bullet_plan_info.get("ideal_candidate_bullets", [])),
-                "importance_ranking": bullet_plan_info.get("importance_ranking", []),
-                "keyword_dedup_map": info.get("global_keyword_assignments", {}),
-            },
+
             "optimized": {
                 "tex": render_final_tex(optimized_tex_final),
-                "pdf_b64": base64.b64encode(pdf_bytes_optimized or b"").decode("ascii"),
+                "pdf_b64": base64.b64encode(pdf_bytes_optimized).decode("ascii"),
                 "filename": str(opt_path) if pdf_bytes_optimized else "",
             },
-            "humanized": {"tex": "", "pdf_b64": "", "filename": ""},
+
             "tex_string": render_final_tex(optimized_tex_final),
-            "pdf_base64": base64.b64encode(pdf_bytes_optimized or b"").decode("ascii"),
-            "pdf_base64_humanized": None,
-            "saved_paths": saved_paths,
-            "coverage_ratio": coverage["ratio"],
-            "coverage_present": coverage["present"],
-            "coverage_missing": coverage["missing"],
-            "coverage_history": [],
-            "did_humanize": False,
-            "extra_keywords": info.get("jd_info", {}).get("extra_keywords", []),
+            "pdf_base64": base64.b64encode(pdf_bytes_optimized).decode("ascii"),
+
+            "coverage_ratio": ratio,
+            "coverage_present": matched_keywords,
+            "coverage_missing": missing_keywords,
+
+            "trim_summary": {
+                "items_removed": trim_count,
+                "final_pages": final_pages,
+            },
+
+            "technology_specificity": {
+                "generic_to_specific_mappings": generic_to_specific_mappings,
+                "specific_technologies_used": info.get("specific_technologies_used", []),
+            },
+
             "skills_list": info.get("skills_list", []),
             "unique_numbers_used": info.get("unique_numbers_used", []),
         })
 
+    except HTTPException:
+        raise
     except Exception as e:
         log_event(f"💥 [PIPELINE] Failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
