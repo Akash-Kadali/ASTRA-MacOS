@@ -1,7 +1,7 @@
 # 🌌 **ASTRA v2.0.0**
 
 <p align="center">
-  <img src="https://github.com/Akash-Kadali/ASTRA-MacOS/blob/main/data/test.png" alt="ASTRA Logo" width="700"/>
+  <img src="https://github.com/Akash-Kadali/ASTRA-MacOS/blob/main/data/test2.png" alt="ASTRA Logo" width="700"/>
 </p>
 
 ### *Autonomous System for Talent & Resume Automation*
