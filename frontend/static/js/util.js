@@ -162,7 +162,7 @@ function getCurrentModel() {
   if (fromLS) return fromLS;
   if (window.HIREX?.getCurrentModel) return window.HIREX.getCurrentModel();
   const sel = document.getElementById("model");
-  return (sel && sel.value) || "gpt-4o-mini";
+  return (sel && sel.value) || "gpt-5.4-mini";
 }
 function setCurrentModel(model) {
   if (typeof model === "string" && model.trim()) {

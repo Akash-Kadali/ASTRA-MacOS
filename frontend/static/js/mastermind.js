@@ -68,7 +68,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Restore selector prefs if available
   if (personaSel) personaSel.value = readPref("astra_mm_persona", personaSel.value || "General");
-  if (modelSel)   modelSel.value   = readPref("astra_mm_model",   modelSel.value   || "gpt-4o-mini");
+  if (modelSel)   modelSel.value   = readPref("astra_mm_model",   modelSel.value   || "gpt-5.4-mini");
   if (toneSel)    toneSel.value    = readPref("astra_mm_tone",    toneSel.value    || "balanced");
 
   personaSel?.addEventListener("change", () => persistPref("astra_mm_persona", personaSel.value));
@@ -102,7 +102,7 @@ document.addEventListener("DOMContentLoaded", () => {
         type: "mastermind",
         timestamp: new Date().toISOString(),
         persona: personaSel?.value || "General",
-        model: modelSel?.value || "gpt-4o-mini",
+        model: modelSel?.value || "gpt-5.4-mini",
         ...meta,
       });
       localStorage.setItem("hirex_history", JSON.stringify(history));
@@ -227,7 +227,7 @@ document.addEventListener("DOMContentLoaded", () => {
   ------------------------------------------------------------ */
   const apiStartSession = async ({
     persona = "General",
-    model = "gpt-4o-mini",
+    model = "gpt-5.4-mini",
     purpose = "interactive reasoning",
   } = {}) => {
     const url = `${apiBase}/api/mastermind/start`;
@@ -296,7 +296,7 @@ document.addEventListener("DOMContentLoaded", () => {
     session_id,
     prompt,
     tone = "balanced",
-    model = "gpt-4o-mini",
+    model = "gpt-5.4-mini",
     persona = "General",
     temperature = 0.6,
     use_context = true,
@@ -386,7 +386,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!s) {
       s = await apiStartSession({
         persona: personaSel?.value || "General",
-        model: modelSel?.value || "gpt-4o-mini",
+        model: modelSel?.value || "gpt-5.4-mini",
       });
       setCurrent(s.id);
     }
@@ -403,7 +403,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const typing = addTyping();
 
     const persona = personaSel?.value || "General";
-    const model   = modelSel?.value || "gpt-4o-mini";
+    const model   = modelSel?.value || "gpt-5.4-mini";
     const tone    = toneSel?.value || "balanced";
     const useCtx  = useContextEl ? !!useContextEl.checked : true;
 
@@ -469,7 +469,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (newSessionBtn && !newSessionBtn.dataset.mmBound) {
     newSessionBtn.addEventListener("click", async () => {
       const persona = personaSel?.value || "General";
-      const model   = modelSel?.value || "gpt-4o-mini";
+      const model   = modelSel?.value || "gpt-5.4-mini";
       const s = await apiStartSession({ persona, model });
       setCurrent(s.id);
       toast(`🆕 ${s.title} created`);
@@ -503,7 +503,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (!currentId && sessions.length) setCurrent(sessions[0].id);
     if (!sessions.length) {
-      const s = await apiStartSession({ persona: "General", model: "gpt-4o-mini" });
+      const s = await apiStartSession({ persona: "General", model: "gpt-5.4-mini" });
       setCurrent(s.id);
     }
 

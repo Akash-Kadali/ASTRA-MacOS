@@ -119,7 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const fromLS = localStorage.getItem(MODEL_KEY);
       if (fromLS) return fromLS;
       const sel = document.getElementById("model");
-      return (sel && sel.value) || "gpt-4o-mini";
+      return (sel && sel.value) || "gpt-5.4-mini";
     },
     setCurrentModel: (model) => {
       if (typeof model === "string" && model.trim()) {

@@ -55,7 +55,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const getActiveModel = () =>
     localStorage.getItem("hirex_model") ||
     (typeof RT.getCurrentModel === "function" ? RT.getCurrentModel() : "") ||
-    "gpt-4o-mini";
+    "gpt-5.4-mini";
 
   const disableForm = (state) => {
     if (!form) return;
