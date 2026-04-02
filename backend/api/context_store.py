@@ -260,7 +260,7 @@ async def save_context(
         "company": company,
         "role": role,
         "jd_text": jd_text,
-        "model": model or getattr(config, "DEFAULT_MODEL", "gpt-4o-mini"),
+        "model": model or getattr(config, "DEFAULT_MODEL", "gpt-5.4-mini"),
         "fit_score": fit_score,
         "title_for_memory": f"{safe_filename(company)}_{safe_filename(role)}_{_nowstamp()}",
     }

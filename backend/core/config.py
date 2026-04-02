@@ -116,7 +116,7 @@ DEBUG_MODE = _getenv_clean("DEBUG", "true").lower() == "true"
 MAX_UPLOAD_MB = int(_getenv_clean("MAX_UPLOAD_MB", "5"))
 ALLOWED_EXTENSIONS = {".tex", ".txt"}
 
-DEFAULT_MODEL = _getenv_clean("DEFAULT_MODEL", "gpt-4o-mini")
+DEFAULT_MODEL = _getenv_clean("DEFAULT_MODEL", "gpt-5.4-mini")
 API_BASE_URL = _getenv_clean("API_BASE_URL", "http://127.0.0.1:8000")
 
 CANDIDATE_NAME = _getenv_clean("CANDIDATE_NAME", "Sri Akash Kadali")
@@ -213,7 +213,7 @@ MASTERMINDS_MODEL = _getenv_clean("MASTERMINDS_MODEL", DEFAULT_MODEL)
 SUPERHUMAN_LOCAL_ENABLED = _getenv_clean("SUPERHUMAN_LOCAL_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 SUPERHUMAN_MODEL = _getenv_clean("SUPERHUMAN_MODEL", DEFAULT_MODEL)
 COVERLETTER_MODEL = _getenv_clean("COVERLETTER_MODEL", DEFAULT_MODEL)
-TALK_SUMMARY_MODEL = _getenv_clean("TALK_SUMMARY_MODEL", "gpt-4o-mini")
+TALK_SUMMARY_MODEL = _getenv_clean("TALK_SUMMARY_MODEL", "gpt-5.4-mini")
 TALK_ANSWER_MODEL = _getenv_clean("TALK_ANSWER_MODEL", DEFAULT_MODEL)
 
 
@@ -313,8 +313,9 @@ OPENAI_MODELS = [
     "gpt-5-thinking-mini",
     "gpt-5-thinking-nano",
     "gpt-5-pro",
-    "gpt-4o",
-    "gpt-4o-mini",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
     "o3",
     "o3-mini",
 ]
@@ -326,16 +327,18 @@ MODEL_ALIASES = {
     "GPT-5 Pro": "gpt-5-pro",
     "GPT-5 Mini": "gpt-5-mini",
     "GPT-5 Nano": "gpt-5-nano",
-    "GPT-4o": "gpt-4o",
+    "GPT-5.4": "gpt-5.4",
+    "GPT-5.4 Mini": "gpt-5.4-mini",
+    "GPT-5.4 Nano": "gpt-5.4-nano",
 }
 
 OPENAI_MODEL_PRICING = {
     "gpt-5": {"input": 1.25, "output": 10.00, "cached_input": 0.125},
-    "gpt-5-mini": {"input": 0.25, "output": 2.00, "cached_input": 0.025},
+    "gpt-5.4": {"input": 2.50, "output": 10.00, "cached_input": 0.625},
+    "gpt-5.4-mini": {"input": 0.25, "output": 2.00, "cached_input": 0.025},
+    "gpt-5.4-nano": {"input": 0.05, "output": 0.40, "cached_input": 0.005},
     "gpt-5-nano": {"input": 0.05, "output": 0.40, "cached_input": 0.005},
     "gpt-5-pro": {"input": 15.00, "output": 120.00},
-    "gpt-4o": {"input": 5.00, "output": 15.00},
-    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
     "o3": {"input": 1.10, "output": 4.40},
     "o3-mini": {"input": 0.60, "output": 2.50},
 }

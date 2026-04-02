@@ -1,21 +1,28 @@
 """
 ============================================================
- HIREX v1.0.0 — talk.py (ULTIMATE KILLER ANSWERS)
+ HIREX v2.0.0 — talk.py (ULTIMATE KILLER ANSWERS)
  ------------------------------------------------------------
- MAJOR UPGRADES:
- - Anti-hallucination grounding with resume fact verification
- - Answer quality scoring (specificity, relevance, hook strength)
- - Skill gap analysis with honest addressing strategies
- - Interview stage awareness (recruiter vs technical vs final)
- - Follow-up question prediction
- - Red flag detection and proactive addressing
- - Personal brand/theme consistency
- - Multi-answer session consistency
- - Company-specific question bank
- - Behavioral STAR enforcement
- - Salary/negotiation intelligence
- - Output quality validation before returning
- - CGPA/GPA filtering to ensure academic metrics are never mentioned
+ FIXES vs v1.0.0:
+ - Model names: gpt-5.4-mini → gpt-4o-mini (actual model)
+ - _score_length: fixed unreachable code after early return
+ - CGPA filter: consolidated from 6 redundant calls to 1 final gate
+ - _SESSION_FACTS: now actually used for cross-question consistency
+ - humanize_answer: self-contained GPT rewrite (no internal API dependency)
+ - secure_tex_input: fixed call signature
+ - log_event: normalized to single-dict signature
+ - Quality scorer weights: now sum to exactly 1.0
+ - Retry logic: 2 retries with backoff on OpenAI calls
+
+ UPGRADES:
+ - Deep JD customization: extracts JD-specific challenges, terminology,
+   team context, and weaves them into every answer
+ - JD responsibility mirroring: answers directly address JD duties
+ - STAR enforcement: behavioral answers forced into STAR structure
+ - Dynamic company intel: GPT fallback for unknown companies
+ - Answer dedup: session-level tracking prevents repetitive answers
+ - Stronger quality loop: up to 3 iterations with targeted rewrites
+ - JD keyword density check: ensures answers contain JD terms
+ - Role-specific calibration: adjusts depth/tone per role level
 
  Author: Sri Akash Kadali
 ============================================================
@@ -28,6 +35,7 @@ import re
 import time
 import random
 import hashlib
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple, List, Set
@@ -52,149 +60,77 @@ openai_client = AsyncOpenAI(api_key=getattr(config, "OPENAI_API_KEY", "")) if As
 CONTEXT_DIR: Path = config.get_contexts_dir()
 ensure_dir(CONTEXT_DIR)
 
+# v2.0.0 FIX: Use actual model names
 SUMMARIZER_MODEL = getattr(config, "TALK_SUMMARY_MODEL", "gpt-4o-mini")
 ANSWER_MODEL = getattr(config, "TALK_ANSWER_MODEL", "gpt-4o-mini")
 CHAT_SAFE_DEFAULT = getattr(config, "DEFAULT_MODEL", "gpt-4o-mini")
 
-# Session-level fact store for consistency across multiple questions
+# Session-level stores for cross-question consistency
 _SESSION_FACTS: Dict[str, Dict[str, Any]] = {}
 _SESSION_ANSWERS: Dict[str, List[Dict[str, Any]]] = {}
+_SESSION_USED_ACHIEVEMENTS: Dict[str, Set[str]] = {}
 
 
 # ============================================================
-# 🚫 CGPA/GPA FILTERING SYSTEM
+# 🚫 CGPA/GPA FILTERING (consolidated, single-pass)
 # ============================================================
 
-# Patterns to detect and remove CGPA/GPA mentions
-CGPA_PATTERNS = [
-    r'\b[Cc][Gg][Pp][Aa]\s*[:\-]?\s*\d+\.?\d*\s*/?\s*\d*\.?\d*',  # CGPA: 3.8/4.0, CGPA 3.8
-    r'\b[Gg][Pp][Aa]\s*[:\-]?\s*\d+\.?\d*\s*/?\s*\d*\.?\d*',      # GPA: 3.8/4.0, GPA 3.8
-    r'\b\d+\.?\d*\s*/?\s*4\.0?\s*[Cc]?[Gg][Pp][Aa]',              # 3.8/4.0 CGPA, 3.8 GPA
-    r'\b[Cc]umulative\s+[Gg][Pp][Aa]\s*[:\-]?\s*\d+\.?\d*',       # Cumulative GPA: 3.8
-    r'\bgrade\s+point\s+average\s*[:\-]?\s*\d+\.?\d*',            # grade point average: 3.8
-    r'\bwith\s+a\s+[Cc]?[Gg][Pp][Aa]\s+of\s+\d+\.?\d*',           # with a CGPA of 3.8
-    r'\b[Cc]?[Gg][Pp][Aa]\s+of\s+\d+\.?\d*',                      # CGPA of 3.8
-    r'\bmaintained\s+a\s+\d+\.?\d*\s*[Cc]?[Gg][Pp][Aa]',          # maintained a 3.8 GPA
-    r'\bachieved\s+a\s+\d+\.?\d*\s*[Cc]?[Gg][Pp][Aa]',            # achieved a 3.8 GPA
-    r'\bgraduated\s+with\s+\d+\.?\d*\s*[Cc]?[Gg][Pp][Aa]',        # graduated with 3.8 GPA
-    r'\b\d+\.?\d*\s+out\s+of\s+4\.0',                              # 3.8 out of 4.0
-    r'\bsumma\s+cum\s+laude',                                      # summa cum laude
-    r'\bmagna\s+cum\s+laude',                                      # magna cum laude
-    r'\bcum\s+laude',                                              # cum laude
-    r'\bhonors?\s+graduate',                                       # honors graduate
-    r'\bDean\'?s\s+[Ll]ist',                                       # Dean's List
-    r'\bacademic\s+excellence',                                    # academic excellence
-    r'\bfirst\s+class\s+honors?',                                  # first class honors
-    r'\bsecond\s+class\s+honors?',                                 # second class honors
-    r'\bdistinction\s+in\s+academics?',                            # distinction in academics
-]
+_CGPA_RX = re.compile(
+    r"""
+    \b[Cc]?[Gg][Pp][Aa]\s*[:\-]?\s*\d+\.?\d*\s*/?\s*\d*\.?\d*  |
+    \b\d+\.?\d*\s*/?\s*4\.0?\s*[Cc]?[Gg][Pp][Aa]                |
+    \b[Cc]umulative\s+[Gg][Pp][Aa]\s*[:\-]?\s*\d+\.?\d*          |
+    \bgrade\s+point\s+average\s*[:\-]?\s*\d+\.?\d*               |
+    \bwith\s+a\s+[Cc]?[Gg][Pp][Aa]\s+of\s+\d+\.?\d*             |
+    \b[Cc]?[Gg][Pp][Aa]\s+of\s+\d+\.?\d*                        |
+    \b(maintained|achieved|graduated\s+with)\s+a?\s*\d+\.?\d*\s*[Cc]?[Gg][Pp][Aa] |
+    \b\d+\.?\d*\s+out\s+of\s+4\.0                                |
+    \bsumma\s+cum\s+laude|\bmagna\s+cum\s+laude|\bcum\s+laude    |
+    \bhonors?\s+graduate|\bDean'?s\s+[Ll]ist                     |
+    \bacademic\s+excellence|\bfirst\s+class\s+honors?            |
+    \bsecond\s+class\s+honors?|\bdistinction\s+in\s+academics?
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
 
-# Words/phrases that indicate academic achievement context (for sentence-level filtering)
-ACADEMIC_ACHIEVEMENT_INDICATORS = [
-    'cgpa', 'gpa', 'grade point', 'dean\'s list', 'cum laude', 'honors graduate',
-    'academic excellence', 'first class', 'second class', 'distinction',
-    'graduated with', 'academic achievement', 'scholastic', 'valedictorian',
-    'salutatorian', 'class rank', 'top of class', 'academic standing'
-]
+_ACADEMIC_INDICATORS = frozenset({
+    "cgpa", "gpa", "grade point", "dean's list", "cum laude",
+    "honors graduate", "academic excellence", "first class",
+    "second class", "distinction", "valedictorian", "salutatorian",
+    "class rank", "top of class", "academic standing", "scholastic",
+})
 
 
-def filter_cgpa_from_text(text: str) -> str:
-    """
-    Remove all CGPA/GPA mentions and academic achievement references from text.
-    This is a critical filter to ensure interview answers don't include academic metrics.
-    """
+def _strip_cgpa(text: str) -> str:
+    """Single-pass CGPA/GPA removal + sentence-level filter."""
     if not text:
         return text
-    
-    filtered = text
-    
-    # Apply regex patterns to remove CGPA/GPA mentions
-    for pattern in CGPA_PATTERNS:
-        filtered = re.sub(pattern, '', filtered, flags=re.IGNORECASE)
-    
-    # Clean up any resulting double spaces or awkward punctuation
-    filtered = re.sub(r'\s{2,}', ' ', filtered)
-    filtered = re.sub(r'\s+([,.])', r'\1', filtered)
-    filtered = re.sub(r'([,.])\s*([,.])', r'\1', filtered)
-    filtered = re.sub(r'^\s*[,.]', '', filtered)
-    filtered = re.sub(r'[,.]\s*$', '.', filtered)
-    
-    return filtered.strip()
+    # Regex pass
+    out = _CGPA_RX.sub("", text)
+    # Sentence-level pass
+    sentences = re.split(r"(?<=[.!?])\s+", out)
+    kept = [s for s in sentences
+            if not any(ind in s.lower() for ind in _ACADEMIC_INDICATORS)]
+    out = " ".join(kept)
+    # Cleanup artifacts
+    out = re.sub(r"\s{2,}", " ", out)
+    out = re.sub(r"\s+([,.])", r"\1", out)
+    out = re.sub(r"([,.])\s*([,.])", r"\1", out)
+    return out.strip()
 
 
-def filter_cgpa_from_sentences(text: str) -> str:
-    """
-    Remove entire sentences that mention CGPA/GPA or academic achievements.
-    More aggressive filtering for cleaner output.
-    """
-    if not text:
-        return text
-    
-    # Split into sentences
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    filtered_sentences = []
-    
-    for sentence in sentences:
-        sentence_lower = sentence.lower()
-        # Check if sentence contains any academic achievement indicators
-        contains_academic = any(indicator in sentence_lower for indicator in ACADEMIC_ACHIEVEMENT_INDICATORS)
-        
-        if not contains_academic:
-            filtered_sentences.append(sentence)
-        else:
-            # Log that we filtered something
-            log_event("cgpa_sentence_filtered", {"filtered_sentence": sentence[:100]})
-    
-    result = ' '.join(filtered_sentences)
-    
-    # Final cleanup
-    result = re.sub(r'\s{2,}', ' ', result)
-    
-    return result.strip()
-
-
-def validate_no_cgpa(text: str) -> Tuple[bool, List[str]]:
-    """
-    Validate that text contains no CGPA/GPA mentions.
-    Returns (is_valid, list_of_violations).
-    """
+def _validate_no_cgpa(text: str) -> Tuple[bool, List[str]]:
     violations = []
-    text_lower = text.lower()
-    
-    # Check for any academic indicators
-    for indicator in ACADEMIC_ACHIEVEMENT_INDICATORS:
-        if indicator in text_lower:
-            violations.append(f"Found '{indicator}' in text")
-    
-    # Check regex patterns
-    for pattern in CGPA_PATTERNS:
-        matches = re.findall(pattern, text, flags=re.IGNORECASE)
-        if matches:
-            violations.extend([f"Pattern match: {m}" for m in matches])
-    
+    tl = text.lower()
+    for ind in _ACADEMIC_INDICATORS:
+        if ind in tl:
+            violations.append(ind)
+    violations.extend(m.group() for m in _CGPA_RX.finditer(text))
     return len(violations) == 0, violations
 
 
-def sanitize_resume_for_talk(resume_text: str) -> str:
-    """
-    Sanitize resume text before using it for talk answers.
-    Removes CGPA/GPA and academic achievements to prevent them from appearing in answers.
-    """
-    if not resume_text:
-        return resume_text
-    
-    # First pass: remove specific patterns
-    sanitized = filter_cgpa_from_text(resume_text)
-    
-    # Second pass: remove sentences mentioning academics (optional, more aggressive)
-    # Uncomment the next line for more aggressive filtering:
-    # sanitized = filter_cgpa_from_sentences(sanitized)
-    
-    return sanitized
-
-
 # ============================================================
-# 🏢 COMPREHENSIVE COMPANY INTELLIGENCE DATABASE
+# 🏢 COMPANY INTELLIGENCE (static + GPT fallback)
 # ============================================================
 
 COMPANY_INTELLIGENCE = {
@@ -206,7 +142,7 @@ COMPANY_INTELLIGENCE = {
             "Talk about IMPACT, not just tasks",
             "Show data-driven thinking with metrics",
             "Demonstrate ownership and autonomy",
-            "Reference experimentation and iteration"
+            "Reference experimentation and iteration",
         ],
         "insider_terms": ["member experience", "title discovery", "personalization at scale"],
         "avoid_saying": ["I follow instructions well", "I'm a team player", "I'm passionate"],
@@ -214,17 +150,17 @@ COMPANY_INTELLIGENCE = {
             "Tell me about a time you made a data-driven decision",
             "Describe a situation where you took ownership",
             "How do you handle ambiguity?",
-            "Tell me about a time you disagreed with your manager"
+            "Tell me about a time you disagreed with your manager",
         ],
         "interview_stages": {
             "recruiter": "Focus on culture fit and high-level experience",
             "technical": "Deep dive into systems design and ML expertise",
             "hiring_manager": "Ownership examples and impact stories",
-            "final": "Leadership alignment and long-term vision"
+            "final": "Leadership alignment and long-term vision",
         },
         "salary_range": {"entry": "$150k-$200k", "mid": "$200k-$350k", "senior": "$350k-$600k+"},
         "competitors": ["Disney+", "HBO Max", "Amazon Prime Video", "Apple TV+"],
-        "why_not_competitors": "Netflix's experimentation culture and engineering autonomy is unmatched"
+        "why_not_competitors": "Netflix's experimentation culture and engineering autonomy is unmatched",
     },
     "google": {
         "what_they_value": ["technical excellence", "scalability thinking", "user impact", "10x improvements"],
@@ -234,7 +170,7 @@ COMPANY_INTELLIGENCE = {
             "Structured problem-solving approach",
             "Scalability and efficiency thinking",
             "Concrete technical depth",
-            "User-centric impact framing"
+            "User-centric impact framing",
         ],
         "insider_terms": ["OKRs", "launch and iterate", "10x improvement", "Noogler"],
         "avoid_saying": ["I work hard", "I'm detail-oriented", "I'm a fast learner"],
@@ -242,17 +178,17 @@ COMPANY_INTELLIGENCE = {
             "Tell me about a technically challenging problem you solved",
             "How would you design X system?",
             "Tell me about a time you improved something by 10x",
-            "How do you prioritize when everything is important?"
+            "How do you prioritize when everything is important?",
         ],
         "interview_stages": {
             "recruiter": "Googleyness assessment and experience overview",
             "technical": "Coding, system design, and ML depth",
             "hiring_manager": "Leadership and collaboration examples",
-            "final": "Team match and culture fit"
+            "final": "Team match and culture fit",
         },
         "salary_range": {"entry": "$140k-$180k", "mid": "$200k-$400k", "senior": "$400k-$800k+"},
         "competitors": ["Microsoft", "Meta", "Amazon", "Apple"],
-        "why_not_competitors": "Google's technical challenges and AI leadership are unparalleled"
+        "why_not_competitors": "Google's technical challenges and AI leadership are unparalleled",
     },
     "meta": {
         "what_they_value": ["move fast", "impact metrics", "product sense", "bold thinking"],
@@ -262,7 +198,7 @@ COMPANY_INTELLIGENCE = {
             "Quantified impact with specific metrics",
             "Move fast mentality with examples",
             "Product intuition demonstrated",
-            "Scale of systems you've worked on"
+            "Scale of systems you've worked on",
         ],
         "insider_terms": ["family of apps", "integrity systems", "social impact", "Bootcamp"],
         "avoid_saying": ["I'm careful and methodical", "I double-check everything", "I prefer stability"],
@@ -270,17 +206,17 @@ COMPANY_INTELLIGENCE = {
             "Tell me about your biggest impact",
             "How do you make decisions with incomplete data?",
             "Describe a time you moved fast and broke things",
-            "How do you measure success?"
+            "How do you measure success?",
         ],
         "interview_stages": {
             "recruiter": "Impact stories and culture fit",
             "technical": "Coding and system design at scale",
             "hiring_manager": "Product sense and leadership",
-            "final": "Executive alignment"
+            "final": "Executive alignment",
         },
         "salary_range": {"entry": "$140k-$180k", "mid": "$200k-$400k", "senior": "$400k-$700k+"},
         "competitors": ["Google", "TikTok", "Snap", "Twitter/X"],
-        "why_not_competitors": "Meta's scale of impact and bold technical bets are unique"
+        "why_not_competitors": "Meta's scale of impact and bold technical bets are unique",
     },
     "amazon": {
         "what_they_value": ["customer obsession", "ownership", "bias for action", "dive deep", "deliver results"],
@@ -290,7 +226,7 @@ COMPANY_INTELLIGENCE = {
             "STAR format with specific metrics",
             "Leadership principles alignment",
             "Customer impact examples",
-            "Ownership and accountability stories"
+            "Ownership and accountability stories",
         ],
         "insider_terms": ["PR/FAQ", "6-pager", "bar raiser", "Day 1 mentality", "mechanisms", "working backwards"],
         "avoid_saying": ["That's not my job", "I waited for direction", "I delegated"],
@@ -298,17 +234,17 @@ COMPANY_INTELLIGENCE = {
             "Tell me about a time you went above and beyond for a customer",
             "Describe a situation where you had to dive deep",
             "Tell me about a time you disagreed and committed",
-            "How do you handle competing priorities?"
+            "How do you handle competing priorities?",
         ],
         "interview_stages": {
             "recruiter": "LP screening and experience fit",
             "technical": "Coding and system design",
             "loop": "Multiple LP-focused behavioral rounds",
-            "bar_raiser": "Cross-team culture assessment"
+            "bar_raiser": "Cross-team culture assessment",
         },
         "salary_range": {"entry": "$130k-$170k", "mid": "$180k-$350k", "senior": "$350k-$600k+"},
         "competitors": ["Google Cloud", "Microsoft Azure", "Walmart", "Shopify"],
-        "why_not_competitors": "Amazon's customer obsession and ownership culture drive real impact"
+        "why_not_competitors": "Amazon's customer obsession and ownership culture drive real impact",
     },
     "microsoft": {
         "what_they_value": ["growth mindset", "customer empathy", "collaboration", "inclusive culture"],
@@ -318,7 +254,7 @@ COMPANY_INTELLIGENCE = {
             "Growth mindset examples with learning",
             "Collaboration across teams",
             "Customer impact stories",
-            "Responsible AI awareness"
+            "Responsible AI awareness",
         ],
         "insider_terms": ["growth mindset", "customer zero", "inclusive design", "One Microsoft"],
         "avoid_saying": ["I already know everything", "I work best alone", "I avoid ambiguity"],
@@ -326,17 +262,17 @@ COMPANY_INTELLIGENCE = {
             "Tell me about a time you learned from failure",
             "How do you collaborate with difficult stakeholders?",
             "Describe your approach to inclusive design",
-            "How do you balance innovation with responsibility?"
+            "How do you balance innovation with responsibility?",
         ],
         "interview_stages": {
             "recruiter": "Growth mindset and culture fit",
             "technical": "Coding and system design",
             "hiring_manager": "Collaboration and customer focus",
-            "final": "As-appropriate leadership"
+            "final": "As-appropriate leadership",
         },
         "salary_range": {"entry": "$130k-$170k", "mid": "$180k-$350k", "senior": "$350k-$600k+"},
         "competitors": ["Google", "Amazon", "Salesforce", "Oracle"],
-        "why_not_competitors": "Microsoft's growth mindset culture and AI leadership momentum"
+        "why_not_competitors": "Microsoft's growth mindset culture and AI leadership momentum",
     },
     "apple": {
         "what_they_value": ["attention to detail", "user privacy", "craftsmanship", "simplicity"],
@@ -346,7 +282,7 @@ COMPANY_INTELLIGENCE = {
             "Design thinking and user empathy",
             "Privacy-first approach",
             "Quality over speed examples",
-            "Attention to detail stories"
+            "Attention to detail stories",
         ],
         "insider_terms": ["DRI", "surprise and delight", "it just works", "top 100"],
         "avoid_saying": ["Good enough is fine", "Users don't care about details", "Move fast and break things"],
@@ -354,17 +290,45 @@ COMPANY_INTELLIGENCE = {
             "Tell me about a time you obsessed over details",
             "How do you balance user experience with technical constraints?",
             "Describe your approach to privacy",
-            "Tell me about something you're proud of building"
+            "Tell me about something you're proud of building",
         ],
         "interview_stages": {
             "recruiter": "Culture fit and experience",
             "technical": "Deep technical expertise",
             "design": "User empathy and design thinking",
-            "final": "Leadership alignment"
+            "final": "Leadership alignment",
         },
         "salary_range": {"entry": "$140k-$180k", "mid": "$200k-$400k", "senior": "$400k-$700k+"},
         "competitors": ["Google", "Samsung", "Microsoft"],
-        "why_not_competitors": "Apple's commitment to privacy and craftsmanship is unmatched"
+        "why_not_competitors": "Apple's commitment to privacy and craftsmanship is unmatched",
+    },
+    "nvidia": {
+        "what_they_value": ["technical depth", "GPU/CUDA expertise", "performance optimization", "innovation"],
+        "culture_keywords": ["Speed of Light", "Intellectual Honesty", "One Team", "Innovation"],
+        "tech_strengths": ["GPU Architecture", "CUDA", "TensorRT", "Deep Learning Frameworks", "HPC"],
+        "what_impresses_them": [
+            "Low-level optimization experience",
+            "Understanding of GPU architecture",
+            "Performance benchmarking rigor",
+            "Systems-level thinking",
+        ],
+        "insider_terms": ["CUDA cores", "tensor cores", "TensorRT", "inference optimization", "DGX"],
+        "avoid_saying": ["I prefer high-level abstractions", "Performance doesn't matter", "I avoid hardware details"],
+        "common_questions": [
+            "How would you optimize inference latency?",
+            "Describe your experience with GPU programming",
+            "Tell me about a performance optimization you did",
+            "How do you approach profiling and bottleneck analysis?",
+        ],
+        "interview_stages": {
+            "recruiter": "Technical background and role fit",
+            "technical": "C++/CUDA coding and systems design",
+            "hiring_manager": "Architecture thinking and impact",
+            "final": "Team fit and culture alignment",
+        },
+        "salary_range": {"entry": "$140k-$190k", "mid": "$200k-$400k", "senior": "$400k-$700k+"},
+        "competitors": ["AMD", "Intel", "Google TPU", "Qualcomm"],
+        "why_not_competitors": "NVIDIA's dominance in AI compute and CUDA ecosystem is unmatched",
     },
     "stripe": {
         "what_they_value": ["rigorous thinking", "users first", "writing quality", "long-term orientation"],
@@ -374,7 +338,7 @@ COMPANY_INTELLIGENCE = {
             "Clear, rigorous thinking",
             "Developer empathy examples",
             "Long-term technical decisions",
-            "Writing and communication quality"
+            "Writing and communication quality",
         ],
         "insider_terms": ["increase GDP of internet", "payment rails", "developer love"],
         "avoid_saying": ["I prefer quick wins", "Documentation is boring", "I focus on short-term"],
@@ -382,73 +346,17 @@ COMPANY_INTELLIGENCE = {
             "Walk me through a complex technical decision",
             "How do you think about API design?",
             "Tell me about a time you prioritized long-term over short-term",
-            "How do you communicate technical concepts?"
+            "How do you communicate technical concepts?",
         ],
         "interview_stages": {
             "recruiter": "Writing sample and culture fit",
             "technical": "System design and coding",
             "work_sample": "Take-home or pair programming",
-            "final": "Team and leadership fit"
+            "final": "Team and leadership fit",
         },
         "salary_range": {"entry": "$150k-$200k", "mid": "$220k-$400k", "senior": "$400k-$650k+"},
         "competitors": ["Square", "Adyen", "Braintree", "Plaid"],
-        "why_not_competitors": "Stripe's developer-first culture and rigorous thinking"
-    },
-    "airbnb": {
-        "what_they_value": ["mission alignment", "customer empathy", "design-driven", "belonging"],
-        "culture_keywords": ["Belong Anywhere", "Champion the Mission", "Be a Host", "Embrace Adventure"],
-        "tech_strengths": ["Search & Ranking", "Pricing Algorithms", "Trust & Safety", "Payments"],
-        "what_impresses_them": [
-            "Mission and purpose alignment",
-            "Customer/user empathy stories",
-            "Creative problem-solving",
-            "Design-thinking approach"
-        ],
-        "insider_terms": ["belonging", "host community", "guest journey", "Airbnb it"],
-        "avoid_saying": ["I'm purely technical", "I don't care about mission", "Users are just data points"],
-        "common_questions": [
-            "Why does our mission resonate with you?",
-            "Tell me about a time you advocated for the user",
-            "How do you balance host and guest needs?",
-            "Describe a creative solution you developed"
-        ],
-        "interview_stages": {
-            "recruiter": "Mission alignment and culture",
-            "technical": "System design and coding",
-            "cross-functional": "Design and product collaboration",
-            "final": "Leadership and values"
-        },
-        "salary_range": {"entry": "$140k-$180k", "mid": "$200k-$380k", "senior": "$380k-$600k+"},
-        "competitors": ["Booking.com", "VRBO", "Hotels.com"],
-        "why_not_competitors": "Airbnb's mission of belonging and design-driven culture"
-    },
-    "uber": {
-        "what_they_value": ["systems thinking", "marketplace understanding", "reliability at scale", "data-driven"],
-        "culture_keywords": ["Build Globally", "Act Like Owners", "Persevere", "Celebrate Differences"],
-        "tech_strengths": ["Marketplace Optimization", "ETA Prediction", "Route Optimization", "Fraud Detection"],
-        "what_impresses_them": [
-            "Systems and marketplace thinking",
-            "Reliability and scale examples",
-            "Data-driven decision making",
-            "Impact metrics at scale"
-        ],
-        "insider_terms": ["marketplace balance", "rider experience", "driver earnings", "surge"],
-        "avoid_saying": ["I prefer simple problems", "Scale doesn't matter to me", "I avoid complexity"],
-        "common_questions": [
-            "How would you optimize a two-sided marketplace?",
-            "Tell me about a system you built for reliability",
-            "How do you make decisions with conflicting metrics?",
-            "Describe a time you solved a complex systems problem"
-        ],
-        "interview_stages": {
-            "recruiter": "Experience and culture fit",
-            "technical": "System design and marketplace thinking",
-            "coding": "Algorithmic problem-solving",
-            "final": "Leadership and team fit"
-        },
-        "salary_range": {"entry": "$140k-$180k", "mid": "$200k-$380k", "senior": "$380k-$550k+"},
-        "competitors": ["Lyft", "DoorDash", "Instacart"],
-        "why_not_competitors": "Uber's global scale and marketplace complexity"
+        "why_not_competitors": "Stripe's developer-first culture and rigorous thinking",
     },
     "databricks": {
         "what_they_value": ["technical excellence", "open source contribution", "customer impact", "data passion"],
@@ -458,7 +366,7 @@ COMPANY_INTELLIGENCE = {
             "Deep technical expertise",
             "Open source appreciation/contribution",
             "Data architecture experience",
-            "Customer-facing technical work"
+            "Customer-facing technical work",
         ],
         "insider_terms": ["Lakehouse", "Delta Lake", "data + AI", "open source", "Unity Catalog"],
         "avoid_saying": ["I prefer proprietary tools", "Open source is risky", "I avoid customer interaction"],
@@ -466,105 +374,21 @@ COMPANY_INTELLIGENCE = {
             "How would you design a data lakehouse?",
             "Tell me about your open source contributions",
             "How do you approach data quality at scale?",
-            "Describe a complex data architecture you built"
+            "Describe a complex data architecture you built",
         ],
         "interview_stages": {
             "recruiter": "Technical background and culture",
             "technical": "Data architecture and Spark expertise",
             "system_design": "Lakehouse and ML infrastructure",
-            "final": "Customer focus and team fit"
+            "final": "Customer focus and team fit",
         },
         "salary_range": {"entry": "$150k-$200k", "mid": "$220k-$400k", "senior": "$400k-$600k+"},
         "competitors": ["Snowflake", "AWS", "Google BigQuery"],
-        "why_not_competitors": "Databricks' open source DNA and unified data + AI platform"
+        "why_not_competitors": "Databricks' open source DNA and unified data + AI platform",
     },
-    "snowflake": {
-        "what_they_value": ["engineering excellence", "customer focus", "big thinking", "integrity"],
-        "culture_keywords": ["Put Customers First", "Integrity Always", "Think Big", "Be Excellent"],
-        "tech_strengths": ["Data Cloud", "Data Sharing", "Snowpark", "Data Marketplace"],
-        "what_impresses_them": [
-            "Technical excellence examples",
-            "Customer success stories",
-            "Big thinking and ambition",
-            "Performance optimization experience"
-        ],
-        "insider_terms": ["Data Cloud", "Snowpark", "data sharing economy", "zero-copy cloning"],
-        "avoid_saying": ["Small improvements are fine", "Customers are annoying", "Good enough works"],
-        "common_questions": [
-            "How would you optimize query performance at scale?",
-            "Tell me about a time you helped a customer succeed",
-            "How do you approach data governance?",
-            "Describe your most ambitious technical project"
-        ],
-        "interview_stages": {
-            "recruiter": "Experience and culture fit",
-            "technical": "Database internals and performance",
-            "system_design": "Data architecture at scale",
-            "final": "Customer focus and values"
-        },
-        "salary_range": {"entry": "$150k-$200k", "mid": "$220k-$400k", "senior": "$400k-$600k+"},
-        "competitors": ["Databricks", "AWS Redshift", "Google BigQuery"],
-        "why_not_competitors": "Snowflake's engineering excellence and data sharing vision"
-    },
-    "linkedin": {
-        "what_they_value": ["member value", "relationships", "data-driven", "inclusive culture"],
-        "culture_keywords": ["Members First", "Relationships Matter", "Be Open Honest Constructive", "Act Like Owner"],
-        "tech_strengths": ["Feed Ranking", "Job Matching", "Graph Systems", "Economic Graph"],
-        "what_impresses_them": [
-            "Member/user empathy examples",
-            "Data-driven decision making",
-            "Collaboration stories",
-            "Scale and impact metrics"
-        ],
-        "insider_terms": ["economic graph", "member value", "professional identity", "InDay"],
-        "avoid_saying": ["Users are just metrics", "I work alone", "Data doesn't matter"],
-        "common_questions": [
-            "How would you improve job matching?",
-            "Tell me about a time you improved member experience",
-            "How do you balance engagement with member value?",
-            "Describe a data-driven decision you made"
-        ],
-        "interview_stages": {
-            "recruiter": "Culture fit and experience",
-            "technical": "Coding and system design",
-            "hiring_manager": "Member focus and collaboration",
-            "final": "Values alignment"
-        },
-        "salary_range": {"entry": "$140k-$180k", "mid": "$200k-$380k", "senior": "$380k-$550k+"},
-        "competitors": ["Indeed", "Glassdoor", "ZipRecruiter"],
-        "why_not_competitors": "LinkedIn's professional graph and member-first culture"
-    },
-    "spotify": {
-        "what_they_value": ["innovation", "collaboration", "user empathy", "autonomy"],
-        "culture_keywords": ["Innovative", "Collaborative", "Sincere", "Passionate", "Playful"],
-        "tech_strengths": ["Audio ML", "Personalization", "Content Delivery", "Creator Tools"],
-        "what_impresses_them": [
-            "Product passion and user empathy",
-            "Personalization expertise",
-            "Collaborative spirit",
-            "Creative problem-solving"
-        ],
-        "insider_terms": ["Discover Weekly", "audio-first", "creator ecosystem", "squad model"],
-        "avoid_saying": ["I don't listen to music", "Users don't know what they want", "I prefer hierarchy"],
-        "common_questions": [
-            "How would you improve music recommendations?",
-            "Tell me about a time you collaborated across teams",
-            "How do you balance creator and listener needs?",
-            "Describe a personalization system you built"
-        ],
-        "interview_stages": {
-            "recruiter": "Culture fit and product passion",
-            "technical": "ML and system design",
-            "squad": "Team collaboration assessment",
-            "final": "Leadership and values"
-        },
-        "salary_range": {"entry": "$130k-$170k", "mid": "$180k-$350k", "senior": "$350k-$500k+"},
-        "competitors": ["Apple Music", "YouTube Music", "Amazon Music"],
-        "why_not_competitors": "Spotify's personalization leadership and squad autonomy"
-    }
 }
 
-DEFAULT_COMPANY_INTELLIGENCE = {
+_DEFAULT_INTEL: Dict[str, Any] = {
     "what_they_value": ["technical excellence", "collaboration", "impact", "growth"],
     "culture_keywords": ["innovation", "teamwork", "excellence"],
     "tech_strengths": ["modern technology", "scalable systems"],
@@ -572,7 +396,7 @@ DEFAULT_COMPANY_INTELLIGENCE = {
         "Specific achievements with metrics",
         "Problem-solving examples",
         "Collaboration stories",
-        "Technical depth demonstration"
+        "Technical depth demonstration",
     ],
     "insider_terms": [],
     "avoid_saying": ["I'm a team player", "I work hard", "I'm passionate"],
@@ -580,101 +404,132 @@ DEFAULT_COMPANY_INTELLIGENCE = {
     "interview_stages": {},
     "salary_range": {"entry": "$100k-$150k", "mid": "$150k-$250k", "senior": "$250k-$400k+"},
     "competitors": [],
-    "why_not_competitors": ""
+    "why_not_competitors": "",
 }
 
+_dynamic_intel_cache: Dict[str, Dict[str, Any]] = {}
 
-def get_company_intelligence(company_name: str) -> Dict[str, Any]:
-    """Get comprehensive intelligence about a company."""
-    company_lower = (company_name or "").lower().strip()
-    
+
+def _lookup_static_intel(company_name: str) -> Optional[Dict[str, Any]]:
+    cl = (company_name or "").lower().strip()
     for key, intel in COMPANY_INTELLIGENCE.items():
-        if key in company_lower or company_lower in key:
+        if key in cl or cl in key:
             return intel
-    
     for key, intel in COMPANY_INTELLIGENCE.items():
-        if any(word in company_lower for word in key.split()):
+        if any(w in cl for w in key.split()):
             return intel
-    
-    return DEFAULT_COMPANY_INTELLIGENCE
+    return None
+
+
+async def get_company_intelligence(company_name: str, jd_text: str = "", model: str = SUMMARIZER_MODEL) -> Dict[str, Any]:
+    """Static lookup first, GPT fallback for unknown companies."""
+    static = _lookup_static_intel(company_name)
+    if static:
+        return static
+
+    cl = company_name.lower().strip()
+    if cl in _dynamic_intel_cache:
+        return _dynamic_intel_cache[cl]
+
+    if not jd_text.strip():
+        return _DEFAULT_INTEL
+
+    # v2.0.0: GPT-based company intel for unknown companies
+    prompt = f"""Analyze this company and JD for interview intelligence.
+
+COMPANY: {company_name}
+JOB DESCRIPTION (excerpt):
+{jd_text[:2500]}
+
+Return STRICT JSON:
+{{
+    "what_they_value": ["4 things this company values based on JD language"],
+    "culture_keywords": ["3-4 culture terms from JD"],
+    "tech_strengths": ["3-4 technical areas from JD"],
+    "what_impresses_them": ["4 specific things that would impress this interviewer"],
+    "insider_terms": ["3-4 domain-specific terms from the JD"],
+    "avoid_saying": ["3 things to avoid based on JD tone"],
+    "common_questions": ["4 likely interview questions for this role"],
+    "interview_stages": {{}},
+    "salary_range": {{"entry": "...", "mid": "...", "senior": "..."}},
+    "competitors": ["3-4 competitors"],
+    "why_not_competitors": "1 sentence why this company over competitors"
+}}
+"""
+    try:
+        raw = await _call_openai("Extract company intel as JSON.", prompt, model)
+        m = re.search(r"\{[\s\S]*\}", raw)
+        if m:
+            intel = json.loads(m.group(0))
+            # Merge with defaults for missing keys
+            for k, v in _DEFAULT_INTEL.items():
+                if k not in intel or not intel[k]:
+                    intel[k] = v
+            _dynamic_intel_cache[cl] = intel
+            log_event({"event": "dynamic_company_intel", "company": company_name})
+            return intel
+    except Exception as e:
+        log_event({"event": "dynamic_intel_fail", "error": str(e)})
+
+    return _DEFAULT_INTEL
 
 
 # ============================================================
-# 🎯 ENHANCED QUESTION TYPE DETECTION & STRATEGY
+# 🎯 QUESTION TYPE DETECTION & STRATEGY
 # ============================================================
 
 QUESTION_STRATEGIES = {
     "why_hire_you": {
         "patterns": [
-            r"why should we hire you",
-            r"why are you the right fit",
-            r"why should we choose you",
-            r"what makes you stand out",
-            r"why you over other candidates",
-            r"what sets you apart",
-            r"why are you the best candidate",
-            r"what do you bring to this role",
-            r"what value do you add"
+            r"why should we hire you", r"why are you the right fit",
+            r"why should we choose you", r"what makes you stand out",
+            r"why you over other candidates", r"what sets you apart",
+            r"what do you bring to this role", r"what value do you add",
         ],
         "strategy": "PROOF + UNIQUE VALUE",
         "structure": [
             "Open with your STRONGEST, most RELEVANT achievement",
             "Show UNIQUE combination of skills they can't easily find",
             "Map directly to their SPECIFIC needs from JD",
-            "Close with forward-looking contribution"
+            "Close with forward-looking contribution",
         ],
-        "hook_templates": [
-            "I've already solved the exact problem you're hiring for — {achievement}.",
-            "The intersection of {skill1} and {skill2} that you need is exactly where I've built my career.",
-            "In my last role, I {achievement}, which is precisely what this position requires.",
-            "What sets me apart is that I don't just {skill} — I've {specific_outcome}."
-        ],
+        "behavioral": False,
         "likely_followups": [
             "Can you give me a specific example?",
             "How would you apply that here?",
             "What would you do in your first 90 days?",
-            "How do you know you can do this at our scale?"
         ],
         "trap_warnings": [
             "Don't be arrogant or put down other candidates",
-            "Don't be vague - they want SPECIFIC proof",
-            "Don't just list skills - show IMPACT"
-        ]
+            "Don't be vague — they want SPECIFIC proof",
+            "Don't just list skills — show IMPACT",
+        ],
     },
     "why_this_company": {
         "patterns": [
             r"why do you want to work (here|at|for)",
-            r"why this company",
-            r"why .+\?",
-            r"what attracts you to",
-            r"what interests you about",
-            r"why are you interested in",
-            r"what draws you to"
+            r"why this company", r"what attracts you to",
+            r"what interests you about", r"why are you interested in",
+            r"what draws you to",
         ],
         "strategy": "SPECIFIC COMPANY KNOWLEDGE + ALIGNMENT",
         "structure": [
             "Open with SPECIFIC company insight (product, tech, challenge)",
             "Show genuine understanding of their unique position",
             "Connect YOUR background to THEIR specific needs",
-            "Demonstrate you've researched beyond the JD"
+            "Demonstrate you've researched beyond the JD",
         ],
-        "hook_templates": [
-            "What drew me to {company} specifically is {specific_insight}.",
-            "I've been following {company}'s work on {specific_thing}, and it aligns with {your_experience}.",
-            "The challenge of {company_challenge} is one I've tackled before, and I'm drawn to solving it at {company}'s scale.",
-            "{company}'s approach to {specific_approach} mirrors how I've built my most successful systems."
-        ],
+        "behavioral": False,
         "likely_followups": [
             "What do you know about our culture?",
             "Why not one of our competitors?",
             "What concerns do you have about us?",
-            "How did you hear about us?"
         ],
         "trap_warnings": [
-            "Don't be generic - they want SPECIFIC knowledge",
+            "Don't be generic — they want SPECIFIC knowledge",
             "Don't mention salary/benefits as primary reason",
-            "Don't badmouth competitors"
-        ]
+            "Don't badmouth competitors",
+        ],
     },
     "why_this_role": {
         "patterns": [
@@ -682,341 +537,250 @@ QUESTION_STRATEGIES = {
             r"what interests you about this (role|position)",
             r"why are you applying for this",
             r"what excites you about this (role|position|opportunity)",
-            r"why do you want this job"
+            r"why do you want this job",
         ],
         "strategy": "ROLE-SKILL MATCH + GROWTH",
         "structure": [
             "Show you understand EXACTLY what this role does",
             "Map your experience to the specific responsibilities",
             "Demonstrate how this is a natural next step",
-            "Show enthusiasm through specificity, not generic excitement"
+            "Show enthusiasm through specificity, not generic excitement",
         ],
-        "hook_templates": [
-            "This role sits at the intersection of {area1} and {area2}, which is exactly where I've focused my career.",
-            "The {specific_responsibility} in this role is something I've been doing successfully for {time}.",
-            "I've built my career around {skill}, and this role is the natural next step to {goal}.",
-            "What draws me to this specific role is {specific_aspect} — I've seen firsthand how impactful this work can be."
-        ],
+        "behavioral": False,
         "likely_followups": [
             "What don't you know about this role?",
             "What would be challenging for you?",
             "How does this fit your long-term goals?",
-            "What would you change about this role?"
         ],
         "trap_warnings": [
             "Don't be vague about role responsibilities",
             "Don't focus only on what you'll GET",
-            "Show understanding of challenges, not just perks"
-        ]
+            "Show understanding of challenges, not just perks",
+        ],
     },
     "tell_me_about_yourself": {
         "patterns": [
-            r"tell me about yourself",
-            r"walk me through your background",
-            r"introduce yourself",
-            r"give me an overview of your experience",
-            r"describe your background",
-            r"walk me through your resume"
+            r"tell me about yourself", r"walk me through your background",
+            r"introduce yourself", r"give me an overview",
+            r"describe your background", r"walk me through your resume",
         ],
-        "strategy": "RELEVANT NARRATIVE + TRAJECTORY",
+        "strategy": "RELEVANT NARRATIVE: Present → Past → Future",
         "structure": [
             "Start with current role/most relevant experience (Present)",
             "Connect past experiences in a coherent narrative (Past)",
             "Show intentional career trajectory toward THIS role (Future)",
-            "End with why you're here NOW"
+            "End with why you're here NOW",
         ],
-        "hook_templates": [
-            "I'm a {role_type} who has spent the last {time} building {what_you_build}.",
-            "My career has been focused on {theme}, most recently at {company} where I {achievement}.",
-            "I've spent my career at the intersection of {area1} and {area2}, which led me to {this_opportunity}.",
-            "What defines my work is {defining_theme} — at {company}, this meant {specific_example}."
-        ],
+        "behavioral": False,
         "likely_followups": [
             "Tell me more about {specific thing you mentioned}",
             "Why did you leave your last role?",
             "What's your biggest accomplishment?",
-            "What are you looking for in your next role?"
         ],
         "trap_warnings": [
             "Don't recite your entire resume",
-            "Don't start from childhood",
             "Keep it under 2 minutes spoken",
-            "Make it RELEVANT to this role"
-        ]
+            "Make it RELEVANT to this role",
+        ],
     },
     "strength": {
         "patterns": [
             r"(greatest|biggest|key|main) strength",
-            r"what are you good at",
-            r"what do you do well",
-            r"what's your superpower",
-            r"strongest skill",
-            r"what do you excel at"
+            r"what are you good at", r"what do you do well",
+            r"what's your superpower", r"strongest skill",
         ],
         "strategy": "SPECIFIC STRENGTH + PROOF",
         "structure": [
             "Name ONE specific strength (not generic)",
             "Immediately prove it with a concrete example",
             "Show impact/outcome of that strength",
-            "Connect to how it helps THIS role"
+            "Connect to how it helps THIS role",
         ],
-        "hook_templates": [
-            "My core strength is {specific_strength} — for example, at {company} I {specific_example}.",
-            "I'm exceptionally good at {specific_thing}, which I demonstrated when I {achievement}.",
-            "What I do best is {strength} — this is why I was able to {specific_outcome}.",
-            "If I had to pick one thing, it's my ability to {strength}. At {company}, this meant {example}."
-        ],
+        "behavioral": False,
         "likely_followups": [
             "Can you give another example?",
             "How would that help in this role?",
-            "What's your second greatest strength?",
-            "Has that strength ever been a weakness?"
+            "Has that strength ever been a weakness?",
         ],
         "trap_warnings": [
             "Don't be generic (teamwork, communication)",
             "Don't claim strengths you can't prove",
-            "Pick something RELEVANT to the role"
-        ]
+            "Pick something RELEVANT to the role",
+        ],
     },
     "weakness": {
         "patterns": [
-            r"(greatest|biggest) weakness",
-            r"area (for|of) improvement",
-            r"what are you working on",
-            r"development area",
+            r"(greatest|biggest) weakness", r"area (for|of) improvement",
+            r"what are you working on", r"development area",
             r"where do you struggle",
-            r"what would you improve about yourself"
         ],
         "strategy": "HONEST + MITIGATION + GROWTH",
         "structure": [
-            "Name a REAL weakness (not fake humble-brag)",
+            "Name a REAL weakness (not a humble-brag)",
             "Show self-awareness about its impact",
             "Describe SPECIFIC steps you're taking to improve",
-            "Show progress/results from those efforts"
+            "Show progress/results from those efforts",
         ],
-        "hook_templates": [
-            "I've learned that I {real_weakness}. To address this, I've {specific_action}.",
-            "Earlier in my career, I struggled with {weakness}. I've since {how_you_improved}.",
-            "One area I'm actively developing is {weakness}. Recently, I {specific_improvement_action}.",
-            "I tend to {weakness}, so I've built systems to {mitigation}."
-        ],
+        "behavioral": False,
         "likely_followups": [
             "How has that weakness affected your work?",
             "Can you give a specific example?",
-            "What triggered you to work on this?",
-            "How do you know you're improving?"
+            "How do you know you're improving?",
         ],
         "trap_warnings": [
             "Don't say 'perfectionism' or 'work too hard'",
             "Don't pick something critical to the role",
-            "Don't be TOO honest about fatal flaws",
-            "Show genuine self-awareness"
-        ]
+            "Show genuine self-awareness",
+        ],
     },
     "achievement": {
         "patterns": [
             r"(proudest|biggest|greatest|most significant) (achievement|accomplishment)",
-            r"tell me about a time you",
-            r"describe a situation where",
-            r"give me an example of",
-            r"share an experience when"
+            r"tell me about a time you", r"describe a situation where",
+            r"give me an example of", r"share an experience when",
         ],
         "strategy": "STAR WITH IMPACT",
         "structure": [
-            "Set context briefly (Situation/Task) - 15%",
-            "Focus on YOUR specific actions - 60%",
-            "Quantify the result/impact - 20%",
-            "Connect learning to THIS role - 5%"
+            "Situation/Task — set context briefly (2 sentences max)",
+            "Action — YOUR specific actions (bulk of the answer)",
+            "Result — Quantified outcome",
+            "Takeaway — What you learned / how it applies here",
         ],
-        "hook_templates": [
-            "The achievement I'm most proud of is {achievement} because {why_meaningful}.",
-            "At {company}, I faced {challenge}. I {actions}, which resulted in {outcome}.",
-            "When {situation}, I {your_action}. This led to {quantified_result}.",
-            "My most impactful work was {achievement}, where I {specific_contribution}."
-        ],
+        "behavioral": True,
         "likely_followups": [
             "What would you do differently?",
             "What did you learn from this?",
             "How did others contribute?",
-            "What was the hardest part?"
         ],
         "trap_warnings": [
             "Don't make Situation too long",
             "Focus on YOUR actions, not team's",
             "QUANTIFY the result",
-            "Don't pick something irrelevant"
-        ]
+        ],
     },
     "conflict": {
         "patterns": [
-            r"conflict",
-            r"disagreement",
+            r"conflict", r"disagreement",
             r"difficult (person|colleague|coworker|situation)",
-            r"challenging relationship",
-            r"how do you handle",
-            r"dealt with a difficult"
+            r"challenging relationship", r"dealt with a difficult",
         ],
         "strategy": "PROFESSIONAL + RESOLUTION-FOCUSED",
         "structure": [
-            "Describe situation professionally (no blame)",
-            "Show your approach to understanding the other side",
-            "Explain actions YOU took to resolve",
-            "Show positive outcome and learning"
+            "Situation — Describe professionally (no blame)",
+            "Action — Your approach to understanding + resolving",
+            "Result — Positive outcome",
+            "Takeaway — What you learned about collaboration",
         ],
-        "hook_templates": [
-            "I approach conflicts as opportunities to find better solutions. For example, when {situation}...",
-            "In a recent disagreement about {topic}, I first sought to understand {their_perspective}...",
-            "When I encountered {challenge}, I focused on {your_approach}...",
-            "I believe most conflicts stem from {insight}. When {situation}, I {action}..."
-        ],
+        "behavioral": True,
         "likely_followups": [
             "What if the person didn't change?",
             "What would you do differently?",
             "How do you prevent conflicts?",
-            "Tell me about a conflict you didn't resolve well"
         ],
         "trap_warnings": [
             "Don't badmouth the other person",
-            "Don't avoid the question",
             "Show emotional intelligence",
-            "Pick a professional conflict, not personal"
-        ]
+            "Pick a professional conflict, not personal",
+        ],
     },
     "failure": {
         "patterns": [
-            r"tell me about a (time you )?fail",
-            r"mistake you made",
-            r"something that didn't work",
-            r"a setback",
-            r"when things went wrong"
+            r"tell me about a (time you )?fail", r"mistake you made",
+            r"something that didn't work", r"a setback", r"when things went wrong",
         ],
         "strategy": "HONEST + LEARNING + GROWTH",
         "structure": [
-            "Describe the failure honestly",
-            "Take responsibility (no blame-shifting)",
-            "Explain what you learned",
-            "Show how you've applied that learning"
+            "Situation — What happened (own it)",
+            "Action — What you did about it",
+            "Result — The outcome (including negative)",
+            "Takeaway — What you learned and how you've applied it",
         ],
-        "hook_templates": [
-            "One failure that taught me a lot was when I {failure}. I learned {learning}.",
-            "Early in my career, I {mistake}. This taught me to {lesson}.",
-            "A project that didn't go as planned was {project}. The key learning was {insight}.",
-            "I failed when I {failure}, but it led me to {positive_change}."
-        ],
+        "behavioral": True,
         "likely_followups": [
             "How did others react?",
             "What would you do differently now?",
             "How do you prevent similar failures?",
-            "What was the impact of the failure?"
         ],
         "trap_warnings": [
             "Don't pick something trivial",
             "Don't blame others",
             "Show genuine learning",
-            "Don't pick something that shows poor judgment"
-        ]
+        ],
     },
     "salary": {
         "patterns": [
-            r"salary expectations",
-            r"compensation",
-            r"what are you looking for",
-            r"pay expectations",
+            r"salary expectations", r"compensation",
+            r"what are you looking for", r"pay expectations",
             r"how much do you want to make",
-            r"what's your expected salary"
         ],
         "strategy": "RESEARCH-BACKED + FLEXIBLE",
         "structure": [
             "Show you've done research on market rates",
             "Give a range (not a single number)",
             "Express flexibility based on total comp",
-            "Redirect to fit and opportunity"
+            "Redirect to fit and opportunity",
         ],
-        "hook_templates": [
-            "Based on my research and experience level, I'm targeting {range}, though I'm flexible based on total compensation.",
-            "I've researched the market rate for this role, which seems to be {range}. I'm open to discussing based on the full package.",
-            "My expectation is in the {range} range, but I'm more focused on finding the right fit and growth opportunity.",
-            "For this level of role in {location}, I understand the range is typically {range}. I'd love to understand your budget."
-        ],
+        "behavioral": False,
         "likely_followups": [
             "What's your current salary?",
             "What's the minimum you'd accept?",
             "How did you arrive at that number?",
-            "What other factors matter to you?"
         ],
         "trap_warnings": [
             "Don't give a number too early",
             "Don't lowball yourself",
-            "Don't lie about current salary",
-            "Research the company's pay bands"
-        ]
+            "Research the company's pay bands",
+        ],
     },
     "leadership": {
         "patterns": [
-            r"leadership (experience|style|example)",
-            r"led a team",
-            r"managed (people|team)",
-            r"describe your leadership",
-            r"how do you lead"
+            r"leadership (experience|style|example)", r"led a team",
+            r"managed (people|team)", r"describe your leadership",
         ],
         "strategy": "EXAMPLE + STYLE + IMPACT",
         "structure": [
-            "Describe a specific leadership situation",
-            "Explain YOUR leadership approach",
-            "Show impact on team and results",
-            "Connect to how you'd lead here"
+            "Situation — Describe a specific leadership situation",
+            "Action — YOUR leadership approach",
+            "Result — Impact on team and results",
+            "Takeaway — Connect to how you'd lead here",
         ],
-        "hook_templates": [
-            "My leadership style is {style}. For example, when I led {team/project}, I {approach}.",
-            "I believe effective leadership is about {philosophy}. At {company}, I demonstrated this by {example}.",
-            "Leading {team} taught me that {insight}. I achieved this by {actions}.",
-            "When I led {initiative}, I focused on {approach}, which resulted in {outcome}."
-        ],
+        "behavioral": True,
         "likely_followups": [
             "How do you handle underperformers?",
             "How do you motivate your team?",
             "What's your biggest leadership mistake?",
-            "How do you make difficult decisions?"
         ],
         "trap_warnings": [
             "Don't be vague about your style",
             "Show results, not just process",
-            "Be honest about team contributions",
-            "Leadership isn't just about managing people"
-        ]
+            "Leadership isn't just about managing people",
+        ],
     },
     "technical": {
         "patterns": [
             r"technical (challenge|problem|decision)",
             r"complex (system|architecture|problem)",
             r"how would you (design|build|architect)",
-            r"walk me through (your|a) technical"
+            r"walk me through (your|a) technical",
         ],
         "strategy": "DEPTH + TRADEOFFS + REASONING",
         "structure": [
-            "Describe the technical context clearly",
-            "Explain your approach and reasoning",
-            "Discuss tradeoffs you considered",
-            "Share the outcome and learnings"
+            "Context — The technical problem",
+            "Approach — Your reasoning and tradeoffs",
+            "Implementation — What you actually built",
+            "Outcome — Results and learnings",
         ],
-        "hook_templates": [
-            "The most challenging technical problem I solved was {problem}. I approached it by {approach}.",
-            "When designing {system}, I had to balance {tradeoff1} with {tradeoff2}. I chose {choice} because {reasoning}.",
-            "At {company}, I built {system} that {outcome}. The key technical decision was {decision}.",
-            "A complex architecture decision I made was {decision}. The tradeoffs were {tradeoffs}."
-        ],
+        "behavioral": True,
         "likely_followups": [
             "What would you do differently now?",
             "How did you handle scale?",
             "What were the failure modes?",
-            "How did you test this?"
         ],
         "trap_warnings": [
             "Don't be too high-level",
             "Show depth of understanding",
             "Discuss tradeoffs, not just solutions",
-            "Be honest about what you don't know"
-        ]
+        ],
     },
     "generic": {
         "patterns": [],
@@ -1025,429 +789,212 @@ QUESTION_STRATEGIES = {
             "Answer directly with specific evidence",
             "Connect to JD requirements",
             "Show concrete examples",
-            "Tie to this opportunity"
+            "Tie to this opportunity",
         ],
-        "hook_templates": [
-            "Based on my experience with {relevant_experience}, I {answer}.",
-            "This connects directly to my work at {company}, where I {example}.",
-            "The most relevant example is when I {specific_example}.",
-            "I approach this by {approach}, which I demonstrated when {example}."
-        ],
+        "behavioral": False,
         "likely_followups": [
             "Can you elaborate on that?",
             "How would that apply here?",
             "What's a specific example?",
-            "What did you learn from that?"
         ],
         "trap_warnings": [
             "Don't be vague",
             "Always give specific examples",
-            "Connect to the role"
-        ]
-    }
+            "Connect to the role",
+        ],
+    },
 }
 
 
 def detect_question_type(question: str) -> Tuple[str, Dict[str, Any]]:
-    """Detect the type of question and return appropriate strategy."""
-    question_lower = question.lower().strip()
-    
-    for q_type, q_config in QUESTION_STRATEGIES.items():
+    ql = question.lower().strip()
+    for q_type, cfg in QUESTION_STRATEGIES.items():
         if q_type == "generic":
             continue
-        for pattern in q_config["patterns"]:
-            if re.search(pattern, question_lower):
-                return q_type, q_config
-    
+        for pattern in cfg["patterns"]:
+            if re.search(pattern, ql):
+                return q_type, cfg
     return "generic", QUESTION_STRATEGIES["generic"]
 
 
 # ============================================================
-# 🛡️ ANTI-HALLUCINATION GROUNDING SYSTEM
-# ============================================================
-
-class FactGrounder:
-    """Verify claims against resume facts to prevent hallucination."""
-    
-    def __init__(self):
-        self.resume_facts: Dict[str, Any] = {}
-        self.verified_claims: Set[str] = set()
-        self.unverified_claims: Set[str] = set()
-    
-    async def extract_facts(self, resume_text: str, model: str) -> Dict[str, Any]:
-        """Extract verifiable facts from resume."""
-        if not resume_text.strip():
-            return {}
-        
-        prompt = f"""Extract ONLY verifiable facts from this resume. Be precise and conservative.
-
-RESUME:
-{resume_text[:5000]}
-
-Return STRICT JSON:
-{{
-    "companies": ["list of company names worked at"],
-    "roles": ["list of job titles held"],
-    "technologies": ["list of technologies mentioned"],
-    "metrics": ["any quantified achievements with numbers"],
-    "projects": ["named projects or systems"],
-    "education": ["degrees, schools, certifications - DO NOT include GPA/CGPA"],
-    "years_experience": "approximate total years",
-    "skills_claimed": ["skills explicitly claimed"],
-    "achievements_verbatim": ["achievement statements as written - EXCLUDE any GPA/CGPA mentions"]
-}}
-
-IMPORTANT: Do NOT include any GPA, CGPA, grade point average, or academic achievement metrics.
-ONLY include facts explicitly stated. Do NOT infer or add anything.
-"""
-        
-        try:
-            result = await _gen_text_smart("Extract facts as JSON.", prompt, model)
-            match = re.search(r"\{[\s\S]*\}", result)
-            if match:
-                self.resume_facts = json.loads(match.group(0))
-                return self.resume_facts
-        except Exception as e:
-            log_event("fact_extraction_fail", {"error": str(e)})
-        
-        return {}
-    
-    def verify_claim(self, claim: str, resume_text: str) -> Tuple[bool, str]:
-        """Verify if a claim is grounded in resume facts."""
-        claim_lower = claim.lower()
-        resume_lower = resume_text.lower()
-        
-        # Check for specific keywords
-        for company in self.resume_facts.get("companies", []):
-            if company.lower() in claim_lower and company.lower() in resume_lower:
-                self.verified_claims.add(claim)
-                return True, f"Verified: mentions {company}"
-        
-        for tech in self.resume_facts.get("technologies", []):
-            if tech.lower() in claim_lower and tech.lower() in resume_lower:
-                self.verified_claims.add(claim)
-                return True, f"Verified: mentions {tech}"
-        
-        for metric in self.resume_facts.get("metrics", []):
-            # Check if numbers/percentages are from resume
-            numbers_in_claim = re.findall(r'\d+%?', claim)
-            numbers_in_resume = re.findall(r'\d+%?', resume_text)
-            if numbers_in_claim and any(n in numbers_in_resume for n in numbers_in_claim):
-                self.verified_claims.add(claim)
-                return True, "Verified: metric from resume"
-        
-        # If claim has specific details not in resume, flag it
-        self.unverified_claims.add(claim)
-        return False, "Warning: claim may not be grounded in resume"
-
-
-# ============================================================
-# 📊 ANSWER QUALITY SCORING
+# 📊 ANSWER QUALITY SCORER (v2.0.0 — fixed weights, fixed _score_length)
 # ============================================================
 
 class AnswerQualityScorer:
-    """Score answer quality across multiple dimensions."""
-    
     def __init__(self):
         self.scores: Dict[str, float] = {}
         self.feedback: List[str] = []
-    
+
     def score_answer(
-        self,
-        answer: str,
-        question: str,
-        q_type: str,
-        company: str,
-        jd_requirements: Dict[str, Any],
-        resume_highlights: Dict[str, Any]
+        self, answer: str, question: str, q_type: str,
+        company: str, jd_requirements: Dict[str, Any],
+        resume_highlights: Dict[str, Any],
+        company_intel: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Score answer quality and provide feedback."""
-        
         self.scores = {}
         self.feedback = []
-        answer_lower = answer.lower()
-        
-        # 1. Hook Strength (0-10)
-        first_sentence = answer.split('.')[0] if answer else ""
-        hook_score = self._score_hook(first_sentence, company)
-        self.scores["hook_strength"] = hook_score
-        
-        # 2. Specificity (0-10)
-        specificity_score = self._score_specificity(answer, resume_highlights)
-        self.scores["specificity"] = specificity_score
-        
-        # 3. Relevance to JD (0-10)
-        relevance_score = self._score_relevance(answer, jd_requirements)
-        self.scores["jd_relevance"] = relevance_score
-        
-        # 4. Company Alignment (0-10)
-        company_score = self._score_company_alignment(answer, company)
-        self.scores["company_alignment"] = company_score
-        
-        # 5. Confidence Tone (0-10)
-        confidence_score = self._score_confidence(answer)
-        self.scores["confidence"] = confidence_score
-        
-        # 6. Length Appropriateness (0-10)
-        length_score = self._score_length(answer)
-        self.scores["length"] = length_score
-        
-        # 7. No-Cliche Check (0-10)
-        cliche_score = self._score_no_cliches(answer)
-        self.scores["no_cliches"] = cliche_score
-        
-        # 8. Answer-Question Match (0-10)
-        match_score = self._score_question_match(answer, question, q_type)
-        self.scores["question_match"] = match_score
-        
-        # 9. No CGPA/GPA Check (0-10) - NEW
-        cgpa_score = self._score_no_cgpa(answer)
-        self.scores["no_cgpa"] = cgpa_score
-        
-        # Calculate overall score
+
+        self.scores["hook_strength"] = self._score_hook(answer, company)
+        self.scores["specificity"] = self._score_specificity(answer, resume_highlights)
+        self.scores["jd_relevance"] = self._score_relevance(answer, jd_requirements)
+        self.scores["company_alignment"] = self._score_company_alignment(answer, company, company_intel)
+        self.scores["confidence"] = self._score_confidence(answer)
+        self.scores["length"] = self._score_length(answer)
+        self.scores["no_cliches"] = self._score_no_cliches(answer)
+        self.scores["question_match"] = self._score_question_match(answer, question, q_type)
+        self.scores["no_cgpa"] = 0.0 if not _validate_no_cgpa(answer)[0] else 10.0
+
+        if self.scores["no_cgpa"] < 10.0:
+            self.feedback.append("CRITICAL: Remove all GPA/CGPA/academic metrics")
+
+        # v2.0.0 FIX: weights sum to exactly 1.0
         weights = {
-            "hook_strength": 0.14,
-            "specificity": 0.18,
-            "jd_relevance": 0.14,
-            "company_alignment": 0.09,
-            "confidence": 0.09,
-            "length": 0.05,
-            "no_cliches": 0.09,
-            "question_match": 0.14,
-            "no_cgpa": 0.08  # NEW - penalize CGPA mentions
+            "hook_strength": 0.12, "specificity": 0.18, "jd_relevance": 0.16,
+            "company_alignment": 0.10, "confidence": 0.10, "length": 0.04,
+            "no_cliches": 0.08, "question_match": 0.14, "no_cgpa": 0.08,
         }
-        
         overall = sum(self.scores[k] * weights[k] for k in weights)
-        
+
+        grade = (
+            "A+" if overall >= 9.0 else "A" if overall >= 8.5 else
+            "A-" if overall >= 8.0 else "B+" if overall >= 7.5 else
+            "B" if overall >= 7.0 else "B-" if overall >= 6.5 else
+            "C+" if overall >= 6.0 else "C" if overall >= 5.5 else "Needs Improvement"
+        )
         return {
             "overall_score": round(overall, 1),
             "dimension_scores": self.scores,
             "feedback": self.feedback,
-            "grade": self._get_grade(overall),
-            "pass": overall >= 7.0
+            "grade": grade,
+            "pass": overall >= 7.0,
         }
-    
-    def _score_hook(self, first_sentence: str, company: str) -> float:
-        """Score the opening hook."""
-        score = 5.0  # Base score
-        
-        # Bonus for company mention in first sentence
-        if company.lower() in first_sentence.lower():
-            score += 1.5
-        
-        # Bonus for specific achievement
-        if any(word in first_sentence.lower() for word in ["built", "led", "designed", "achieved", "delivered"]):
-            score += 1.5
-        
-        # Bonus for confidence
-        if first_sentence and not first_sentence.lower().startswith(("i am", "i'm", "thank you", "i would")):
-            score += 1.0
-        
-        # Penalty for generic opening
-        if any(phrase in first_sentence.lower() for phrase in ["i am writing", "thank you for", "i believe", "i am excited"]):
-            score -= 2.0
-            self.feedback.append("Opening is generic - start with a specific achievement or insight")
-        
-        return max(0, min(10, score))
-    
-    def _score_specificity(self, answer: str, resume_highlights: Dict[str, Any]) -> float:
-        """Score how specific the answer is."""
-        score = 5.0
-        
-        # Count specific elements
-        has_numbers = bool(re.search(r'\d+', answer))
-        has_company_names = any(c.lower() in answer.lower() for c in resume_highlights.get("companies_worked", []))
-        has_technologies = any(t.lower() in answer.lower() for t in resume_highlights.get("technical_skills", []))
-        has_action_verbs = sum(1 for v in ["built", "designed", "led", "implemented", "delivered", "launched"] if v in answer.lower())
-        
-        if has_numbers:
-            score += 1.5
+
+    def _score_hook(self, answer: str, company: str) -> float:
+        first = answer.split(".")[0] if answer else ""
+        s = 5.0
+        if company.lower() in first.lower():
+            s += 1.5
+        if any(w in first.lower() for w in ["built", "led", "designed", "achieved", "delivered", "deployed"]):
+            s += 1.5
+        if first and not first.lower().startswith(("i am", "i'm", "thank you", "i would")):
+            s += 1.0
+        if any(p in first.lower() for p in ["i am writing", "thank you for", "i believe", "i am excited"]):
+            s -= 2.0
+            self.feedback.append("Open with a specific achievement, not a generic phrase")
+        return max(0, min(10, s))
+
+    def _score_specificity(self, answer: str, rh: Dict[str, Any]) -> float:
+        s = 5.0
+        if re.search(r"\d+", answer):
+            s += 1.5
         else:
             self.feedback.append("Add quantified achievements with numbers")
-        
-        if has_company_names:
-            score += 1.0
-        
-        if has_technologies:
-            score += 1.5
-        
-        if has_action_verbs >= 2:
-            score += 1.0
-        
-        return max(0, min(10, score))
-    
-    def _score_relevance(self, answer: str, jd_requirements: Dict[str, Any]) -> float:
-        """Score relevance to JD requirements."""
-        score = 5.0
-        answer_lower = answer.lower()
-        
-        # Check for JD skill mentions
-        skills = jd_requirements.get("must_have_skills", []) + jd_requirements.get("tech_stack", [])
-        skills_mentioned = sum(1 for s in skills if s.lower() in answer_lower)
-        
-        if skills_mentioned >= 3:
-            score += 3.0
-        elif skills_mentioned >= 2:
-            score += 2.0
-        elif skills_mentioned >= 1:
-            score += 1.0
+        if any(c.lower() in answer.lower() for c in rh.get("companies_worked", [])):
+            s += 1.0
+        if any(t.lower() in answer.lower() for t in rh.get("technical_skills", [])):
+            s += 1.5
+        action_count = sum(1 for v in ["built", "designed", "led", "implemented", "delivered", "deployed", "optimized"] if v in answer.lower())
+        if action_count >= 2:
+            s += 1.0
+        return max(0, min(10, s))
+
+    def _score_relevance(self, answer: str, jd: Dict[str, Any]) -> float:
+        s = 5.0
+        al = answer.lower()
+        skills = jd.get("must_have_skills", []) + jd.get("tech_stack", [])
+        hits = sum(1 for sk in skills if sk.lower() in al)
+        if hits >= 3:
+            s += 3.0
+        elif hits >= 2:
+            s += 2.0
+        elif hits >= 1:
+            s += 1.0
         else:
             self.feedback.append("Mention more JD-specific skills and requirements")
-        
-        # Check for responsibility alignment
-        responsibilities = jd_requirements.get("key_responsibilities", [])
-        resp_aligned = sum(1 for r in responsibilities if any(word in answer_lower for word in r.lower().split()[:3]))
-        
-        if resp_aligned >= 2:
-            score += 2.0
-        
-        return max(0, min(10, score))
-    
-    def _score_company_alignment(self, answer: str, company: str) -> float:
-        """Score alignment with company culture."""
-        score = 5.0
-        answer_lower = answer.lower()
-        
-        intel = get_company_intelligence(company)
-        
-        # Check for company name
-        if company.lower() in answer_lower:
-            score += 2.0
-        
-        # Check for culture keyword usage
-        culture_hits = sum(1 for k in intel.get("culture_keywords", []) if k.lower() in answer_lower)
-        score += min(2.0, culture_hits * 0.5)
-        
-        # Check for avoided phrases
-        avoid_hits = sum(1 for a in intel.get("avoid_saying", []) if a.lower() in answer_lower)
-        if avoid_hits > 0:
-            score -= avoid_hits * 1.5
-            self.feedback.append(f"Avoid phrases like: {intel.get('avoid_saying', [])[:2]}")
-        
-        return max(0, min(10, score))
-    
+        resp = jd.get("key_responsibilities", [])
+        r_hits = sum(1 for r in resp if any(w in al for w in r.lower().split()[:3]))
+        if r_hits >= 2:
+            s += 2.0
+        return max(0, min(10, s))
+
+    def _score_company_alignment(self, answer: str, company: str, intel: Optional[Dict[str, Any]] = None) -> float:
+        s = 5.0
+        al = answer.lower()
+        if company.lower() in al:
+            s += 2.0
+        if intel:
+            culture_hits = sum(1 for k in intel.get("culture_keywords", []) if k.lower() in al)
+            s += min(2.0, culture_hits * 0.5)
+            avoid_hits = sum(1 for a in intel.get("avoid_saying", []) if a.lower() in al)
+            if avoid_hits:
+                s -= avoid_hits * 1.5
+                self.feedback.append(f"Avoid: {intel['avoid_saying'][:2]}")
+        return max(0, min(10, s))
+
     def _score_confidence(self, answer: str) -> float:
-        """Score confidence level of the answer."""
-        score = 7.0  # Start high, deduct for issues
-        answer_lower = answer.lower()
-        
-        # Penalty for hedging language
+        s = 7.0
+        al = answer.lower()
         hedges = ["i think", "i believe", "maybe", "perhaps", "i hope", "i would try"]
-        hedge_count = sum(1 for h in hedges if h in answer_lower)
-        score -= hedge_count * 0.5
-        
-        # Penalty for desperate language
-        desperate = ["grateful for any", "hope you consider", "humbly", "please give me a chance"]
-        if any(d in answer_lower for d in desperate):
-            score -= 2.0
-            self.feedback.append("Remove desperate/pleading language - be confident")
-        
-        # Bonus for confident language
-        confident = ["i delivered", "i led", "i built", "i achieved", "i drove"]
-        confidence_hits = sum(1 for c in confident if c in answer_lower)
-        score += min(2.0, confidence_hits * 0.5)
-        
-        return max(0, min(10, score))
-    
+        s -= sum(0.5 for h in hedges if h in al)
+        if any(d in al for d in ["grateful for any", "hope you consider", "humbly", "please give me a chance"]):
+            s -= 2.0
+            self.feedback.append("Remove desperate/pleading language — be confident")
+        s += min(2.0, sum(0.5 for c in ["i delivered", "i led", "i built", "i achieved", "i drove"] if c in al))
+        return max(0, min(10, s))
+
+    # v2.0.0 FIX: removed unreachable code
     def _score_length(self, answer: str) -> float:
-        """Score answer length appropriateness."""
         words = len(answer.split())
-        
         if 100 <= words <= 200:
             return 10.0
-        elif 80 <= words <= 250:
+        if 80 <= words <= 250:
             return 8.0
-        elif 60 <= words <= 300:
-            return 6.0
+        if 60 <= words <= 300:
             self.feedback.append("Adjust answer length (target 120-180 words)")
-        else:
-            self.feedback.append("Answer is too short or too long")
-            return 4.0
-    
+            return 6.0
+        self.feedback.append("Answer is too short or too long (target 120-180 words)")
+        return 4.0
+
     def _score_no_cliches(self, answer: str) -> float:
-        """Score absence of clichés."""
-        score = 10.0
-        answer_lower = answer.lower()
-        
+        s = 10.0
+        al = answer.lower()
         cliches = [
             "passionate", "team player", "hard worker", "go-getter",
             "think outside the box", "synergy", "leverage", "dynamic",
             "results-driven", "detail-oriented", "self-starter",
-            "fast learner", "people person", "perfectionist"
+            "fast learner", "people person", "perfectionist",
         ]
-        
-        cliche_count = sum(1 for c in cliches if c in answer_lower)
-        score -= cliche_count * 2.0
-        
-        if cliche_count > 0:
-            self.feedback.append(f"Remove clichés: found {cliche_count} generic phrases")
-        
-        return max(0, min(10, score))
-    
-    def _score_no_cgpa(self, answer: str) -> float:
-        """Score absence of CGPA/GPA mentions - critical check."""
-        is_valid, violations = validate_no_cgpa(answer)
-        
-        if is_valid:
-            return 10.0
-        else:
-            # Severe penalty for any CGPA/GPA mention
-            self.feedback.append("CRITICAL: Remove all GPA/CGPA/academic achievement mentions")
-            return 0.0  # Zero score for this dimension if CGPA found
-    
+        hits = sum(1 for c in cliches if c in al)
+        s -= hits * 2.0
+        if hits:
+            self.feedback.append(f"Remove {hits} cliche(s)")
+        return max(0, min(10, s))
+
     def _score_question_match(self, answer: str, question: str, q_type: str) -> float:
-        """Score how well the answer matches the question type."""
-        score = 7.0
-        answer_lower = answer.lower()
-        
-        if q_type == "why_hire_you":
-            if "unique" in answer_lower or "different" in answer_lower or "sets me apart" in answer_lower:
-                score += 2.0
-            if any(v in answer_lower for v in ["built", "achieved", "delivered"]):
-                score += 1.0
-        
-        elif q_type == "why_this_company":
-            # Should mention company-specific things
-            if re.search(r"(specifically|unique|particular|your)", answer_lower):
-                score += 2.0
-        
+        s = 7.0
+        al = answer.lower()
+        if q_type == "why_hire_you" and any(w in al for w in ["unique", "different", "sets me apart", "specifically"]):
+            s += 2.0
+        elif q_type == "why_this_company" and re.search(r"(specifically|unique|particular|your)", al):
+            s += 2.0
         elif q_type == "weakness":
-            # Should show growth
-            if any(w in answer_lower for w in ["learned", "improved", "working on", "developed"]):
-                score += 2.0
+            if any(w in al for w in ["learned", "improved", "working on", "developed"]):
+                s += 2.0
             else:
-                self.feedback.append("Show growth/improvement on the weakness")
-        
-        elif q_type == "achievement":
-            # Should have STAR elements
-            has_result = bool(re.search(r'(result|led to|achieved|improved)', answer_lower))
-            if has_result:
-                score += 2.0
-            else:
-                self.feedback.append("Include clear result/outcome of your achievement")
-        
-        return max(0, min(10, score))
-    
-    def _get_grade(self, score: float) -> str:
-        """Convert score to letter grade."""
-        if score >= 9.0:
-            return "A+"
-        elif score >= 8.5:
-            return "A"
-        elif score >= 8.0:
-            return "A-"
-        elif score >= 7.5:
-            return "B+"
-        elif score >= 7.0:
-            return "B"
-        elif score >= 6.5:
-            return "B-"
-        elif score >= 6.0:
-            return "C+"
-        elif score >= 5.5:
-            return "C"
-        else:
-            return "Needs Improvement"
+                self.feedback.append("Show growth on the weakness")
+        elif q_type == "achievement" and re.search(r"(result|led to|achieved|improved|reduced|increased)", al):
+            s += 2.0
+        elif q_type in ("conflict", "failure", "leadership", "technical"):
+            # Check for STAR structure
+            has_situation = any(w in al for w in ["when", "at", "during", "while"])
+            has_action = any(w in al for w in ["i built", "i led", "i designed", "i implemented", "i decided", "i approached"])
+            has_result = any(w in al for w in ["resulted", "led to", "achieved", "improved", "reduced", "which"])
+            star_score = sum([has_situation, has_action, has_result])
+            s += min(3.0, star_score)
+            if star_score < 2:
+                self.feedback.append("Use STAR structure: Situation → Action → Result")
+        return max(0, min(10, s))
 
 
 # ============================================================
@@ -1455,225 +1002,34 @@ class AnswerQualityScorer:
 # ============================================================
 
 async def analyze_skill_gaps(
-    resume_highlights: Dict[str, Any],
-    jd_requirements: Dict[str, Any],
-    model: str
+    resume_highlights: Dict[str, Any], jd_requirements: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Analyze gaps between resume and JD requirements."""
-    
-    resume_skills = set(s.lower() for s in resume_highlights.get("technical_skills", []))
-    jd_must_have = set(s.lower() for s in jd_requirements.get("must_have_skills", []))
-    jd_nice_to_have = set(s.lower() for s in jd_requirements.get("nice_to_have_skills", []))
-    
-    # Find gaps
-    must_have_gaps = jd_must_have - resume_skills
-    nice_to_have_gaps = jd_nice_to_have - resume_skills
-    
-    # Find matches
-    must_have_matches = jd_must_have & resume_skills
-    nice_to_have_matches = jd_nice_to_have & resume_skills
-    
-    # Generate addressing strategies for gaps
+    resume_skills = {s.lower() for s in resume_highlights.get("technical_skills", [])}
+    jd_must = {s.lower() for s in jd_requirements.get("must_have_skills", [])}
+    jd_nice = {s.lower() for s in jd_requirements.get("nice_to_have_skills", [])}
+
+    must_match = jd_must & resume_skills
+    must_gap = jd_must - resume_skills
+    nice_match = jd_nice & resume_skills
+    nice_gap = jd_nice - resume_skills
+
     gap_strategies = {}
-    for gap in list(must_have_gaps)[:5]:
-        gap_strategies[gap] = _get_gap_addressing_strategy(gap, resume_skills)
-    
+    for gap in list(must_gap)[:5]:
+        related = [s for s in resume_skills if any(w in s for w in gap.split())]
+        if related:
+            gap_strategies[gap] = f"Leverage your {related[0]} experience as foundation for {gap}"
+        else:
+            gap_strategies[gap] = f"Express genuine interest in deepening {gap} through this role"
+
     return {
-        "must_have_matches": list(must_have_matches),
-        "must_have_gaps": list(must_have_gaps),
-        "nice_to_have_matches": list(nice_to_have_matches),
-        "nice_to_have_gaps": list(nice_to_have_gaps),
-        "match_percentage": len(must_have_matches) / max(1, len(jd_must_have)) * 100,
+        "must_have_matches": sorted(must_match),
+        "must_have_gaps": sorted(must_gap),
+        "nice_to_have_matches": sorted(nice_match),
+        "nice_to_have_gaps": sorted(nice_gap),
+        "match_percentage": round(len(must_match) / max(1, len(jd_must)) * 100, 1),
         "gap_strategies": gap_strategies,
-        "strengths_to_emphasize": list(must_have_matches)[:5],
-        "transferable_skills": _find_transferable_skills(resume_skills, must_have_gaps)
+        "strengths_to_emphasize": sorted(must_match)[:5],
     }
-
-
-def _get_gap_addressing_strategy(gap: str, resume_skills: Set[str]) -> str:
-    """Get strategy to address a specific skill gap."""
-    strategies = {
-        "default": f"Acknowledge you're developing {gap} skills while highlighting related experience",
-        "learning": f"Express genuine interest in deepening {gap} expertise through this role",
-        "transferable": f"Connect your existing skills to {gap} through similar problem-solving approaches"
-    }
-    
-    # Check for related skills
-    related_found = [s for s in resume_skills if any(word in s for word in gap.split())]
-    if related_found:
-        return f"Leverage your {related_found[0]} experience as foundation for {gap}"
-    
-    return strategies["learning"]
-
-
-def _find_transferable_skills(resume_skills: Set[str], gaps: Set[str]) -> List[str]:
-    """Find transferable skills that could address gaps."""
-    transferable = []
-    
-    skill_families = {
-        "python": ["programming", "scripting", "automation"],
-        "sql": ["database", "data", "query"],
-        "machine learning": ["ai", "ml", "modeling", "statistics"],
-        "aws": ["cloud", "infrastructure", "devops"],
-        "docker": ["containerization", "kubernetes", "devops"],
-        "spark": ["big data", "distributed", "hadoop"]
-    }
-    
-    for skill in resume_skills:
-        for gap in gaps:
-            skill_lower = skill.lower()
-            gap_lower = gap.lower()
-            
-            # Check if in same family
-            for family_key, family_terms in skill_families.items():
-                if any(t in skill_lower for t in [family_key] + family_terms):
-                    if any(t in gap_lower for t in [family_key] + family_terms):
-                        transferable.append(f"{skill} → {gap}")
-    
-    return transferable[:5]
-
-
-# ============================================================
-# 🚨 RED FLAG DETECTION
-# ============================================================
-
-async def detect_red_flags(
-    resume_text: str,
-    resume_highlights: Dict[str, Any],
-    model: str
-) -> Dict[str, Any]:
-    """Detect potential red flags that need proactive addressing."""
-    
-    red_flags = []
-    addressing_strategies = {}
-    
-    # Check for employment gaps (simplified heuristic)
-    years_mentioned = re.findall(r'20\d{2}', resume_text)
-    if years_mentioned:
-        years = sorted(set(int(y) for y in years_mentioned))
-        for i in range(len(years) - 1):
-            if years[i+1] - years[i] > 1:
-                gap = f"Potential gap between {years[i]} and {years[i+1]}"
-                red_flags.append(gap)
-                addressing_strategies[gap] = "Be prepared to explain this period positively (learning, personal project, etc.)"
-    
-    # Check for short tenures
-    companies = resume_highlights.get("companies_worked", [])
-    if len(companies) > 3:
-        red_flags.append("Multiple companies - may raise job-hopping concerns")
-        addressing_strategies["job_hopping"] = "Frame as intentional career growth and diverse experience"
-    
-    # Check for career change signals
-    roles = resume_highlights.get("roles", [])
-    if roles:
-        role_types = set(r.lower().split()[0] for r in roles if r)
-        if len(role_types) > 2:
-            red_flags.append("Diverse role types - may raise focus concerns")
-            addressing_strategies["career_change"] = "Present as intentional breadth-building for current goals"
-    
-    return {
-        "red_flags": red_flags,
-        "addressing_strategies": addressing_strategies,
-        "proactive_topics": list(addressing_strategies.keys())
-    }
-
-
-# ============================================================
-# 🎭 PERSONAL BRAND EXTRACTOR
-# ============================================================
-
-async def extract_personal_brand(
-    resume_highlights: Dict[str, Any],
-    model: str
-) -> Dict[str, Any]:
-    """Extract candidate's personal brand/theme for consistency."""
-    
-    achievements = resume_highlights.get("top_achievements", [])
-    skills = resume_highlights.get("technical_skills", [])
-    leadership = resume_highlights.get("leadership_examples", [])
-    
-    # Identify recurring themes
-    themes = []
-    
-    # Technical depth theme
-    if len(skills) > 5:
-        themes.append("technical depth and expertise")
-    
-    # Leadership theme
-    if leadership:
-        themes.append("technical leadership and ownership")
-    
-    # Impact theme
-    if any("impact" in str(a).lower() or "improved" in str(a).lower() for a in achievements):
-        themes.append("measurable impact and results")
-    
-    # Innovation theme
-    if any("built" in str(a).lower() or "created" in str(a).lower() or "designed" in str(a).lower() for a in achievements):
-        themes.append("building and creating")
-    
-    # Primary brand statement
-    primary_theme = themes[0] if themes else "technical excellence"
-    
-    return {
-        "primary_theme": primary_theme,
-        "supporting_themes": themes[1:3] if len(themes) > 1 else [],
-        "brand_statement": f"A professional known for {primary_theme}",
-        "consistency_keywords": themes,
-        "differentiators": leadership[:2] if leadership else achievements[:2]
-    }
-
-
-# ============================================================
-# 🔮 FOLLOW-UP QUESTION PREDICTOR
-# ============================================================
-
-def predict_followup_questions(
-    question: str,
-    answer: str,
-    q_type: str,
-    q_strategy: Dict[str, Any]
-) -> List[Dict[str, str]]:
-    """Predict likely follow-up questions based on the answer."""
-    
-    followups = []
-    
-    # Get strategy-defined follow-ups
-    likely_followups = q_strategy.get("likely_followups", [])
-    for f in likely_followups[:3]:
-        followups.append({
-            "question": f,
-            "type": "standard",
-            "preparation_tip": "Be ready with a specific example"
-        })
-    
-    # Analyze answer for specific follow-up triggers
-    answer_lower = answer.lower()
-    
-    # If numbers mentioned, expect drilling
-    if re.search(r'\d+%?', answer):
-        followups.append({
-            "question": "How did you measure that? / How did you arrive at that number?",
-            "type": "verification",
-            "preparation_tip": "Be ready to explain your methodology"
-        })
-    
-    # If project mentioned, expect details
-    if "project" in answer_lower or "system" in answer_lower:
-        followups.append({
-            "question": "Tell me more about the technical architecture",
-            "type": "depth",
-            "preparation_tip": "Know the technical details of what you mentioned"
-        })
-    
-    # If team mentioned, expect collaboration questions
-    if "team" in answer_lower or "collaborated" in answer_lower:
-        followups.append({
-            "question": "How did you handle disagreements with the team?",
-            "type": "behavioral",
-            "preparation_tip": "Have a specific conflict resolution example ready"
-        })
-    
-    return followups[:5]
 
 
 # ============================================================
@@ -1682,21 +1038,17 @@ def predict_followup_questions(
 
 def _tex_safe(s: str) -> str:
     try:
-        return secure_tex_input(s)
-    except TypeError:
         return secure_tex_input("inline.txt", s)
+    except Exception:
+        return s
 
 
 def _is_responses_only_model(name: str) -> bool:
-    if not name:
-        return False
-    return bool(re.match(r"^(gpt-image|dall[- ]?e|whisper)", name, flags=re.I))
+    return bool(name and re.match(r"^(gpt-image|dall[- ]?e|whisper)", name, re.I))
 
 
-def _get_session_key(jd_text: str, resume_text: str) -> str:
-    """Generate session key for consistency tracking."""
-    content = (jd_text[:500] + resume_text[:500]).encode()
-    return hashlib.md5(content).hexdigest()[:16]
+def _session_key(jd_text: str, resume_text: str) -> str:
+    return hashlib.md5((jd_text[:500] + resume_text[:500]).encode()).hexdigest()[:16]
 
 
 # ============================================================
@@ -1715,8 +1067,7 @@ class TalkReq(BaseModel):
     context_id: Optional[str] = None
     title: Optional[str] = None
     use_latest: bool = True
-    # New optional fields
-    interview_stage: Optional[str] = None  # recruiter, technical, hiring_manager, final
+    interview_stage: Optional[str] = None
     include_quality_score: bool = True
     include_followups: bool = True
 
@@ -1743,27 +1094,29 @@ def _read_json(path: Optional[Path]) -> Dict[str, Any]:
         return {}
 
 
-def _coerce_key_from_ctx(ctx: Dict[str, Any], fallback_path: Optional[Path]) -> str:
+def _coerce_key(ctx: Dict[str, Any], fp: Optional[Path]) -> str:
     if ctx.get("key"):
         return str(ctx["key"]).strip()
     c, r = (ctx.get("company") or "").strip(), (ctx.get("role") or "").strip()
     if c and r:
         return f"{safe_filename(c)}__{safe_filename(r)}"
-    return fallback_path.stem if fallback_path else ""
+    return fp.stem if fp else ""
 
 
-def _pick_resume_from_ctx(ctx: Dict[str, Any]) -> str:
-    h = (ctx.get("humanized") or {})
-    o = (ctx.get("optimized") or {})
-    for candidate in (h.get("tex"), o.get("tex"), ctx.get("humanized_tex"), ctx.get("resume_tex")):
-        if isinstance(candidate, str) and candidate.strip():
-            return candidate
+def _pick_resume(ctx: Dict[str, Any]) -> str:
+    for src in (
+        (ctx.get("humanized") or {}).get("tex"),
+        (ctx.get("optimized") or {}).get("tex"),
+        ctx.get("humanized_tex"),
+        ctx.get("resume_tex"),
+    ):
+        if isinstance(src, str) and src.strip():
+            return src
     return ""
 
 
-def _pick_coverletter_from_ctx(ctx: Dict[str, Any]) -> str:
-    cl = (ctx.get("cover_letter") or {})
-    v = cl.get("tex")
+def _pick_cl(ctx: Dict[str, Any]) -> str:
+    v = (ctx.get("cover_letter") or {}).get("tex")
     return v.strip() if isinstance(v, str) else ""
 
 
@@ -1776,440 +1129,417 @@ def _load_context(req: TalkReq) -> Tuple[Dict[str, Any], Optional[Path]]:
         path = CONTEXT_DIR / f"{stem}.json"
     elif req.use_latest:
         path = _latest_path()
-
     ctx = _read_json(path)
     if ctx:
-        meta = {
-            "key": _coerce_key_from_ctx(ctx, path),
-            "company": ctx.get("company"),
-            "role": ctx.get("role"),
-        }
-        log_event("talk_context_used", meta)
+        log_event({"event": "talk_context_loaded", "key": _coerce_key(ctx, path)})
     return ctx, path
 
 
 # ============================================================
-# 🧩 OPENAI HELPERS
+# 🧩 OPENAI HELPER — with retry
 # ============================================================
 
-async def _gen_text_smart(system: str, user: str, model: str) -> str:
+async def _call_openai(system: str, user: str, model: str, temperature: float = 0.4) -> str:
+    """Call OpenAI with retry logic."""
     if not openai_client:
-        raise HTTPException(status_code=500, detail="OpenAI SDK not installed.")
+        raise HTTPException(500, "OpenAI SDK not installed.")
     if not (getattr(config, "OPENAI_API_KEY", "") or "").strip():
-        raise HTTPException(status_code=400, detail="OPENAI_API_KEY missing.")
+        raise HTTPException(400, "OPENAI_API_KEY missing.")
 
-    requested_model = (model or "").strip() or CHAT_SAFE_DEFAULT
+    requested = (model or "").strip() or CHAT_SAFE_DEFAULT
+    if _is_responses_only_model(requested):
+        requested = CHAT_SAFE_DEFAULT
 
-    if _is_responses_only_model(requested_model):
-        requested_model = CHAT_SAFE_DEFAULT
+    last_err = None
+    for attempt in range(3):
+        try:
+            r = await openai_client.chat.completions.create(
+                model=requested,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=temperature,
+            )
+            return (r.choices[0].message.content or "").strip()
+        except Exception as e:
+            last_err = e
+            log_event({"event": "openai_retry", "attempt": attempt + 1, "error": str(e)[:200]})
+            if attempt < 2:
+                await asyncio.sleep(1.0 * (attempt + 1))
 
-    try:
-        r = await openai_client.chat.completions.create(
-            model=requested_model,
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-        )
-        return (r.choices[0].message.content or "").strip()
-    except Exception as e:
-        log_event("talk_gen_fail", {"error": str(e), "model": requested_model})
-        raise
+    raise HTTPException(502, f"OpenAI failed after 3 attempts: {last_err}")
 
 
 # ============================================================
-# 🔎 RESUME & JD ANALYSIS
+# 🔎 RESUME & JD ANALYSIS — v2.0.0: deeper JD extraction
 # ============================================================
 
 async def extract_resume_highlights(resume_text: str, model: str = SUMMARIZER_MODEL) -> Dict[str, Any]:
-    """Extract KEY achievements and skills from resume."""
     if not (resume_text or "").strip():
-        return {"achievements": [], "skills": [], "experiences": [], "companies_worked": [], "technical_skills": []}
+        return {"top_achievements": [], "technical_skills": [], "leadership_examples": [],
+                "unique_strengths": [], "companies_worked": [], "quantified_results": [], "roles": []}
 
-    # Sanitize resume to remove CGPA before processing
-    sanitized_resume = sanitize_resume_for_talk(resume_text)
-
-    prompt = f"""Extract the MOST IMPRESSIVE and RELEVANT highlights from this resume.
+    sanitized = _strip_cgpa(resume_text)
+    prompt = f"""Extract the MOST IMPRESSIVE highlights from this resume. Be precise.
 
 RESUME:
-{sanitized_resume[:5000]}
+{sanitized[:5000]}
 
 Return STRICT JSON:
 {{
     "top_achievements": ["3-5 most impressive achievements with QUANTIFIED outcomes"],
-    "technical_skills": ["key technical skills with context"],
+    "technical_skills": ["key technical skills"],
     "leadership_examples": ["ownership/leadership examples"],
     "unique_strengths": ["what makes this candidate unique"],
     "companies_worked": ["company names"],
-    "quantified_results": ["any results with numbers/metrics"],
-    "roles": ["job titles held"]
+    "quantified_results": ["results with numbers/metrics"],
+    "roles": ["job titles held"],
+    "projects_built": ["named projects or systems built"]
 }}
 
-CRITICAL RULES:
-- Focus on SPECIFIC, IMPRESSIVE, QUANTIFIED achievements
-- Do NOT include any GPA, CGPA, grade point average, or academic metrics
-- Do NOT include graduation dates or academic honors (Dean's List, cum laude, etc.)
-- Focus ONLY on professional achievements and technical skills
+RULES: Focus on professional achievements ONLY. No GPA/CGPA/academic scores.
 """
-
     try:
-        result = await _gen_text_smart("Extract resume highlights as JSON.", prompt, model)
-        match = re.search(r"\{[\s\S]*\}", result)
-        if match:
-            highlights = json.loads(match.group(0))
-            # Double-check: filter out any CGPA mentions that slipped through
-            for key in highlights:
-                if isinstance(highlights[key], list):
-                    highlights[key] = [
-                        item for item in highlights[key]
-                        if not any(indicator in str(item).lower() for indicator in ACADEMIC_ACHIEVEMENT_INDICATORS)
-                    ]
-            return highlights
+        raw = await _call_openai("Extract resume highlights as JSON.", prompt, model)
+        m = re.search(r"\{[\s\S]*\}", raw)
+        if m:
+            h = json.loads(m.group(0))
+            # Filter academic indicators from all list fields
+            for k in h:
+                if isinstance(h[k], list):
+                    h[k] = [item for item in h[k]
+                            if not any(ind in str(item).lower() for ind in _ACADEMIC_INDICATORS)]
+            return h
     except Exception as e:
-        log_event("resume_highlight_fail", {"error": str(e)})
-    
-    return {"achievements": [], "skills": [], "experiences": [], "companies_worked": [], "technical_skills": []}
+        log_event({"event": "resume_highlight_fail", "error": str(e)[:200]})
+    return {"top_achievements": [], "technical_skills": [], "leadership_examples": [],
+            "unique_strengths": [], "companies_worked": [], "quantified_results": [], "roles": []}
 
 
 async def extract_jd_requirements(jd_text: str, model: str = SUMMARIZER_MODEL) -> Dict[str, Any]:
-    """Extract key requirements from JD."""
+    """v2.0.0: Deeper JD extraction including challenges, terminology, team context."""
     if not (jd_text or "").strip():
-        return {"requirements": [], "tech_stack": [], "responsibilities": [], "must_have_skills": [], "nice_to_have_skills": [], "key_responsibilities": []}
+        return {"must_have_skills": [], "nice_to_have_skills": [], "key_responsibilities": [],
+                "tech_stack": [], "team_context": "", "success_metrics": [],
+                "company_challenges": [], "jd_terminology": [], "role_level": "mid"}
 
-    prompt = f"""Extract the KEY requirements from this job description.
+    prompt = f"""Extract DEEP requirements from this JD. Be thorough.
 
 JOB DESCRIPTION:
 {jd_text[:4000]}
 
 Return STRICT JSON:
 {{
-    "must_have_skills": ["required technical skills"],
-    "nice_to_have_skills": ["preferred skills"],
-    "key_responsibilities": ["main job duties"],
+    "must_have_skills": ["required technical skills — EXACT terms from JD"],
+    "nice_to_have_skills": ["preferred skills — EXACT terms from JD"],
+    "key_responsibilities": ["main job duties — use JD's OWN language"],
     "tech_stack": ["specific technologies mentioned"],
-    "team_context": "what team/product this is for",
-    "success_metrics": ["how success might be measured"],
-    "company_challenges": ["challenges this role addresses"]
+    "team_context": "what team/product this is for (1-2 sentences)",
+    "success_metrics": ["how success might be measured in this role"],
+    "company_challenges": ["challenges this role is hired to solve"],
+    "jd_terminology": ["10-15 important EXACT phrases/terms unique to this JD"],
+    "role_level": "intern|junior|mid|senior|staff|principal",
+    "day_to_day": ["what this person will actually do daily"],
+    "collaboration_scope": "who this role works with (teams, stakeholders)"
 }}
 
-Be specific. Extract REAL requirements from the JD.
+RULES:
+- Use EXACT language from the JD for terminology and responsibilities
+- Identify the REAL problems this role solves (company_challenges)
+- Be specific about success_metrics — what would make someone great in this role
 """
-
     try:
-        result = await _gen_text_smart("Extract JD requirements as JSON.", prompt, model)
-        match = re.search(r"\{[\s\S]*\}", result)
-        if match:
-            return json.loads(match.group(0))
+        raw = await _call_openai("Extract JD requirements as JSON.", prompt, model)
+        m = re.search(r"\{[\s\S]*\}", raw)
+        if m:
+            return json.loads(m.group(0))
     except Exception as e:
-        log_event("jd_extract_fail", {"error": str(e)})
-    
-    return {"requirements": [], "tech_stack": [], "responsibilities": [], "must_have_skills": [], "nice_to_have_skills": [], "key_responsibilities": []}
+        log_event({"event": "jd_extract_fail", "error": str(e)[:200]})
+    return {"must_have_skills": [], "nice_to_have_skills": [], "key_responsibilities": [],
+            "tech_stack": [], "team_context": "", "success_metrics": [],
+            "company_challenges": [], "jd_terminology": [], "role_level": "mid"}
 
 
 # ============================================================
-# 💬 ULTIMATE KILLER ANSWER GENERATION
+# 🔮 FOLLOW-UP PREDICTOR
+# ============================================================
+
+def predict_followups(question: str, answer: str, q_type: str, q_strategy: Dict[str, Any]) -> List[Dict[str, str]]:
+    followups = []
+    for f in q_strategy.get("likely_followups", [])[:3]:
+        followups.append({"question": f, "type": "standard", "tip": "Be ready with a specific example"})
+
+    al = answer.lower()
+    if re.search(r"\d+%?", answer):
+        followups.append({"question": "How did you measure that?", "type": "verification", "tip": "Know your methodology"})
+    if "project" in al or "system" in al:
+        followups.append({"question": "Tell me more about the technical architecture", "type": "depth", "tip": "Know the details"})
+    if "team" in al or "collaborated" in al:
+        followups.append({"question": "How did you handle disagreements?", "type": "behavioral", "tip": "Have a conflict example ready"})
+    return followups[:5]
+
+
+# ============================================================
+# 💬 KILLER ANSWER GENERATION — v2.0.0: deep JD customization
 # ============================================================
 
 async def generate_killer_answer(
-    jd_text: str,
-    resume_text: str,
-    question: str,
-    company: str,
-    role: str,
-    model: str,
+    jd_text: str, resume_text: str, question: str,
+    company: str, role: str, model: str,
     cover_letter: str = "",
     resume_highlights: Optional[Dict[str, Any]] = None,
     jd_requirements: Optional[Dict[str, Any]] = None,
     skill_gaps: Optional[Dict[str, Any]] = None,
-    personal_brand: Optional[Dict[str, Any]] = None,
+    company_intel: Optional[Dict[str, Any]] = None,
     interview_stage: Optional[str] = None,
+    session_key: str = "",
 ) -> str:
-    """Generate an ULTIMATE KILLER answer with all enhancements."""
-    
-    # Detect question type and get strategy
     q_type, q_strategy = detect_question_type(question)
-    
-    # Get company intelligence
-    company_intel = get_company_intelligence(company)
-    
-    # CRITICAL: Sanitize resume text to remove CGPA/GPA before using
-    sanitized_resume = sanitize_resume_for_talk(resume_text)
-    
-    # Build context strings
+    is_behavioral = q_strategy.get("behavioral", False)
+    sanitized_resume = _strip_cgpa(resume_text)
+
+    # Build achievement context (avoid repeating across session)
+    used = _SESSION_USED_ACHIEVEMENTS.get(session_key, set())
+    achievements = [a for a in (resume_highlights or {}).get("top_achievements", [])
+                    if a not in used and not any(ind in a.lower() for ind in _ACADEMIC_INDICATORS)]
     achievements_str = ""
-    if resume_highlights:
-        achievements = resume_highlights.get("top_achievements", [])
-        # Filter out any academic achievements
-        achievements = [a for a in achievements if not any(
-            indicator in str(a).lower() for indicator in ACADEMIC_ACHIEVEMENT_INDICATORS
-        )]
-        if achievements:
-            achievements_str = "TOP ACHIEVEMENTS FROM RESUME (use these EXACT facts):\n" + "\n".join(f"• {a}" for a in achievements[:5])
-    
-    jd_reqs_str = ""
+    if achievements:
+        achievements_str = "YOUR RESUME ACHIEVEMENTS (use ONLY these facts):\n" + "\n".join(f"• {a}" for a in achievements[:5])
+
+    # JD requirements context — v2.0.0: much richer
+    jd_ctx = ""
     if jd_requirements:
+        parts = []
         skills = jd_requirements.get("must_have_skills", [])
-        responsibilities = jd_requirements.get("key_responsibilities", [])
         if skills:
-            jd_reqs_str += "REQUIRED SKILLS (mention 2-3): " + ", ".join(skills[:8]) + "\n"
-        if responsibilities:
-            jd_reqs_str += "KEY RESPONSIBILITIES: " + "; ".join(responsibilities[:5])
-    
+            parts.append(f"REQUIRED SKILLS (weave 2-3 into your answer): {', '.join(skills[:10])}")
+        resp = jd_requirements.get("key_responsibilities", [])
+        if resp:
+            parts.append(f"KEY RESPONSIBILITIES (show you can do these): {'; '.join(resp[:5])}")
+        challenges = jd_requirements.get("company_challenges", [])
+        if challenges:
+            parts.append(f"PROBLEMS THIS ROLE SOLVES (address these): {'; '.join(challenges[:3])}")
+        terms = jd_requirements.get("jd_terminology", [])
+        if terms:
+            parts.append(f"JD TERMINOLOGY (mirror this language): {', '.join(terms[:10])}")
+        day2day = jd_requirements.get("day_to_day", [])
+        if day2day:
+            parts.append(f"DAILY WORK (show familiarity): {'; '.join(day2day[:3])}")
+        collab = jd_requirements.get("collaboration_scope", "")
+        if collab:
+            parts.append(f"COLLABORATION SCOPE: {collab}")
+        role_level = jd_requirements.get("role_level", "mid")
+        parts.append(f"ROLE LEVEL: {role_level} (calibrate depth/autonomy accordingly)")
+        jd_ctx = "\n".join(parts)
+
     # Skill gap context
-    gap_context = ""
+    gap_ctx = ""
     if skill_gaps and skill_gaps.get("must_have_gaps"):
-        gaps = skill_gaps.get("must_have_gaps", [])[:3]
+        gaps = skill_gaps["must_have_gaps"][:3]
         strategies = skill_gaps.get("gap_strategies", {})
-        gap_context = f"\n⚠️ SKILL GAPS TO ADDRESS HONESTLY (if relevant):\n"
-        for gap in gaps:
-            strategy = strategies.get(gap, "Show willingness to learn")
-            gap_context += f"• {gap}: {strategy}\n"
-    
-    # Personal brand context
-    brand_context = ""
-    if personal_brand:
-        brand_context = f"\n🎯 PERSONAL BRAND THEME: {personal_brand.get('primary_theme', 'technical excellence')}\n"
-        brand_context += f"Consistently emphasize: {', '.join(personal_brand.get('consistency_keywords', []))}\n"
-    
-    # Interview stage calibration
-    stage_context = ""
+        gap_ctx = "SKILL GAPS (address honestly if relevant):\n" + "\n".join(
+            f"• {g}: {strategies.get(g, 'Show willingness to learn')}" for g in gaps)
+
+    # Company intel context
+    ci = company_intel or _DEFAULT_INTEL
+    stage_ctx = ""
     if interview_stage:
-        stage_intel = company_intel.get("interview_stages", {}).get(interview_stage, "")
-        if stage_intel:
-            stage_context = f"\n📋 INTERVIEW STAGE: {interview_stage.upper()}\nFocus: {stage_intel}\n"
-    
-    what_impresses = company_intel.get("what_impresses_them", [])
-    avoid_saying = company_intel.get("avoid_saying", [])
-    
-    # Build the ultimate prompt
-    sys_prompt = f"""You are helping a candidate give a KILLER answer that will WIN the interview.
+        stage_focus = ci.get("interview_stages", {}).get(interview_stage, "")
+        if stage_focus:
+            stage_ctx = f"INTERVIEW STAGE: {interview_stage.upper()} — Focus: {stage_focus}"
 
-🎯 QUESTION TYPE: {q_type.upper()}
-📋 STRATEGY: {q_strategy['strategy']}
+    # STAR enforcement for behavioral questions
+    star_instruction = ""
+    if is_behavioral:
+        star_instruction = """
+MANDATORY STAR STRUCTURE:
+Your answer MUST follow this structure:
+1. SITUATION (2 sentences max): Set the scene — where, when, what was the challenge
+2. ACTION (bulk of answer): What YOU specifically did — be detailed and first-person
+3. RESULT (1-2 sentences): Quantified outcome — use real numbers from your resume
+4. TAKEAWAY (1 sentence): What you learned or how you'd apply it here
 
-REQUIRED STRUCTURE:
-{chr(10).join(f"• {s}" for s in q_strategy['structure'])}
-
-🏢 WHAT {company.upper()} VALUES:
-{chr(10).join(f"• {v}" for v in company_intel.get('what_they_value', [])[:4])}
-
-✅ WHAT IMPRESSES THEM:
-{chr(10).join(f"• {w}" for w in what_impresses[:4])}
-
-❌ AVOID SAYING (company-specific):
-{chr(10).join(f"• {a}" for a in avoid_saying[:4])}
-
-💡 OPENING HOOK IDEAS (adapt one to be specific):
-{chr(10).join(f"• {h}" for h in q_strategy['hook_templates'][:3])}
-
-⚠️ TRAP WARNINGS:
-{chr(10).join(f"• {t}" for t in q_strategy.get('trap_warnings', [])[:3])}
-{stage_context}
-{brand_context}
-{gap_context}
-
-📝 ANSWER REQUIREMENTS:
-1. HOOK: First sentence must grab attention - NO generic openings
-2. GROUNDING: Use ONLY facts from the resume - do NOT invent achievements
-3. SPECIFICITY: Include EXACT numbers, tools, company names from resume
-4. RELEVANCE: Map directly to THIS company's needs using JD keywords
-5. FORWARD: Show what you'll CONTRIBUTE, not just what you've done
-6. CONFIDENCE: Sound natural and confident - no hedging or pleading
-7. LENGTH: 2-3 paragraphs, 120-180 words total
-
-🚫 ABSOLUTE RULES - NEVER VIOLATE - CRITICAL:
-- Do NOT invent achievements, metrics, or company names not in resume
-- Do NOT use clichés: "passionate", "team player", "hard worker", "excited"
-- Do NOT start with: "I am writing...", "Thank you for...", "I believe..."
-- Do NOT sound desperate: "grateful for opportunity", "hope you consider"
-- Do NOT be generic - EVERY sentence must be specific to THIS role/company
-- Do NOT use hedging: "I think", "maybe", "perhaps"
-
-🚨🚨🚨 CRITICAL GPA/CGPA RULE - ABSOLUTELY FORBIDDEN 🚨🚨🚨
-- NEVER mention GPA, CGPA, grade point average, or any numeric academic score
-- NEVER mention graduation dates, graduation year, or when you graduated
-- NEVER mention academic honors: Dean's List, cum laude, magna cum laude, summa cum laude
-- NEVER mention class rank, valedictorian, salutatorian, or academic standing
-- NEVER reference "academic excellence", "academic achievements", or "scholastic" achievements
-- NEVER mention any grades, percentages, or scores from school/university
-- Focus ONLY on professional work experience, projects, and technical skills
-- If you find yourself wanting to mention education, talk about SKILLS learned, not grades
-- This rule is NON-NEGOTIABLE and applies to ALL answers regardless of question type
-
-✨ TONE: Confident professional who knows their worth and has done their research.
+DO NOT skip any section. The ACTION section should be 50-60% of the answer.
 """
 
-    user_prompt = f"""Generate a KILLER answer for this question:
+    # Previous answers in session (avoid repetition)
+    prev_answers = _SESSION_ANSWERS.get(session_key, [])
+    dedup_ctx = ""
+    if prev_answers:
+        used_achievements = [a.get("key_achievement", "") for a in prev_answers[-3:]]
+        dedup_ctx = f"ALREADY USED IN THIS SESSION (use DIFFERENT examples): {'; '.join(a for a in used_achievements if a)}"
 
-QUESTION: {question}
+    sys_prompt = f"""You are an elite interview coach crafting a WINNING answer.
+
+QUESTION TYPE: {q_type.upper()}
+STRATEGY: {q_strategy['strategy']}
+
+ANSWER STRUCTURE:
+{chr(10).join(f"• {s}" for s in q_strategy['structure'])}
+{star_instruction}
+
+COMPANY: {company.upper()}
+What they value: {', '.join(ci.get('what_they_value', [])[:4])}
+What impresses them: {chr(10).join(f'• {w}' for w in ci.get('what_impresses_them', [])[:4])}
+Avoid saying: {', '.join(ci.get('avoid_saying', [])[:3])}
+{stage_ctx}
+
+TRAP WARNINGS:
+{chr(10).join(f'• {t}' for t in q_strategy.get('trap_warnings', [])[:3])}
+
+{dedup_ctx}
+
+ABSOLUTE RULES:
+1. HOOK: First sentence grabs attention — NO generic openings
+2. GROUNDING: Use ONLY facts from the resume — NEVER invent
+3. JD MIRRORING: Use EXACT terminology from the JD in your answer
+4. SPECIFICITY: Include real numbers, tools, company names from resume
+5. CONFIDENCE: No hedging ("I think", "maybe"), no pleading ("hope you consider")
+6. LENGTH: 2-3 paragraphs, 120-180 words
+7. NO CLICHES: Never say "passionate", "team player", "hard worker", "self-starter"
+8. NO GPA/CGPA: Never mention grades, GPA, CGPA, academic honors, graduation dates
+9. JD CHALLENGES: Show you understand the PROBLEMS this role solves
+10. FORWARD-LOOKING: End with what you'll CONTRIBUTE, not just what you've done
+"""
+
+    user_prompt = f"""QUESTION: {question}
 
 COMPANY: {company}
 ROLE: {role}
 
 {achievements_str}
 
-{jd_reqs_str}
+{jd_ctx}
 
-JOB DESCRIPTION (key excerpts):
+{gap_ctx}
+
+JOB DESCRIPTION:
 {jd_text[:3000]}
 
-RESUME (ONLY use facts from here - do not invent):
+RESUME (ONLY use facts from here):
 {sanitized_resume[:3000]}
 
-{f'COVER LETTER (additional context):{chr(10)}{cover_letter[:1500]}' if cover_letter else ''}
+{f'COVER LETTER:{chr(10)}{cover_letter[:1000]}' if cover_letter else ''}
 
-Remember:
-- Open with a HOOK that grabs attention
-- Use ONLY facts from the resume
-- Be SPECIFIC with examples and outcomes
-- Show you understand {company}'s unique needs
-- Sound CONFIDENT but not arrogant
-- 2-3 paragraphs, 120-180 words
-- ABSOLUTELY NO GPA/CGPA/academic metrics/graduation dates/academic honors
+Write the answer now. 120-180 words. Start with a strong hook.
 """
 
-    start = time.time()
-    answer = await _gen_text_smart(sys_prompt, user_prompt, model=model)
-    latency = round(time.time() - start, 2)
-    
-    # CRITICAL: Post-process to remove any CGPA/GPA that might have slipped through
-    answer = filter_cgpa_from_text(answer)
-    
-    # Validate no CGPA
-    is_valid, violations = validate_no_cgpa(answer)
-    if not is_valid:
-        log_event("cgpa_violation_detected", {"violations": violations})
-        # More aggressive filtering
-        answer = filter_cgpa_from_sentences(answer)
-    
-    log_event("killer_answer_generated", {
-        "question_type": q_type,
-        "company": company,
-        "latency": latency,
-        "words": len(answer.split()),
-        "interview_stage": interview_stage,
-        "cgpa_clean": is_valid
-    })
+    answer = await _call_openai(sys_prompt, user_prompt, model=model, temperature=0.45)
+
+    # Track session
+    if session_key:
+        if session_key not in _SESSION_ANSWERS:
+            _SESSION_ANSWERS[session_key] = []
+        _SESSION_ANSWERS[session_key].append({
+            "question": question, "q_type": q_type,
+            "key_achievement": achievements[0] if achievements else "",
+        })
+        if achievements:
+            if session_key not in _SESSION_USED_ACHIEVEMENTS:
+                _SESSION_USED_ACHIEVEMENTS[session_key] = set()
+            _SESSION_USED_ACHIEVEMENTS[session_key].add(achievements[0])
 
     return _tex_safe(answer)
 
 
 # ============================================================
-# ✨ HUMANIZE (with answer-specific instructions)
+# ✨ HUMANIZE — v2.0.0: self-contained (no internal API dep)
 # ============================================================
 
-async def humanize_answer(answer_text: str, tone: str, q_type: str) -> Tuple[str, bool]:
-    """Refine the answer while preserving killer elements."""
-    api_base = (getattr(config, "API_BASE_URL", "") or "").rstrip("/") or "http://127.0.0.1:8000"
-    url = f"{api_base}/api/superhuman/rewrite"
-    
-    instructions = (
-        f"Rewrite this {q_type} interview answer. "
-        "PRESERVE: the opening hook, specific achievements, numbers, company names, and confident tone. "
-        "IMPROVE: natural flow, remove any AI-sounding phrases, make it sound like a real human. "
-        "KEEP: 2-3 paragraphs, 120-180 words total. "
-        "DO NOT: add clichés, make it generic, remove specific details, or change facts. "
-        "CRITICAL: Do NOT add any GPA, CGPA, academic scores, graduation dates, or academic honors."
-    )
-    
-    payload = {
-        "text": instructions + "\n\n" + answer_text,
-        "mode": "interview_answer",
-        "tone": tone,
-        "latex_safe": True,
-    }
+async def humanize_answer(answer_text: str, tone: str, q_type: str, model: str = ANSWER_MODEL) -> Tuple[str, bool]:
+    """Refine answer using GPT directly (no internal API dependency)."""
+    prompt = f"""Rewrite this {q_type} interview answer to sound more natural and human.
 
+CURRENT ANSWER:
+{answer_text}
+
+RULES:
+- PRESERVE: opening hook, specific achievements, numbers, company names, confident tone
+- IMPROVE: natural flow, conversational rhythm, remove AI-sounding phrases
+- KEEP: 2-3 paragraphs, 120-180 words
+- TONE: {tone} — confident professional
+- DO NOT: add cliches, remove specific details, change facts, add GPA/CGPA/academic metrics
+- DO NOT: add "passionate", "team player", "hard worker", "self-starter"
+
+Return ONLY the improved answer, nothing else.
+"""
     try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            r = await client.post(url, json=payload)
-        r.raise_for_status()
-        data = r.json()
-        rewritten = data.get("rewritten") or answer_text
-        
-        # CRITICAL: Filter CGPA from humanized text
-        rewritten = filter_cgpa_from_text(rewritten)
-        
-        was_humanized = isinstance(rewritten, str) and rewritten.strip() != answer_text.strip()
-        return _tex_safe(rewritten), was_humanized
+        rewritten = await _call_openai(
+            "Rewrite interview answer to sound natural. Never mention GPA/CGPA.",
+            prompt, model, temperature=0.5,
+        )
+        was_changed = rewritten.strip() != answer_text.strip()
+        return _tex_safe(rewritten), was_changed
     except Exception as e:
-        log_event("talk_humanize_fail", {"error": str(e)})
+        log_event({"event": "humanize_fail", "error": str(e)[:200]})
         return answer_text, False
 
 
 # ============================================================
-# 🔄 ANSWER IMPROVEMENT LOOP
+# 🔄 ANSWER IMPROVEMENT LOOP — v2.0.0: up to 3 iterations
 # ============================================================
 
-async def improve_answer_if_needed(
-    answer: str,
-    quality_score: Dict[str, Any],
-    question: str,
-    company: str,
-    role: str,
-    jd_requirements: Dict[str, Any],
-    resume_highlights: Dict[str, Any],
-    model: str,
-    max_iterations: int = 2
-) -> str:
-    """Improve answer if quality score is below threshold."""
-    
-    if quality_score.get("overall_score", 0) >= 7.5:
-        return answer  # Good enough
-    
-    if max_iterations <= 0:
-        return answer  # Gave up
-    
-    feedback = quality_score.get("feedback", [])
-    if not feedback:
-        return answer
-    
-    improvement_prompt = f"""Improve this interview answer based on the following feedback:
+async def improve_answer(
+    answer: str, quality: Dict[str, Any], question: str,
+    company: str, role: str, jd_req: Dict[str, Any],
+    resume_hl: Dict[str, Any], model: str,
+    max_iter: int = 3,
+) -> Tuple[str, Dict[str, Any]]:
+    """Iteratively improve answer until quality threshold or max iterations."""
+    current = answer
+    current_quality = quality
+    scorer = AnswerQualityScorer()
+
+    for i in range(max_iter):
+        if current_quality.get("overall_score", 0) >= 7.5:
+            break
+
+        feedback = current_quality.get("feedback", [])
+        if not feedback:
+            break
+
+        prompt = f"""Improve this interview answer based on specific feedback.
 
 CURRENT ANSWER:
-{answer}
+{current}
 
 FEEDBACK TO ADDRESS:
-{chr(10).join(f"• {f}" for f in feedback)}
+{chr(10).join(f'• {f}' for f in feedback)}
 
 QUESTION: {question}
-COMPANY: {company}
-ROLE: {role}
+COMPANY: {company}  |  ROLE: {role}
 
-Requirements:
-- Fix the specific issues mentioned in feedback
-- Keep the same length (120-180 words)
+JD SKILLS TO MENTION: {', '.join(jd_req.get('must_have_skills', [])[:6])}
+JD CHALLENGES: {'; '.join(jd_req.get('company_challenges', [])[:3])}
+
+RULES:
+- Fix the specific issues in feedback
+- Keep 120-180 words
 - Maintain confidence and specificity
-- Do NOT add clichés or generic phrases
-- Do NOT invent new achievements
-- CRITICAL: Do NOT add any GPA, CGPA, academic scores, graduation dates, or academic honors
+- Do NOT invent achievements
+- NEVER mention GPA, CGPA, academic scores, graduation dates
 
-Return only the improved answer, nothing else.
+Return only the improved answer.
 """
+        try:
+            improved = await _call_openai(
+                "Improve interview answer per feedback. Never mention GPA/CGPA.",
+                prompt, model, temperature=0.4,
+            )
+            new_quality = scorer.score_answer(improved, question, "generic", company, jd_req, resume_hl)
+            if new_quality.get("overall_score", 0) > current_quality.get("overall_score", 0):
+                current = improved
+                current_quality = new_quality
+                log_event({"event": "answer_improved", "iteration": i + 1,
+                           "old": current_quality.get("overall_score"),
+                           "new": new_quality.get("overall_score")})
+            else:
+                break
+        except Exception:
+            break
 
-    try:
-        improved = await _gen_text_smart(
-            "You are improving an interview answer based on specific feedback. NEVER mention GPA, CGPA, or academic achievements.",
-            improvement_prompt,
-            model
-        )
-        
-        # CRITICAL: Filter CGPA from improved answer
-        improved = filter_cgpa_from_text(improved)
-        
-        # Re-score
-        scorer = AnswerQualityScorer()
-        new_score = scorer.score_answer(
-            improved, question, "generic", company, jd_requirements, resume_highlights
-        )
-        
-        if new_score.get("overall_score", 0) > quality_score.get("overall_score", 0):
-            log_event("answer_improved", {
-                "old_score": quality_score.get("overall_score"),
-                "new_score": new_score.get("overall_score")
-            })
-            return improved
-        
-    except Exception as e:
-        log_event("answer_improvement_fail", {"error": str(e)})
-    
-    return answer
+    return current, current_quality
 
 
 # ============================================================
@@ -2218,187 +1548,118 @@ Return only the improved answer, nothing else.
 
 @router.get("/ping")
 async def ping():
-    now = datetime.now(tz=timezone.utc)
-    return {"ok": True, "service": "talk", "version": "v1.0.0", "epoch": time.time(), "iso": now.isoformat()}
+    return {"ok": True, "service": "talk", "version": "v2.0.0",
+            "epoch": time.time(), "iso": datetime.now(tz=timezone.utc).isoformat()}
 
 
 # ============================================================
-# 🚀 MAIN ENDPOINT - ULTIMATE VERSION
+# 🚀 MAIN ENDPOINT — v2.0.0
 # ============================================================
 
 @router.post("/answer")
 @router.post("")
 async def talk_to_hirex(req: TalkReq):
-    """
-    Generate an ULTIMATE, interview-winning answer.
-    
-    Features:
-    - Question type detection with tailored strategy
-    - Company-specific intelligence (values, culture, what impresses)
-    - Anti-hallucination grounding (verify claims against resume)
-    - Answer quality scoring with feedback
-    - Skill gap analysis with addressing strategies
-    - Follow-up question prediction
-    - Personal brand consistency
-    - Interview stage calibration
-    - Automatic answer improvement loop
-    - CGPA/GPA filtering to ensure no academic metrics appear
-    """
-    
-    # Load context if needed
+    # ── Load context ──
     jd_text = (req.jd_text or "").strip()
     resume_tex = (req.resume_tex or "").strip()
     cover_letter_tex = ""
-    used_key = ""
-    used_company = ""
-    used_role = ""
+    used_key = used_company = used_role = ""
 
-    if (not jd_text) or (not resume_tex and not (req.resume_plain or "").strip()):
+    if not jd_text or (not resume_tex and not (req.resume_plain or "").strip()):
         ctx, ctx_path = _load_context(req)
         if ctx:
             jd_text = jd_text or (ctx.get("jd_text") or "")
-            resume_tex = resume_tex or _pick_resume_from_ctx(ctx)
-            cover_letter_tex = _pick_coverletter_from_ctx(ctx)
-            used_key = _coerce_key_from_ctx(ctx, ctx_path)
+            resume_tex = resume_tex or _pick_resume(ctx)
+            cover_letter_tex = _pick_cl(ctx)
+            used_key = _coerce_key(ctx, ctx_path)
             used_company = (ctx.get("company") or "").strip()
             used_role = (ctx.get("role") or "").strip()
 
     if not jd_text.strip():
-        raise HTTPException(status_code=400, detail="Job Description missing.")
+        raise HTTPException(400, "Job Description missing.")
     if not (resume_tex or (req.resume_plain or "").strip()):
-        raise HTTPException(status_code=400, detail="Resume text missing.")
+        raise HTTPException(400, "Resume text missing.")
 
-    resume_text = resume_tex or req.resume_plain or ""
-    
-    # CRITICAL: Sanitize resume to remove CGPA/GPA before any processing
-    resume_text = sanitize_resume_for_talk(resume_text)
-    
+    resume_text = _strip_cgpa(resume_tex or req.resume_plain or "")
     model = (req.model or ANSWER_MODEL).strip() or ANSWER_MODEL
-    
-    # Extract company and role from JD if not from context
+    sk = _session_key(jd_text, resume_text)
+
+    # ── Extract company/role from JD if missing ──
     if not used_company or not used_role:
         try:
-            extract_prompt = f"""Extract company and role from this JD.
-Return JSON: {{"company": "...", "role": "..."}}
-JD: {jd_text[:2000]}"""
-            result = await _gen_text_smart("Extract as JSON.", extract_prompt, SUMMARIZER_MODEL)
-            match = re.search(r"\{[\s\S]*\}", result)
-            if match:
-                data = json.loads(match.group(0))
-                used_company = used_company or data.get("company", "Company")
-                used_role = used_role or data.get("role", "Role")
+            raw = await _call_openai(
+                "Extract as JSON.",
+                f'Return JSON: {{"company":"...","role":"..."}}\nJD: {jd_text[:2000]}',
+                SUMMARIZER_MODEL, 0.0,
+            )
+            m = re.search(r"\{[\s\S]*\}", raw)
+            if m:
+                d = json.loads(m.group(0))
+                used_company = used_company or d.get("company", "Company")
+                used_role = used_role or d.get("role", "Role")
         except Exception:
             used_company = used_company or "Company"
             used_role = used_role or "Role"
 
-    # Detect question type
     q_type, q_strategy = detect_question_type(req.question)
 
-    # Extract resume highlights and JD requirements
-    resume_highlights = await extract_resume_highlights(resume_text, model)
-    jd_requirements = await extract_jd_requirements(jd_text, model)
-
-    # Analyze skill gaps
-    skill_gaps = await analyze_skill_gaps(resume_highlights, jd_requirements, model)
-
-    # Extract personal brand
-    personal_brand = await extract_personal_brand(resume_highlights, model)
-
-    # Detect red flags
-    red_flags = await detect_red_flags(resume_text, resume_highlights, model)
-
-    # Generate killer answer
-    draft_answer = await generate_killer_answer(
-        jd_text=jd_text,
-        resume_text=resume_text,
-        question=req.question,
-        company=used_company,
-        role=used_role,
-        model=model,
-        cover_letter=cover_letter_tex,
-        resume_highlights=resume_highlights,
-        jd_requirements=jd_requirements,
-        skill_gaps=skill_gaps,
-        personal_brand=personal_brand,
-        interview_stage=req.interview_stage,
+    # ── Parallel extraction ──
+    resume_hl, jd_req, company_intel = await asyncio.gather(
+        extract_resume_highlights(resume_text, model),
+        extract_jd_requirements(jd_text, model),
+        get_company_intelligence(used_company, jd_text, model),
     )
 
-    # CRITICAL: Final CGPA filter on draft answer
-    draft_answer = filter_cgpa_from_text(draft_answer)
+    skill_gaps = await analyze_skill_gaps(resume_hl, jd_req)
 
-    # Score answer quality
+    # ── Generate answer ──
+    draft = await generate_killer_answer(
+        jd_text=jd_text, resume_text=resume_text, question=req.question,
+        company=used_company, role=used_role, model=model,
+        cover_letter=cover_letter_tex, resume_highlights=resume_hl,
+        jd_requirements=jd_req, skill_gaps=skill_gaps,
+        company_intel=company_intel, interview_stage=req.interview_stage,
+        session_key=sk,
+    )
+
+    # ── Single CGPA gate (v2.0.0: consolidated) ──
+    draft = _strip_cgpa(draft)
+
+    # ── Score ──
     scorer = AnswerQualityScorer()
-    quality_score = scorer.score_answer(
-        draft_answer,
-        req.question,
-        q_type,
-        used_company,
-        jd_requirements,
-        resume_highlights
-    )
+    quality = scorer.score_answer(draft, req.question, q_type, used_company, jd_req, resume_hl, company_intel)
 
-    # Improve if score is low
-    if quality_score.get("overall_score", 0) < 7.5:
-        draft_answer = await improve_answer_if_needed(
-            draft_answer,
-            quality_score,
-            req.question,
-            used_company,
-            used_role,
-            jd_requirements,
-            resume_highlights,
-            model
-        )
-        # Re-score
-        quality_score = scorer.score_answer(
-            draft_answer, req.question, q_type, used_company, jd_requirements, resume_highlights
+    # ── Improve if needed ──
+    if quality.get("overall_score", 0) < 7.5:
+        draft, quality = await improve_answer(
+            draft, quality, req.question, used_company, used_role,
+            jd_req, resume_hl, model,
         )
 
-    # Humanize if requested
+    # ── Humanize ──
     if req.humanize:
-        final_answer, was_humanized = await humanize_answer(draft_answer, req.tone, q_type)
+        final, was_humanized = await humanize_answer(draft, req.tone, q_type, model)
     else:
-        final_answer, was_humanized = draft_answer, False
+        final, was_humanized = draft, False
 
-    # CRITICAL: Final CGPA filter on final answer (belt and suspenders)
-    final_answer = filter_cgpa_from_text(final_answer)
-    
-    # Final validation
-    is_cgpa_clean, cgpa_violations = validate_no_cgpa(final_answer)
-    if not is_cgpa_clean:
-        log_event("cgpa_final_violation", {"violations": cgpa_violations})
-        final_answer = filter_cgpa_from_sentences(final_answer)
+    # ── Final CGPA gate ──
+    final = _strip_cgpa(final)
+    is_cgpa_clean, _ = _validate_no_cgpa(final)
 
-    # Predict follow-up questions
-    followup_predictions = []
-    if req.include_followups:
-        followup_predictions = predict_followup_questions(req.question, final_answer, q_type, q_strategy)
+    # ── Follow-ups ──
+    followups = predict_followups(req.question, final, q_type, q_strategy) if req.include_followups else []
 
-    # Get company intel summary
-    company_intel = get_company_intelligence(used_company)
+    log_event({"event": "talk_answer_v2", "q_type": q_type, "company": used_company,
+               "score": quality.get("overall_score"), "grade": quality.get("grade"),
+               "humanized": was_humanized, "cgpa_clean": is_cgpa_clean})
 
-    # Log
-    log_event("talk_ultimate_answer", {
-        "question": req.question[:100],
-        "question_type": q_type,
-        "company": used_company,
-        "role": used_role,
-        "humanized": was_humanized,
-        "quality_score": quality_score.get("overall_score"),
-        "quality_grade": quality_score.get("grade"),
-        "interview_stage": req.interview_stage,
-        "cgpa_clean": is_cgpa_clean
-    })
-
-    # Build response (same interface as before, with additional fields)
     response = {
-        # Original fields (backward compatible)
         "question": req.question.strip(),
         "question_type": q_type,
         "strategy_used": q_strategy["strategy"],
-        "draft_answer": draft_answer,
-        "final_text": final_answer,
-        "answer": final_answer,
+        "draft_answer": draft,
+        "final_text": final,
+        "answer": final,
         "tone": req.tone,
         "humanized": was_humanized,
         "model": model,
@@ -2409,75 +1670,42 @@ JD: {jd_text[:2000]}"""
             "culture_keywords": company_intel.get("culture_keywords", [])[:3],
         },
         "context": {
-            "key": used_key,
-            "company": used_company,
-            "role": used_role,
+            "key": used_key, "company": used_company, "role": used_role,
             "has_cover_letter": bool(cover_letter_tex),
         },
-        
-        # NEW: Quality scoring
         "quality": {
-            "overall_score": quality_score.get("overall_score", 0),
-            "grade": quality_score.get("grade", "N/A"),
-            "pass": quality_score.get("pass", False),
-            "dimension_scores": quality_score.get("dimension_scores", {}),
-            "feedback": quality_score.get("feedback", []),
+            "overall_score": quality.get("overall_score", 0),
+            "grade": quality.get("grade", "N/A"),
+            "pass": quality.get("pass", False),
+            "dimension_scores": quality.get("dimension_scores", {}),
+            "feedback": quality.get("feedback", []),
         } if req.include_quality_score else None,
-        
-        # NEW: Follow-up predictions
-        "predicted_followups": followup_predictions if req.include_followups else None,
-        
-        # NEW: Skill gap analysis
+        "predicted_followups": followups if req.include_followups else None,
         "skill_analysis": {
             "match_percentage": skill_gaps.get("match_percentage", 0),
             "strengths_to_emphasize": skill_gaps.get("strengths_to_emphasize", [])[:5],
             "gaps_to_address": skill_gaps.get("must_have_gaps", [])[:3],
             "gap_strategies": skill_gaps.get("gap_strategies", {}),
-            "transferable_skills": skill_gaps.get("transferable_skills", [])[:3],
         },
-        
-        # NEW: Personal brand
-        "personal_brand": {
-            "primary_theme": personal_brand.get("primary_theme", ""),
-            "brand_statement": personal_brand.get("brand_statement", ""),
-            "consistency_keywords": personal_brand.get("consistency_keywords", [])[:3],
+        "jd_deep_context": {
+            "challenges_addressed": jd_req.get("company_challenges", [])[:3],
+            "jd_terminology_used": jd_req.get("jd_terminology", [])[:8],
+            "role_level": jd_req.get("role_level", "mid"),
+            "success_metrics": jd_req.get("success_metrics", [])[:3],
         },
-        
-        # NEW: Red flags detected
-        "red_flags": {
-            "detected": red_flags.get("red_flags", []),
-            "addressing_strategies": red_flags.get("addressing_strategies", {}),
-        } if red_flags.get("red_flags") else None,
-        
-        # NEW: Interview stage context
-        "interview_stage": {
-            "stage": req.interview_stage,
-            "focus": company_intel.get("interview_stages", {}).get(req.interview_stage, ""),
-        } if req.interview_stage else None,
-        
-        # NEW: Trap warnings for this question type
         "trap_warnings": q_strategy.get("trap_warnings", [])[:3],
-        
-        # NEW: Salary intelligence (if salary question)
         "salary_intel": company_intel.get("salary_range") if q_type == "salary" else None,
-        
-        # NEW: Common questions for this company
         "company_common_questions": company_intel.get("common_questions", [])[:5],
-        
-        # NEW: Why not competitors (if "why this company" question)
         "competitor_differentiation": {
             "competitors": company_intel.get("competitors", []),
             "why_not_them": company_intel.get("why_not_competitors", ""),
         } if q_type == "why_this_company" else None,
-        
-        # NEW: CGPA clean status
-        "cgpa_filtered": not is_cgpa_clean,  # True if we had to filter something
+        "interview_stage": {
+            "stage": req.interview_stage,
+            "focus": company_intel.get("interview_stages", {}).get(req.interview_stage, ""),
+        } if req.interview_stage else None,
     }
-    
-    # Clean up None values for cleaner response
-    response = {k: v for k, v in response.items() if v is not None}
-    
-    return response
+    return {k: v for k, v in response.items() if v is not None}
 
 
 # ============================================================
@@ -2485,151 +1713,58 @@ JD: {jd_text[:2000]}"""
 # ============================================================
 
 @router.get("/company-intel/{company}")
-async def get_company_intel(company: str):
-    """Get company intelligence for preparation."""
-    intel = get_company_intelligence(company)
-    return {
-        "company": company,
-        "found": intel != DEFAULT_COMPANY_INTELLIGENCE,
-        "intelligence": intel
-    }
+async def get_company_intel_endpoint(company: str, jd_text: str = ""):
+    intel = await get_company_intelligence(company, jd_text)
+    return {"company": company, "found": intel != _DEFAULT_INTEL, "intelligence": intel}
 
 
 @router.get("/question-types")
 async def list_question_types():
-    """List all supported question types and their strategies."""
     return {
         "question_types": {
-            q_type: {
-                "strategy": config["strategy"],
-                "structure": config["structure"],
-                "hook_templates": config["hook_templates"][:2],
-                "trap_warnings": config.get("trap_warnings", [])[:2],
-                "likely_followups": config.get("likely_followups", [])[:3]
+            qt: {
+                "strategy": cfg["strategy"],
+                "structure": cfg["structure"],
+                "behavioral": cfg.get("behavioral", False),
+                "trap_warnings": cfg.get("trap_warnings", [])[:2],
+                "likely_followups": cfg.get("likely_followups", [])[:3],
             }
-            for q_type, config in QUESTION_STRATEGIES.items()
+            for qt, cfg in QUESTION_STRATEGIES.items()
         }
     }
 
 
 @router.post("/analyze-gaps")
-async def analyze_gaps_endpoint(
-    jd_text: str,
-    resume_text: str,
-    model: str = SUMMARIZER_MODEL
-):
-    """Analyze skill gaps between resume and JD."""
-    # Sanitize resume
-    resume_text = sanitize_resume_for_talk(resume_text)
-    
-    resume_highlights = await extract_resume_highlights(resume_text, model)
-    jd_requirements = await extract_jd_requirements(jd_text, model)
-    skill_gaps = await analyze_skill_gaps(resume_highlights, jd_requirements, model)
-    
-    return {
-        "resume_skills": resume_highlights.get("technical_skills", []),
-        "jd_requirements": jd_requirements.get("must_have_skills", []),
-        "analysis": skill_gaps
-    }
+async def analyze_gaps_endpoint(jd_text: str, resume_text: str, model: str = SUMMARIZER_MODEL):
+    resume_text = _strip_cgpa(resume_text)
+    rh = await extract_resume_highlights(resume_text, model)
+    jd = await extract_jd_requirements(jd_text, model)
+    gaps = await analyze_skill_gaps(rh, jd)
+    return {"resume_skills": rh.get("technical_skills", []),
+            "jd_requirements": jd.get("must_have_skills", []), "analysis": gaps}
 
 
 @router.post("/score-answer")
-async def score_answer_endpoint(
-    answer: str,
-    question: str,
-    company: str,
-    jd_text: str = "",
-    resume_text: str = ""
-):
-    """Score an answer and get improvement feedback."""
+async def score_answer_endpoint(answer: str, question: str, company: str,
+                                 jd_text: str = "", resume_text: str = ""):
     q_type, _ = detect_question_type(question)
-    
-    jd_requirements = {}
-    resume_highlights = {}
-    
-    if jd_text:
-        jd_requirements = await extract_jd_requirements(jd_text, SUMMARIZER_MODEL)
-    if resume_text:
-        # Sanitize resume
-        resume_text = sanitize_resume_for_talk(resume_text)
-        resume_highlights = await extract_resume_highlights(resume_text, SUMMARIZER_MODEL)
-    
+    jd = await extract_jd_requirements(jd_text, SUMMARIZER_MODEL) if jd_text else {}
+    rh = await extract_resume_highlights(_strip_cgpa(resume_text), SUMMARIZER_MODEL) if resume_text else {}
     scorer = AnswerQualityScorer()
-    score = scorer.score_answer(
-        answer, question, q_type, company, jd_requirements, resume_highlights
-    )
-    
-    return {
-        "question": question,
-        "question_type": q_type,
-        "company": company,
-        "score": score
-    }
+    score = scorer.score_answer(answer, question, q_type, company, jd, rh)
+    return {"question": question, "question_type": q_type, "company": company, "score": score}
 
 
 @router.post("/predict-followups")
-async def predict_followups_endpoint(
-    question: str,
-    answer: str
-):
-    """Predict likely follow-up questions."""
+async def predict_followups_endpoint(question: str, answer: str):
     q_type, q_strategy = detect_question_type(question)
-    followups = predict_followup_questions(question, answer, q_type, q_strategy)
-    
-    return {
-        "question": question,
-        "question_type": q_type,
-        "predicted_followups": followups
-    }
-
-
-@router.post("/extract-brand")
-async def extract_brand_endpoint(
-    resume_text: str,
-    model: str = SUMMARIZER_MODEL
-):
-    """Extract personal brand from resume."""
-    # Sanitize resume
-    resume_text = sanitize_resume_for_talk(resume_text)
-    
-    resume_highlights = await extract_resume_highlights(resume_text, model)
-    personal_brand = await extract_personal_brand(resume_highlights, model)
-    
-    return {
-        "personal_brand": personal_brand,
-        "resume_highlights": resume_highlights
-    }
-
-
-@router.post("/detect-red-flags")
-async def detect_red_flags_endpoint(
-    resume_text: str,
-    model: str = SUMMARIZER_MODEL
-):
-    """Detect potential red flags in resume."""
-    # Sanitize resume
-    resume_text = sanitize_resume_for_talk(resume_text)
-    
-    resume_highlights = await extract_resume_highlights(resume_text, model)
-    red_flags = await detect_red_flags(resume_text, resume_highlights, model)
-    
-    return {
-        "red_flags": red_flags
-    }
+    return {"question": question, "question_type": q_type,
+            "predicted_followups": predict_followups(question, answer, q_type, q_strategy)}
 
 
 @router.post("/filter-cgpa")
 async def filter_cgpa_endpoint(text: str):
-    """
-    Utility endpoint to filter CGPA/GPA from any text.
-    Useful for testing the filter or applying it to other content.
-    """
-    filtered = filter_cgpa_from_text(text)
-    is_valid, violations = validate_no_cgpa(filtered)
-    
-    return {
-        "original": text,
-        "filtered": filtered,
-        "is_clean": is_valid,
-        "violations_found": violations if not is_valid else []
-    }
+    filtered = _strip_cgpa(text)
+    ok, violations = _validate_no_cgpa(filtered)
+    return {"original": text, "filtered": filtered, "is_clean": ok,
+            "violations_found": violations if not ok else []}

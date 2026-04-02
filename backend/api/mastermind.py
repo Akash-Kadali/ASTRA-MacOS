@@ -37,7 +37,7 @@ openai_client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
 # ---------------------------------------------
 # Defaults
 # ---------------------------------------------
-DEFAULT_MODEL = getattr(config, "MASTERMINDS_MODEL", getattr(config, "DEFAULT_MODEL", "gpt-4o-mini"))
+DEFAULT_MODEL = getattr(config, "MASTERMINDS_MODEL", getattr(config, "DEFAULT_MODEL", "gpt-5.4-mini"))
 STORE_DIR: Path = Path(getattr(config, "MASTERMINDS_PATH", (Path("data") / "mastermind_sessions")))
 STORE_DIR.mkdir(parents=True, exist_ok=True)
 

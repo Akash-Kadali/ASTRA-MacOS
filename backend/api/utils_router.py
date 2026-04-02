@@ -53,10 +53,10 @@ async def get_version():
     """Return the current ASTRA version and model defaults."""
     return {
         "version": config.APP_VERSION,
-        "default_model": getattr(config, "DEFAULT_MODEL", "gpt-4o-mini"),
-        "talk_summary_model": getattr(config, "TALK_SUMMARY_MODEL", "gpt-4o-mini"),
+        "default_model": getattr(config, "DEFAULT_MODEL", "gpt-5.4-mini"),
+        "talk_summary_model": getattr(config, "TALK_SUMMARY_MODEL", "gpt-5.4-mini"),
         "talk_answer_model": getattr(
-            config, "TALK_ANSWER_MODEL", getattr(config, "DEFAULT_MODEL", "gpt-4o-mini")
+            config, "TALK_ANSWER_MODEL", getattr(config, "DEFAULT_MODEL", "gpt-5.4-mini")
         ),
         "superhuman_local": getattr(config, "SUPERHUMAN_LOCAL_ENABLED", True),
         "build_time": datetime.utcnow().isoformat() + "Z",
