@@ -1,22 +1,16 @@
 """
-Resume optimizer API (FastAPI) — v2.0.0
+Resume optimizer API (FastAPI) — v2.6.1
 
-CHANGES vs v1.0.0:
- FEAT  Added Projects section in "\textbf{Title} -- one-liner" format, placed after Experience and before Achievements.
- FEAT  Added placeholder sanitizer to detect tokens like XYZ, ABC, Lorem, Foo, etc., and replace them with contextual terms.
- FEAT  Added PDF metadata injection: pdfauthor=Sri Akash Kadali, pdfkeywords=relevant skills, pdfsubject=coursework.
- FEAT  Added metric diversity enforcement so bullets use a mix of counts, x→y improvements, time, throughput, and not only percentages.
-
- FIX   Experience trimming now preserves at least 9 bullets (target remains 12 when possible).
- FIX   Projects section now renders 1-2 projects under a single subheading, each as a one-line entry.
- FIX   Skills section now uses a flat comma-separated format with no category sub-headings.
- FIX   Soft skills mentioned in the JD are now included in the Skills section.
- FIX   JD-required skills are now added more completely.
- FIX   Section font sizes reduced to \small to improve one-page fitting.
-
- BUG   Added isinstance guards in deduplicate_across_blocks to prevent invalid object access.
- BUG   Added isinstance guards in validate_and_fix_task_alignment to prevent invalid object access.
- BUG   Added isinstance guards in score_bullet_quality_rubric to prevent invalid object access.
+CHANGES vs v2.6.0:
+ FIX   _compile now reads the pdflatex .log file and prints the last 60 lines
+       to terminal, so you can see EXACTLY which LaTeX line caused the crash.
+ FIX   apply_small_to_sections now validates brace balance before/after and
+       skips wrapping if it would create an imbalance.
+ FIX   latex_sanity_pass now attempts to fix brace imbalances by appending
+       missing closing braces before \\end{document}.
+ FIX   Added print() at every critical pipeline stage so terminal always shows
+       progress even if log_event is buffered.
+ FIX   render_final_tex output is validated for brace balance before compile.
 """
 
 import base64
@@ -25,6 +19,10 @@ import re
 import asyncio
 import threading
 import random as _random
+import traceback
+import tempfile
+import subprocess
+import os
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional, Set, Any
 
@@ -38,6 +36,17 @@ from backend.core.utils import log_event, safe_filename, build_output_paths
 from backend.api.render_tex import render_final_tex
 
 router = APIRouter(prefix="/api/optimize", tags=["optimize"])
+
+
+# ── Enhanced logging helper ──────────────────────────────────
+def _log(msg: str, data: Any = None):
+    """Print to terminal AND call log_event so nothing is lost."""
+    if data:
+        print(f"{msg} :: {data}", flush=True)
+    else:
+        print(msg, flush=True)
+    log_event(msg, **(data if isinstance(data, dict) else {}))
+
 
 # ── OpenAI client ────────────────────────────────────────────
 try:
@@ -273,10 +282,10 @@ Return STRICT JSON:
             "tone_vocabulary": tone.get("vocabulary_style", "precise technical terms"),
             "tone_examples": tone.get("example_phrases", []),
         }
-        log_event(f"🎭 [ROLE+TONE] {target_role} → {key}, tone={result['tone_register']}/{result['tone_pace']}")
+        _log(f"🎭 [ROLE+TONE] {target_role} → {key}, tone={result['tone_register']}/{result['tone_pace']}")
         return result
     except Exception as e:
-        log_event(f"⚠️ [ROLE+TONE] Failed: {e}")
+        _log(f"⚠️ [ROLE+TONE] Failed: {e}")
         return {"key": "general_tech", **ROLE_ARCHETYPES["general_tech"],
                 "tone_register": "technical", "tone_pace": "measured",
                 "tone_vocabulary": "precise", "tone_examples": []}
@@ -339,10 +348,10 @@ RULES:
                     "priority": t.get("priority", "medium"),
                     "key_jd_phrases": t.get("key_jd_phrases", [])[:3],
                 })
-        log_event(f"📋 [JD TASKS] {len(tasks)} tasks extracted")
+        _log(f"📋 [JD TASKS] {len(tasks)} tasks extracted")
         return tasks
     except Exception as e:
-        log_event(f"⚠️ [JD TASKS] Failed: {e}")
+        _log(f"⚠️ [JD TASKS] Failed: {e}")
         return [{"task_id": i + 1, "task_description": f"Task {i + 1}",
                  "task_category": "build_system", "implied_technologies": ["Python"],
                  "what_good_looks_like": "", "priority": "medium", "key_jd_phrases": []}
@@ -373,7 +382,7 @@ Rules:
     try:
         data = await gpt_json(prompt, temperature=0.0)
         phrases = [str(p).strip().lower() for p in (data.get("key_phrases", []) or []) if str(p).strip()]
-        log_event(f"🔤 [JD PHRASES] Extracted {len(phrases)} key phrases")
+        _log(f"🔤 [JD PHRASES] Extracted {len(phrases)} key phrases")
         return phrases[:25]
     except Exception:
         return []
@@ -461,7 +470,7 @@ def _odd_dec(lo: float, hi: float, places: int = 2) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════
-# METRIC TEMPLATES + pick_metric_hint  (v2.5.0: diversified)
+# METRIC TEMPLATES + pick_metric_hint
 # ═══════════════════════════════════════════════════════════════
 
 METRIC_TEMPLATES: Dict[str, List[str]] = {
@@ -574,8 +583,6 @@ METRIC_TEMPLATES: Dict[str, List[str]] = {
     ],
 }
 
-
-# v2.5.0: Track which metric TYPES have been used globally
 _used_metric_types: List[str] = []
 
 
@@ -589,7 +596,6 @@ def pick_metric_hint(task_category: str) -> str:
     templates = METRIC_TEMPLATES.get(task_category, METRIC_TEMPLATES["build_system"])
     datasets = ["GLUE", "SQuAD", "BEIR", "MS-MARCO", "MIMIC-III", "CommonCrawl", "WMT-19"]
 
-    # v2.5.0: Prefer templates we haven't used recently
     def _classify_metric_type(tpl: str) -> str:
         if "from {a}" in tpl and "to {b}" in tpl:
             return "x_to_y"
@@ -603,7 +609,6 @@ def pick_metric_hint(task_category: str) -> str:
             return "multiplier"
         return "other"
 
-    # Score templates: prefer types not recently used
     scored = []
     for tpl in templates:
         mtype = _classify_metric_type(tpl)
@@ -616,61 +621,33 @@ def pick_metric_hint(task_category: str) -> str:
     _used_metric_types.append(mtype)
 
     if task_category in ("deploy_service", "optimize_performance"):
-        a = _odd_int(43, 173)
-        b = _odd_int(7, max(7, a - 17))
-        n = _odd_int(3, 47)
-        m = _odd_int(7, 29)
-        k = _odd_int(2, 7)
-        a_d = _odd_int(61, 77)
-        b_d = _odd_int(max(a_d + 3, 78), 93)
+        a = _odd_int(43, 173); b = _odd_int(7, max(7, a - 17))
+        n = _odd_int(3, 47); m = _odd_int(7, 29); k = _odd_int(2, 7)
+        a_d = _odd_int(61, 77); b_d = _odd_int(max(a_d + 3, 78), 93)
     elif task_category in ("build_pipeline", "analyze_data"):
-        a = _odd_int(3, 47)
-        b = _odd_int(1, max(1, a - 2))
-        n = _odd_int(11, 83)
-        m = _odd_int(2, 7)
-        k = _odd_int(2, 6)
-        a_d = _odd_int(61, 77)
-        b_d = _odd_int(max(a_d + 3, 78), 93)
+        a = _odd_int(3, 47); b = _odd_int(1, max(1, a - 2))
+        n = _odd_int(11, 83); m = _odd_int(2, 7); k = _odd_int(2, 6)
+        a_d = _odd_int(61, 77); b_d = _odd_int(max(a_d + 3, 78), 93)
     elif task_category == "train_model":
-        a_d = _odd_int(61, 77)
-        b_d = _odd_int(max(a_d + 3, 78), 93)
-        a = a_d
-        b = _odd_int(max(1, a_d - 21), max(1, a_d - 7))
-        n = _odd_int(3, 47)
-        m = _odd_int(3, 8)
-        k = _odd_int(2, 6)
+        a_d = _odd_int(61, 77); b_d = _odd_int(max(a_d + 3, 78), 93)
+        a = a_d; b = _odd_int(max(1, a_d - 21), max(1, a_d - 7))
+        n = _odd_int(3, 47); m = _odd_int(3, 8); k = _odd_int(2, 6)
     elif task_category in ("automate_process", "build_system", "write_tests"):
-        a = _odd_int(7, 43)
-        b = _odd_int(2, max(2, a - 3))
-        n = _odd_int(3, 23)
-        m = _odd_int(2, 9)
-        k = _odd_int(2, 6)
-        a_d = _odd_int(61, 77)
-        b_d = _odd_int(max(a_d + 3, 78), 93)
+        a = _odd_int(7, 43); b = _odd_int(2, max(2, a - 3))
+        n = _odd_int(3, 23); m = _odd_int(2, 9); k = _odd_int(2, 6)
+        a_d = _odd_int(61, 77); b_d = _odd_int(max(a_d + 3, 78), 93)
     elif task_category == "research":
-        n = _odd_int(1, 9)
-        m = _odd_int(1, 7)
-        k = _odd_int(2, 5)
-        a = _odd_int(3, 23)
-        b = _odd_int(1, max(1, a - 1))
-        a_d = _odd_int(61, 77)
-        b_d = _odd_int(max(a_d + 3, 78), 93)
+        n = _odd_int(1, 9); m = _odd_int(1, 7); k = _odd_int(2, 5)
+        a = _odd_int(3, 23); b = _odd_int(1, max(1, a - 1))
+        a_d = _odd_int(61, 77); b_d = _odd_int(max(a_d + 3, 78), 93)
     elif task_category == "monitor":
-        a = _odd_int(17, 73)
-        b = _odd_int(3, max(3, a - 7))
-        n = _odd_int(3, 23)
-        m = _odd_int(3, 9)
-        k = _odd_int(2, 7)
-        a_d = _odd_int(61, 77)
-        b_d = _odd_int(max(a_d + 3, 78), 93)
+        a = _odd_int(17, 73); b = _odd_int(3, max(3, a - 7))
+        n = _odd_int(3, 23); m = _odd_int(3, 9); k = _odd_int(2, 7)
+        a_d = _odd_int(61, 77); b_d = _odd_int(max(a_d + 3, 78), 93)
     else:
-        a = _odd_int(11, 93)
-        b = _odd_int(2, max(2, a - 3))
-        n = _odd_int(3, 67)
-        m = _odd_int(2, 9)
-        k = _odd_int(2, 7)
-        a_d = _odd_int(61, 77)
-        b_d = _odd_int(max(a_d + 3, 78), 93)
+        a = _odd_int(11, 93); b = _odd_int(2, max(2, a - 3))
+        n = _odd_int(3, 67); m = _odd_int(2, 9); k = _odd_int(2, 7)
+        a_d = _odd_int(61, 77); b_d = _odd_int(max(a_d + 3, 78), 93)
 
     try:
         return tpl.format(n=n, m=m, k=k, a=a, b=b, a_d=a_d, b_d=b_d,
@@ -749,10 +726,9 @@ def fix_skill_capitalization_sync(skill: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════
-# PLACEHOLDER WORD SANITIZER — NEW in v2.5.0
+# PLACEHOLDER WORD SANITIZER
 # ═══════════════════════════════════════════════════════════════
 
-# Common placeholder words that GPT might generate
 _PLACEHOLDER_PATTERNS = re.compile(
     r'\b('
     r'XYZ|ABC|DEF|GHI|JKL|MNO|PQR|STU|VWX|YZA|'
@@ -769,7 +745,6 @@ _PLACEHOLDER_PATTERNS = re.compile(
     re.IGNORECASE
 )
 
-# Contextual placeholder phrases (more than single word)
 _PLACEHOLDER_PHRASES = [
     "xyz company", "abc corporation", "xyz tool", "abc framework",
     "company xyz", "company abc", "tool xyz", "platform xyz",
@@ -780,23 +755,14 @@ _PLACEHOLDER_PHRASES = [
 async def sanitize_placeholder_words(
     text: str, context: str = "", company: str = "", role: str = "",
 ) -> str:
-    """v2.5.0: Detect and replace placeholder words (XYZ, ABC, Foo, Lorem, etc.)
-    with contextually appropriate replacements using GPT."""
     if not text:
         return text
-
-    # Check for placeholder phrases first
     text_lower = text.lower()
     has_placeholder_phrase = any(p in text_lower for p in _PLACEHOLDER_PHRASES)
-
-    # Check for single-word placeholders
     matches = list(_PLACEHOLDER_PATTERNS.finditer(text))
-
     if not matches and not has_placeholder_phrase:
         return text
-
-    log_event(f"🔧 [SANITIZE] Found {len(matches)} placeholder matches in text")
-
+    _log(f"🔧 [SANITIZE] Found {len(matches)} placeholder matches in text")
     prompt = f"""The following text contains PLACEHOLDER WORDS that need to be replaced
 with REAL, contextually appropriate words.
 
@@ -806,29 +772,20 @@ TEXT:
 CONTEXT: Resume bullet for {role} role at {company}.
 {('ADDITIONAL CONTEXT: ' + context[:300]) if context else ''}
 
-COMMON PLACEHOLDERS to watch for: XYZ, ABC, Foo, Bar, Baz, Lorem, Ipsum,
-Acme, Initech, widget, gadget, "some company", "Company A", "Tool X", etc.
-
-Replace EVERY placeholder with a SPECIFIC, REAL term that fits the context:
-- Company placeholders → use real context or remove
-- Tool placeholders → use a real tool name relevant to the role
-- Generic nouns (widget, gadget) → use the actual artifact (API endpoint, data pipeline, microservice, etc.)
-- "the system/platform/tool" → name the specific system
-
+Replace EVERY placeholder with a SPECIFIC, REAL term that fits the context.
 Return STRICT JSON: {{"fixed": "the corrected text with all placeholders replaced"}}
 """
     try:
         data = await gpt_json(prompt, temperature=0.2)
         fixed = data.get("fixed", "").strip()
         if fixed and len(fixed) >= len(text) * 0.5:
-            # Verify placeholders are actually gone
             remaining = list(_PLACEHOLDER_PATTERNS.finditer(fixed))
             if len(remaining) < len(matches):
-                log_event(f"✅ [SANITIZE] Replaced {len(matches) - len(remaining)} placeholders")
+                _log(f"✅ [SANITIZE] Replaced {len(matches) - len(remaining)} placeholders")
                 return fixed
         return text
     except Exception as e:
-        log_event(f"⚠️ [SANITIZE] Failed: {e}")
+        _log(f"⚠️ [SANITIZE] Failed: {e}")
         return text
 
 
@@ -836,7 +793,6 @@ async def sanitize_all_bullets(
     all_bullets: List[List[str]], target_company: str, target_role: str,
     experience_companies: List[str],
 ) -> List[List[str]]:
-    """v2.5.0: Scan all generated bullets for placeholder words and fix them."""
     result = []
     for block_idx, block in enumerate(all_bullets):
         fixed_block = []
@@ -844,11 +800,7 @@ async def sanitize_all_bullets(
         for bullet in block:
             if _PLACEHOLDER_PATTERNS.search(bullet):
                 fixed = await sanitize_placeholder_words(
-                    bullet,
-                    context=f"Intern at {ec}",
-                    company=target_company,
-                    role=target_role,
-                )
+                    bullet, context=f"Intern at {ec}", company=target_company, role=target_role)
                 fixed_block.append(fixed)
             else:
                 fixed_block.append(bullet)
@@ -857,11 +809,10 @@ async def sanitize_all_bullets(
 
 
 # ═══════════════════════════════════════════════════════════════
-# METRIC DIVERSITY ENFORCER — NEW in v2.5.0
+# METRIC DIVERSITY ENFORCER
 # ═══════════════════════════════════════════════════════════════
 
 def _classify_bullet_metric(bullet: str) -> str:
-    """Classify what type of metric a bullet uses."""
     bl = bullet.lower()
     if re.search(r'\d+\s*%', bl):
         return "percentage"
@@ -882,48 +833,34 @@ async def enforce_metric_diversity(
     all_bullets: List[List[str]], bullet_plan: List[Dict],
     target_role: str, jd_text: str,
 ) -> List[List[str]]:
-    """v2.5.0: Ensure bullets use diverse metric types, not just percentages."""
     flat = [b for block in all_bullets for b in block]
     if len(flat) < 6:
         return all_bullets
-
-    # Classify all metrics
     metric_types = [_classify_bullet_metric(b) for b in flat]
     type_counts: Dict[str, int] = {}
     for mt in metric_types:
         type_counts[mt] = type_counts.get(mt, 0) + 1
-
     pct_count = type_counts.get("percentage", 0)
     total_with_metrics = sum(1 for mt in metric_types if mt != "none")
-
-    # If more than half of metrics are percentages, rewrite some
     if pct_count <= 2 or total_with_metrics < 4:
-        log_event(f"✅ [METRIC DIV] Metrics diverse enough: {type_counts}")
+        _log(f"✅ [METRIC DIV] Metrics diverse enough: {type_counts}")
         return all_bullets
-
-    log_event(f"⚠️ [METRIC DIV] {pct_count}/{total_with_metrics} metrics are %-based, diversifying...")
-
-    # Find percentage-heavy bullets to rewrite (keep first 2 percentages, rewrite rest)
+    _log(f"⚠️ [METRIC DIV] {pct_count}/{total_with_metrics} metrics are %-based, diversifying...")
     pct_indices = [i for i, mt in enumerate(metric_types) if mt == "percentage"]
-    to_rewrite = pct_indices[2:]  # Keep at most 2 percentage metrics
-
+    to_rewrite = pct_indices[2:]
     desired_types = ["x_to_y", "time", "count", "multiplier"]
     for ri, idx in enumerate(to_rewrite[:4]):
         plan = bullet_plan[idx] if idx < len(bullet_plan) else {}
         tc = plan.get("task_category", "build_system")
         desired = desired_types[ri % len(desired_types)]
-
         type_instructions = {
-            "x_to_y": "Use a 'from X to Y' format (e.g., 'from 47ms to 13ms', 'from 8 hours to 23 minutes')",
-            "time": "Use a time-based metric (e.g., '13ms latency', 'under 7 seconds', 'saving 23 hours/week')",
-            "count": "Use a count/volume metric (e.g., '13K requests/day', '47 microservices', '83GB daily')",
+            "x_to_y": "Use a 'from X to Y' format (e.g., 'from 47ms to 13ms')",
+            "time": "Use a time-based metric (e.g., '13ms latency', 'saving 23 hours/week')",
+            "count": "Use a count/volume metric (e.g., '13K requests/day', '47 microservices')",
             "multiplier": "Use a multiplier metric (e.g., '3x faster', '7x throughput increase')",
         }
-
-        verb = re.sub(r"\\[#$%&_{}]", "",
-                      flat[idx].split()[0]) if flat[idx].split() else "Built"
+        verb = re.sub(r"\\[#$%&_{}]", "", flat[idx].split()[0]) if flat[idx].split() else "Built"
         tech = plan.get("primary_technology", "Python")
-
         try:
             fix = await gpt_json(
                 f'Rewrite this resume bullet replacing the PERCENTAGE metric with a different type.\n'
@@ -941,10 +878,9 @@ async def enforce_metric_diversity(
                     if not new_b.endswith("."):
                         new_b = new_b.rstrip(".,;: ") + "."
                     flat[idx] = latex_escape_text(new_b)
-                    log_event(f"✅ [METRIC DIV] idx={idx}: percentage → {new_mt}")
+                    _log(f"✅ [METRIC DIV] idx={idx}: percentage → {new_mt}")
         except Exception:
             pass
-
     result, i = [], 0
     for block in all_bullets:
         result.append(flat[i:i + len(block)])
@@ -1002,10 +938,8 @@ _SOFT_SKILL_TERMS = frozenset({
 async def is_valid_skill(keyword: str, jd_snippet: str = "") -> bool:
     kl = keyword.lower().strip()
     cache_key = kl + ("|" + jd_snippet[:80] if jd_snippet else "")
-
     if cache_key in _validated_cache:
         return _validated_cache[cache_key]
-
     if (kl in _HARD_REJECTS
             or re.match(r"^(iso|nist|pci|gdpr|hipaa|sox)\s*[\d/]", kl)
             or len(keyword.split()) >= 6
@@ -1013,52 +947,29 @@ async def is_valid_skill(keyword: str, jd_snippet: str = "") -> bool:
         _validated_cache[cache_key] = False
         log_event(f"  🔍 skill '{keyword}' → ❌ (hard-reject)")
         return False
-
     if _EXPERIENCE_PHRASING.match(kl):
         _validated_cache[cache_key] = False
         log_event(f"  🔍 skill '{keyword}' → ❌ (experience description, not a skill name)")
         return False
-
     if kl in _SOFT_SKILL_TERMS:
         in_jd = bool(jd_snippet) and kl in jd_snippet.lower()
         _validated_cache[cache_key] = True if in_jd else (not bool(jd_snippet))
         icon = "✅" if _validated_cache[cache_key] else "❌"
         log_event(f"  🔍 skill '{keyword}' → {icon} (soft skill, in_jd={in_jd})")
         return _validated_cache[cache_key]
-
-    jd_context = (f"\n\nJOB CONTEXT (use this to judge relevance):\n{jd_snippet}"
-                  if jd_snippet else "")
-
+    jd_context = (f"\n\nJOB CONTEXT (use this to judge relevance):\n{jd_snippet}" if jd_snippet else "")
     prompt = f"""You are a senior technical recruiter reviewing a resume Skills section.
 Decide whether "{keyword}" is a legitimate skill worth listing on a resume.{jd_context}
 
-ACCEPT — these belong in Skills:
-  • Programming / scripting languages
-  • ML / AI frameworks and libraries
-  • Agentic AI tools and frameworks
-  • Data engineering / analytics tools
-  • Cloud platforms and managed services
-  • DevOps and infrastructure tools
-  • Databases and storage systems
-  • ML concepts and architectures
-  • Protocols and data formats
-  • Technical methodologies
-  • Domain-specific technical concepts
-  • Soft skills / interpersonal skills if they appear in the JD
-  • Any specific tool/technology named in the job context above
+ACCEPT: Programming languages, ML/AI frameworks, data tools, cloud platforms, DevOps tools,
+databases, ML concepts, protocols, technical methodologies, domain-specific concepts,
+soft skills if they appear in the JD, any specific tool/technology named in the JD.
 
-REJECT — these do NOT belong in Skills:
-  • Phrases starting with "Experience with/in/of", "Understanding of", "Knowledge of"
-  • Domain knowledge claims without a tool (unless exact term is in JD)
-  • Sentences or outcome statements
-  • Degree / experience requirements
-  • Compliance standards without tech
-  • Overly generic single words
+REJECT: Phrases starting with "Experience with/in/of", domain knowledge claims without a tool,
+sentences, degree/experience requirements, compliance standards without tech, overly generic words.
 
 When genuinely uncertain: ACCEPT.
-
 Return STRICT JSON only: {{"is_skill": true, "reason": "one short phrase"}}"""
-
     try:
         data = await gpt_json(prompt, temperature=0.0)
         ok = bool(data.get("is_skill", True))
@@ -1083,7 +994,7 @@ def clear_skill_validation_cache():
 
 
 # ═══════════════════════════════════════════════════════════════
-# EXTRACT ALL JD SKILLS (including soft skills) — v2.4.0+
+# EXTRACT ALL JD SKILLS (including soft skills)
 # ═══════════════════════════════════════════════════════════════
 
 async def extract_all_jd_skills(jd_text: str) -> List[str]:
@@ -1105,10 +1016,10 @@ Return STRICT JSON:
         tech = [str(s).strip() for s in (data.get("technical_skills") or []) if str(s).strip()]
         soft = [str(s).strip() for s in (data.get("soft_skills") or []) if str(s).strip()]
         all_skills = tech + soft
-        log_event(f"📋 [ALL JD SKILLS] {len(tech)} technical + {len(soft)} soft = {len(all_skills)}")
+        _log(f"📋 [ALL JD SKILLS] {len(tech)} technical + {len(soft)} soft = {len(all_skills)}")
         return all_skills
     except Exception as e:
-        log_event(f"⚠️ [ALL JD SKILLS] Failed: {e}")
+        _log(f"⚠️ [ALL JD SKILLS] Failed: {e}")
         return []
 
 
@@ -1139,7 +1050,7 @@ Be REALISTIC about what an intern would do here."""
             "unrealistic_technologies": data.get("unrealistic_technologies", []),
         }
         _company_cache[nl] = result
-        log_event(f"🏢 [COMPANY] {name}: {result['domain']}")
+        _log(f"🏢 [COMPANY] {name}: {result['type']}")
         return result
     except Exception:
         fb = {"type": "internship", "domain": "Technology", "context": "",
@@ -1323,8 +1234,80 @@ def _count_experience_bullets(tex: str) -> int:
 
 
 # ═══════════════════════════════════════════════════════════════
-# PDF METADATA INJECTION — NEW in v2.5.0
+# BRACE BALANCE HELPER — v2.6.1 NEW
 # ═══════════════════════════════════════════════════════════════
+
+def _brace_balance(s: str) -> int:
+    """Return open_count - close_count for unescaped braces."""
+    depth = 0
+    i = 0
+    while i < len(s):
+        if s[i] == '\\':
+            i += 2  # skip escaped char
+            continue
+        if s[i] == '{':
+            depth += 1
+        elif s[i] == '}':
+            depth -= 1
+        i += 1
+    return depth
+
+
+def _validate_resumeItem_braces(content: str) -> str:
+    """Ensure content is safe to place inside \\resumeItem{...}.
+    
+    Checks that all braces inside the content are balanced.
+    If not, strips all braces and re-escapes to guarantee safety.
+    """
+    depth = 0
+    for ch in content:
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+        if depth < 0:
+            break
+    
+    if depth != 0:
+        _log(f"⚠️ [BRACE FIX] Unbalanced braces in resumeItem content (depth={depth}), sanitizing")
+        plain = strip_all_macros_keep_text(content).strip()
+        if " -- " in plain:
+            name_part, desc_part = plain.split(" -- ", 1)
+            name_safe = latex_escape_text(name_part.strip())
+            desc_safe = latex_escape_text(desc_part.strip())
+            content = f"\\textbf{{{name_safe}}} -- {desc_safe}"
+        else:
+            content = latex_escape_text(plain)
+    
+    return content
+
+
+# ═══════════════════════════════════════════════════════════════
+# PDF METADATA INJECTION — v2.6.1: FIXED
+# ═══════════════════════════════════════════════════════════════
+
+def _meta_escape(s: str) -> str:
+    if not s:
+        return ""
+    for ch in "\\{}#%&~^_$":
+        s = s.replace(ch, "")
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _find_matching_brace(tex: str, open_pos: int) -> int:
+    if open_pos >= len(tex) or tex[open_pos] != "{":
+        return -1
+    depth, k = 0, open_pos
+    while k < len(tex):
+        if tex[k] == "{":
+            depth += 1
+        elif tex[k] == "}":
+            depth -= 1
+            if depth == 0:
+                return k
+        k += 1
+    return -1
+
 
 def inject_pdf_metadata(
     tex: str,
@@ -1333,87 +1316,65 @@ def inject_pdf_metadata(
     skills_list: List[str],
     courses: List[str],
 ) -> str:
-    """v2.5.0: Inject PDF metadata into LaTeX preamble.
-    Sets pdfauthor=Sri Akash Kadali, pdfkeywords=relevant skills,
-    pdfsubject=coursework, pdftitle=resume info, pdfcreator."""
-
-    # Build keyword string from skills (hashtag format for Additional Info)
-    skill_tags = " ".join(f"#{s.replace(' ', '')}" for s in skills_list[:30] if s)
-    # Plain skills for pdfkeywords
-    skill_kw_str = ", ".join(_ensure_cap(s) for s in skills_list[:40] if s)
-    # Coursework string
-    course_str = ", ".join(c for c in courses[:12] if c)
-
-    # Escape special LaTeX chars in metadata strings
-    def _meta_escape(s: str) -> str:
-        # For hyperref metadata, we need minimal escaping
-        return (s or "").replace("\\", "").replace("{", "").replace("}", "")
+    skill_kw_str = ", ".join(_meta_escape(_ensure_cap(s)) for s in skills_list[:40] if s)
+    course_str = ", ".join(_meta_escape(c) for c in courses[:12] if c)
 
     author = "Sri Akash Kadali"
     title = f"{author} - Resume - {_meta_escape(target_role)} at {_meta_escape(target_company)}"
-    subject = f"Relevant Coursework: {_meta_escape(course_str)}" if course_str else f"Resume for {_meta_escape(target_role)}"
-    creator = "Sri Akash Kadali"
+    subject = f"Relevant Coursework: {course_str}" if course_str else f"Resume for {_meta_escape(target_role)}"
     keywords = _meta_escape(skill_kw_str)
 
-    hypersetup_block = (
-        "\n% --- PDF Metadata (v2.5.0) ---\n"
-        "\\usepackage{hyperref}\n"
+    new_hs = (
         "\\hypersetup{\n"
         "  pdfauthor={" + author + "},\n"
         "  pdftitle={" + title + "},\n"
         "  pdfsubject={" + subject + "},\n"
         "  pdfkeywords={" + keywords + "},\n"
-        "  pdfcreator={" + creator + "},\n"
+        "  pdfcreator={Sri Akash Kadali},\n"
         "  pdfproducer={Sri Akash Kadali},\n"
         "  hidelinks,\n"
         "  colorlinks=false,\n"
         "}\n"
-        "% --- End PDF Metadata ---\n"
     )
 
-    # Check if hyperref is already loaded
-    if r"\usepackage{hyperref}" in tex or r"\usepackage[" in tex and "hyperref" in tex:
-        # Just inject/replace the hypersetup block
-        hs_pat = re.compile(r"\\hypersetup\{[^}]*\}", re.DOTALL)
-        hs_match = hs_pat.search(tex)
-        if hs_match:
-            new_hs = (
-                "\\hypersetup{\n"
-                "  pdfauthor={" + author + "},\n"
-                "  pdftitle={" + title + "},\n"
-                "  pdfsubject={" + subject + "},\n"
-                "  pdfkeywords={" + keywords + "},\n"
-                "  pdfcreator={" + creator + "},\n"
-                "  pdfproducer={Sri Akash Kadali},\n"
-                "  hidelinks,\n"
-                "  colorlinks=false,\n"
-                "}"
-            )
-            tex = tex[:hs_match.start()] + new_hs + tex[hs_match.end():]
+    # Remove existing \hypersetup{...} blocks
+    hs_start = tex.find(r"\hypersetup{")
+    while hs_start >= 0:
+        brace_pos = hs_start + len(r"\hypersetup")
+        close = _find_matching_brace(tex, brace_pos)
+        if close >= 0:
+            end = close + 1
+            if end < len(tex) and tex[end] == '\n':
+                end += 1
+            tex = tex[:hs_start] + tex[end:]
         else:
-            # hyperref loaded but no hypersetup — inject before \begin{document}
-            bd = tex.find(r"\begin{document}")
-            if bd >= 0:
-                inject = (
-                    "\\hypersetup{\n"
-                    "  pdfauthor={" + author + "},\n"
-                    "  pdftitle={" + title + "},\n"
-                    "  pdfsubject={" + subject + "},\n"
-                    "  pdfkeywords={" + keywords + "},\n"
-                    "  pdfcreator={" + creator + "},\n"
-                    "  pdfproducer={Sri Akash Kadali},\n"
-                    "  hidelinks,\n"
-                    "  colorlinks=false,\n"
-                    "}\n"
-                )
-                tex = tex[:bd] + inject + tex[bd:]
-    else:
-        # No hyperref at all — inject the full block before \begin{document}
-        bd = tex.find(r"\begin{document}")
-        if bd >= 0:
-            tex = tex[:bd] + hypersetup_block + tex[bd:]
+            break
+        hs_start = tex.find(r"\hypersetup{")
 
-    log_event(f"📄 [METADATA] Injected PDF metadata: author={author}, {len(skills_list)} skill keywords, {len(courses)} courses")
+    has_hyperref = bool(re.search(r'\\usepackage(\[[^\]]*\])?\{hyperref\}', tex))
+
+    if not has_hyperref:
+        last_pkg = None
+        bd = tex.find(r"\begin{document}")
+        for m in re.finditer(r'^\\usepackage(\[[^\]]*\])?\{[^}]+\}[^\n]*$', tex, re.M):
+            if bd < 0 or m.end() < bd:
+                last_pkg = m
+        if last_pkg:
+            insert_pos = last_pkg.end()
+            tex = tex[:insert_pos] + "\n\\usepackage{hyperref}\n" + tex[insert_pos:]
+        elif bd >= 0:
+            tex = tex[:bd] + "\\usepackage{hyperref}\n" + tex[bd:]
+
+    bd = tex.find(r"\begin{document}")
+    if bd >= 0:
+        inject_block = (
+            "\n% --- PDF Metadata (v2.6.1) ---\n"
+            + new_hs
+            + "% --- End PDF Metadata ---\n"
+        )
+        tex = tex[:bd] + inject_block + tex[bd:]
+
+    _log(f"📄 [METADATA] Injected PDF metadata: author={author}, {len(skills_list)} skill keywords, {len(courses)} courses")
     return tex
 
 
@@ -1512,65 +1473,47 @@ def replace_relevant_coursework_distinct(body: str, courses: List[str], mpl: int
 
 
 # ═══════════════════════════════════════════════════════════════
-# SKILL RANKING BY JD RELEVANCE — v2.5.1
+# SKILL RANKING BY JD RELEVANCE
 # ═══════════════════════════════════════════════════════════════
 
-MAX_SKILLS = 30           # hard cap for initial render
-MAX_SKILLS_TIGHT = 20     # tighter cap used during page-fit trimming
+MAX_SKILLS = 30
+MAX_SKILLS_TIGHT = 20
+MAX_SKILLS_EMERGENCY = 12
 
 
 def rank_skills_by_jd_relevance(
-    skills_raw: List[str],
-    must_have: List[str],
-    should_have: List[str],
-    nice_to_have: List[str],
-    core_keywords: List[str],
-    jd_text: str,
+    skills_raw: List[str], must_have: List[str], should_have: List[str],
+    nice_to_have: List[str], core_keywords: List[str], jd_text: str,
     max_skills: int = MAX_SKILLS,
 ) -> List[str]:
-    """
-    v2.5.1: Score each skill by JD priority tier, then cap.
-    must_have=100, core=80, should=60, nice=40, in JD=20, other=1.
-    """
     jd_lower = jd_text.lower()
     must_set = {k.lower() for k in must_have}
     should_set = {k.lower() for k in should_have}
     nice_set = {k.lower() for k in nice_to_have}
     core_set = {k.lower() for k in core_keywords}
-
     seen: Set[str] = set()
     scored: List[Tuple[int, int, str]] = []
-
     for idx, skill in enumerate(skills_raw):
         s = (skill or "").strip()
         if not s or s.lower() in seen:
             continue
         seen.add(s.lower())
         sl = s.lower()
-
-        if sl in must_set:
-            score = 100
-        elif sl in core_set:
-            score = 80
-        elif sl in should_set:
-            score = 60
-        elif sl in nice_set:
-            score = 40
-        elif sl in jd_lower:
-            score = 20
-        else:
-            score = 1
-
+        if sl in must_set: score = 100
+        elif sl in core_set: score = 80
+        elif sl in should_set: score = 60
+        elif sl in nice_set: score = 40
+        elif sl in jd_lower: score = 20
+        else: score = 1
         scored.append((score, -idx, s))
-
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
     result = [s for _, _, s in scored[:max_skills]]
-    log_event(f"📊 [SKILLS RANK] {len(skills_raw)} raw → {len(result)} after ranking (cap={max_skills})")
+    _log(f"📊 [SKILLS RANK] {len(skills_raw)} raw → {len(result)} after ranking (cap={max_skills})")
     return result
 
 
 # ═══════════════════════════════════════════════════════════════
-# SKILLS SECTION RENDERING — FLAT ONLY (v2.4.0+)
+# SKILLS SECTION RENDERING — FLAT ONLY
 # ═══════════════════════════════════════════════════════════════
 
 def render_skills_section_flat(skills: List[str]) -> str:
@@ -1579,9 +1522,9 @@ def render_skills_section_flat(skills: List[str]) -> str:
     seen: Set[str] = set()
     us = []
     for s in skills:
-            s = _ensure_cap(str(s).strip())
-            if s and s.lower() not in seen:
-                seen.add(s.lower()); us.append(s)
+        s = _ensure_cap(str(s).strip())
+        if s and s.lower() not in seen:
+            seen.add(s.lower()); us.append(s)
     return (
         "\\section{Skills}\n"
         "\\begin{itemize}[leftmargin=0.15in, label={}]\n"
@@ -1610,41 +1553,26 @@ async def replace_skills_section(body: str, skills: List[str], jd_text: str = ""
 # ═══════════════════════════════════════════════════════════════
 
 async def ats_self_simulation_pass(
-    body_tex: str,
-    jd_text: str,
-    all_keywords: List[str],
-    must_have: List[str],
+    body_tex: str, jd_text: str, all_keywords: List[str], must_have: List[str],
 ) -> List[str]:
     resume_plain = strip_all_macros_keep_text(body_tex).lower()
     present = [k for k in all_keywords if k.lower() in resume_plain]
     missing_must = [k for k in must_have if k.lower() not in resume_plain]
-
-    prompt = f"""You are an ATS (Applicant Tracking System) scanner AND a senior recruiter
-reviewing a candidate's resume against a job description.
+    prompt = f"""You are an ATS scanner reviewing a resume against a job description.
 
 JOB DESCRIPTION (first 3000 chars):
 {jd_text[:3000]}
 
-RESUME PLAIN TEXT (extracted):
+RESUME PLAIN TEXT:
 {resume_plain[:3000]}
 
-KEYWORDS ALREADY PRESENT: {json.dumps(present[:25])}
-MUST-HAVE KEYWORDS CURRENTLY MISSING: {json.dumps(missing_must[:10])}
+KEYWORDS PRESENT: {json.dumps(present[:25])}
+MUST-HAVE MISSING: {json.dumps(missing_must[:10])}
 
-Identify 8-12 technical keywords from the JD that are:
-1. Clearly relevant to this role
-2. Either absent from the resume OR only in passing (not in Skills)
-3. Real technical terms — languages, frameworks, tools, ML concepts, platforms
-   (NOT degree requirements, NOT "experience with X" phrases)
-   Soft skills ARE acceptable if they appear in the JD.
-
-Return STRICT JSON:
-{{
-    "missing_keywords": ["keyword1", "keyword2", ...],
-    "reasoning": "brief explanation"
-}}
+Identify 8-12 technical keywords from the JD that are absent or underrepresented.
+Real terms only — languages, frameworks, tools, platforms. Soft skills OK if in JD.
+Return STRICT JSON: {{"missing_keywords": ["keyword1", ...], "reasoning": "brief"}}
 Max 12 items."""
-
     try:
         data = await gpt_json(prompt, temperature=0.0)
         raw = [str(k).strip() for k in (data.get("missing_keywords") or []) if str(k).strip()]
@@ -1653,10 +1581,10 @@ Max 12 items."""
         validated = await filter_valid_skills(raw, jd_text[:500])
         if validated:
             validated = await fix_capitalization_batch(validated)
-        log_event(f"🤖 [ATS SIM] {len(validated)} under-represented keywords → adding to Skills")
+        _log(f"🤖 [ATS SIM] {len(validated)} under-represented keywords → adding to Skills")
         return validated[:12]
     except Exception as e:
-        log_event(f"⚠️ [ATS SIM] Failed: {e}")
+        _log(f"⚠️ [ATS SIM] Failed: {e}")
         return []
 
 
@@ -1699,13 +1627,12 @@ Return STRICT JSON:
 {{
     "bullet_plan": [
         {{
-            "bullet_index": 0,
-            "block_index": 0,
+            "bullet_index": 0, "block_index": 0,
             "experience_company": "company name",
             "assigned_jd_task": "the JD task this bullet mirrors",
             "task_id": 1,
             "task_category": "build_system|analyze_data|train_model|deploy_service|build_pipeline|optimize_performance|automate_process|collaborate|research|monitor",
-            "bullet_seed": "1-sentence past-tense description of what this bullet says",
+            "bullet_seed": "1-sentence past-tense description",
             "primary_technology": "specific technology",
             "supporting_keywords": ["2-3 JD keywords"],
             "jd_phrases_to_mirror": ["1-2 exact JD phrases"],
@@ -1723,14 +1650,7 @@ RULES:
 2. Each bullet addresses a DIFFERENT task
 3. 5-6 bullets have metrics, spread across blocks
 4. Block 0 = most recent (advanced), Block 3 = oldest (simpler)
-5. task_category MUST match the task's actual category
-6. jd_phrases_to_mirror must be EXACT phrases from the JD
-7. metric_hint must NOT be a bare round percentage
-8. METRIC DIVERSITY: Across 12 bullets, use a MIX of metric types:
-   - At most 2 percentage-based metrics
-   - At least 2 "from X to Y" improvements (e.g., "from 47ms to 13ms")
-   - At least 1 time-based metric (e.g., "saving 23 hours/week")
-   - At least 1 count/volume metric (e.g., "13K requests/day")
+5. METRIC DIVERSITY: At most 2 percentages, at least 2 from-to, 1 time, 1 count
 """
     try:
         data = await gpt_json(prompt, temperature=0.25)
@@ -1750,10 +1670,10 @@ RULES:
                 "result_type": "qualitative_insight",
                 "has_metric": idx % 3 == 0, "metric_hint": pick_metric_hint(tc),
             })
-        log_event("📋 [MASTER PLAN] 12 bullets planned")
+        _log("📋 [MASTER PLAN] 12 bullets planned")
         return {"bullet_plan": plan[:12], "task_coverage": data.get("task_coverage", {})}
     except Exception as e:
-        log_event(f"⚠️ [PLAN] Failed: {e}")
+        _log(f"⚠️ [PLAN] Failed: {e}")
         plan = []
         for i in range(12):
             block = i // 3
@@ -1817,79 +1737,56 @@ def _build_bullet_prompt_v2(
         jd_phrases = bp.get("jd_phrases_to_mirror", [])
         tc = bp.get("task_category", "build_system")
         verb = suggested_verbs[i] if i < len(suggested_verbs) else "Built"
-
         s = (f"Bullet {i + 1} (verb: {verb}):\n"
-             f"   JD TASK: {task}\n"
-             f"   SEED: {seed}\n"
-             f"   TECHNOLOGY: {tech}\n")
+             f"   JD TASK: {task}\n   SEED: {seed}\n   TECHNOLOGY: {tech}\n")
         if jd_phrases:
-            s += f"   MIRROR THESE EXACT JD PHRASES (verbatim): {', '.join(jd_phrases[:2])}\n"
+            s += f"   MIRROR THESE EXACT JD PHRASES: {', '.join(jd_phrases[:2])}\n"
         if skws:
             s += f"   WEAVE IN: {', '.join(skws[:3])}\n"
         if has_m:
             hint = m_hint if m_hint else pick_metric_hint(tc)
-            s += f"   METRIC (MUST vary type — see rules): {hint}\n"
+            s += f"   METRIC (vary type): {hint}\n"
         else:
-            s += f"   RESULT: Specific qualitative result connected to THIS task\n"
+            s += f"   RESULT: Specific qualitative result\n"
         seeds.append(s)
 
     dedup = ""
     if already_used_kws:
-        dedup = (f"\n🚫 Already used in other blocks (avoid as PRIMARY): "
-                 f"{', '.join(already_used_kws[:15])}\n")
-
+        dedup = f"\nAlready used (avoid as PRIMARY): {', '.join(already_used_kws[:15])}\n"
     company_constraint = (
-        f"\n⚠️ COMPANY REALISM: Work at {experience_company} ({domain}).\n"
-        f"   Realistic technologies: {', '.join(real_tech[:6])}\n"
-    )
+        f"\nCOMPANY: {experience_company} ({domain}).\n"
+        f"   Realistic: {', '.join(real_tech[:6])}\n")
     if unreal_tech:
         company_constraint += f"   DO NOT MENTION: {', '.join(unreal_tech[:4])}\n"
-
-    tone_section = (
-        f"\nTONE MATCHING: Register: {tone_reg} | Pace: {tone_pace} | Vocab: {tone_vocab}\n"
-    )
+    tone_section = f"\nTONE: {tone_reg} | {tone_pace} | {tone_vocab}\n"
     if tone_ex:
-        tone_section += f"   JD tone phrases: {', '.join(tone_ex[:3])}\n"
+        tone_section += f"   JD phrases: {', '.join(tone_ex[:3])}\n"
 
     return f"""Write 3 resume bullets for an intern at "{experience_company}" applying for {target_role} at {target_company}.
 
-═══ THE ACTUAL JOB DESCRIPTION (mirror its language) ═══
+JOB DESCRIPTION:
 {jd_text[:3000]}
-═══════════════════════════════════════════════════════
 
 ROLE: {ak} | Focus: {bf} | Style: {ps} | Results: {rt} | Avoid: {av}
 {tone_section}
 CONTEXT: {experience_company} ({domain}) | Block {block_index}/{total_blocks} ({comp}) | {auton}
 {company_constraint}
 
-═══ BULLET SEEDS ═══
+BULLET SEEDS:
 {chr(10).join(seeds)}
 {dedup}
 ATS KEYWORDS: {', '.join(all_keywords[:15])}
 
-═══ RULES ═══
-1. TASK IS THE STAR. Technology is context, not subject.
-   BAD: "Fine-tuned BERT for classification, achieving 85% accuracy."
-   GOOD: "Built the content moderation classifier, fine-tuning BERT on 8K examples to cut manual review time by half."
-
-2. ONE FLOWING SENTENCE per bullet. No "Utilized X for Y, achieving Z" template.
-3. RESULT MUST CONNECT TO THE TASK. Pipeline bullet → pipeline result.
-4. USE EXACT JD PHRASES where provided. Verbatim. Non-negotiable.
-5. 24-34 words. Start with exact verb given. Vary sentence structure.
-6. Intern scope: thousands not millions. Use "%" not "\\%".
-7. PHRASE MIRRORING: provided JD phrases must appear verbatim in your bullet.
-8. NEVER start two bullets with the same verb or syntactic pattern.
-9. METRICS — CRITICAL DIVERSITY RULES:
-   - Numbers must end in odd digits (43ms not 40ms, 13K not 10K).
-   - NEVER use ONLY percentages. Mix these metric TYPES across bullets:
-     a) "from X to Y" improvements (e.g., "from 47ms to 13ms", "from 8 hours to 23 min")
-     b) Absolute counts (e.g., "13K requests/day", "47 microservices", "83 test cases")
-     c) Time savings (e.g., "saving 23 engineer-hours/week", "under 7 seconds")
-     d) Multipliers (e.g., "3x faster inference", "7x throughput")
-     e) Percentages ONLY if other types already used (max 1 per 3 bullets)
-   - Each bullet in this block MUST use a DIFFERENT metric type from the list above.
-10. NEVER use placeholder words like XYZ, ABC, Foo, Bar, Lorem, Acme, widget, gadget,
-    "some tool", "the system", "Company A". Use SPECIFIC REAL names only.
+RULES:
+1. TASK IS THE STAR. Technology is context.
+2. ONE FLOWING SENTENCE per bullet. No template patterns.
+3. RESULT MUST CONNECT TO THE TASK.
+4. USE EXACT JD PHRASES where provided.
+5. 24-34 words. Start with exact verb given.
+6. Intern scope. Use "%" not "\\%".
+7. NEVER start two bullets with the same verb.
+8. Metrics: odd digits, diverse types (from-to, counts, time, multipliers, not just %).
+9. NO placeholder words (XYZ, ABC, Foo, widget, etc).
 
 Return STRICT JSON:
 {{"bullets":["{suggested_verbs[0] if suggested_verbs else 'Built'}...","{suggested_verbs[1] if len(suggested_verbs) > 1 else 'Designed'}...","{suggested_verbs[2] if len(suggested_verbs) > 2 else 'Automated'}..."],
@@ -1947,34 +1844,26 @@ async def generate_block_bullets(
         verbs.append(get_diverse_verb(vc))
     while len(verbs) < n:
         verbs.append(get_diverse_verb("development"))
-
     prompt = _build_bullet_prompt_v2(
         exp_company, target_company, target_role, block_index, total_blocks,
         verbs, plans, role_archetype, exp_ctx, prog, jd_text, all_keywords,
-        list(_global_kw_assignments.keys()),
-    )
-
+        list(_global_kw_assignments.keys()))
     cleaned, used = [], set()
     for attempt in range(3):
         try:
             temp = 0.35 + (attempt * 0.12)
             data = await gpt_json(prompt, temperature=temp)
             bullets = data.get("bullets", []) or []
-            if not bullets:
-                log_event(f"⚠️ [BLOCK {block_index}] Attempt {attempt + 1}: empty response")
-                continue
-            if len(bullets) < n:
-                log_event(f"⚠️ [BLOCK {block_index}] Attempt {attempt + 1}: only {len(bullets)}")
+            if not bullets or len(bullets) < n:
+                _log(f"⚠️ [BLOCK {block_index}] Attempt {attempt + 1}: {len(bullets)} bullets")
                 continue
             cleaned, used = await _post_process(
                 bullets, data.get("keywords_used", []),
                 data.get("technologies_used", []), n, start_pos, verbs, all_keywords)
             if len(cleaned) >= n:
                 break
-            log_event(f"⚠️ [BLOCK {block_index}] Attempt {attempt + 1}: {len(cleaned)} after cleanup")
         except Exception as e:
-            log_event(f"⚠️ [BLOCK {block_index}] Attempt {attempt + 1} error: {e}")
-
+            _log(f"⚠️ [BLOCK {block_index}] Attempt {attempt + 1} error: {e}")
     while len(cleaned) < n:
         idx = len(cleaned)
         bp = plans[idx] if idx < len(plans) else {}
@@ -1987,8 +1876,8 @@ async def generate_block_bullets(
                 mb = await gpt_json(
                     f'Write ONE resume bullet. Intern at {exp_company}, applying for {target_role}. '
                     f'Start with "{verb}". Mirror JD task: "{task}". Mention {tech}. '
-                    f'Metric (odd digits, NOT a percentage — use counts or time or from-to): {pick_metric_hint(tc)}. '
-                    f'25-30 words, past tense. No placeholder words (XYZ, ABC, widget, etc). '
+                    f'Metric (odd digits, NOT percentage): {pick_metric_hint(tc)}. '
+                    f'25-30 words, past tense. No placeholder words. '
                     f'Return STRICT JSON: {{"bullet":"{verb} ..."}}',
                     temperature=0.4 + micro_attempt * 0.15)
                 bullet = mb.get("bullet", "")
@@ -1998,129 +1887,85 @@ async def generate_block_bullets(
                     if not bullet.endswith("."):
                         bullet = bullet.rstrip(".,;: ") + "."
                     cleaned.append(latex_escape_text(bullet))
-                    log_event(f"🔄 [MICRO-RETRY] Generated for position {start_pos + idx}")
                     break
             except Exception:
                 pass
-        else:
-            log_event(f"❌ [BLOCK {block_index}] Could not generate bullet {idx}")
-
-    log_event(f"✅ [BLOCK {block_index}] {len(cleaned)} bullets for {exp_company}")
+    _log(f"✅ [BLOCK {block_index}] {len(cleaned)} bullets for {exp_company}")
     return cleaned[:n], used
 
 
 # ═══════════════════════════════════════════════════════════════
-# POST-GENERATION TASK ALIGNMENT VALIDATION  [BUG FIX]
+# POST-GENERATION VALIDATION, DEDUP, RUBRIC
 # ═══════════════════════════════════════════════════════════════
 
 async def validate_and_fix_task_alignment(
-    all_bullets: List[List[str]],
-    bullet_plan: List[Dict],
+    all_bullets: List[List[str]], bullet_plan: List[Dict],
     jd_text: str, target_role: str, role_archetype: Dict,
 ) -> List[List[str]]:
     flat_bullets = [b for block in all_bullets for b in block]
     if len(flat_bullets) < 6:
         return all_bullets
-
     checks = [
-        {
-            "idx": i,
-            "bullet": flat_bullets[i][:180],
-            "assigned_task": (bullet_plan[i].get("assigned_jd_task", "")[:100]
-                              if i < len(bullet_plan) else ""),
-        }
-        for i in range(min(len(flat_bullets), len(bullet_plan)))
-    ]
-
+        {"idx": i, "bullet": flat_bullets[i][:180],
+         "assigned_task": (bullet_plan[i].get("assigned_jd_task", "")[:100]
+                           if i < len(bullet_plan) else "")}
+        for i in range(min(len(flat_bullets), len(bullet_plan)))]
     prompt = f"""Rate how well each resume bullet demonstrates its assigned JD task.
 Target role: {target_role}
 
 {json.dumps(checks)}
 
-Score each 0.0-1.0:
-  1.0 = clearly demonstrates capability for that task
-  0.75 = acceptable but could be stronger
-  0.5 = loosely related, not direct evidence
-  0.0 = completely misaligned
-
-Return STRICT JSON: {{"results": [{{"idx": 0, "score": 0.9, "reason": "brief reason"}}]}}
+Score each 0.0-1.0. Return STRICT JSON: {{"results": [{{"idx": 0, "score": 0.9, "reason": "brief"}}]}}
 """
     try:
         data = await gpt_json(prompt, temperature=0.0)
-        raw_results = data.get("results") or []
         results = {}
-        for r in raw_results:
-            if not isinstance(r, dict):
-                continue
-            raw_idx = r.get("idx")
-            if not isinstance(raw_idx, int):
-                try:
-                    raw_idx = int(raw_idx)
-                except (TypeError, ValueError):
-                    continue
-            results[raw_idx] = r
+        for r in (data.get("results") or []):
+            if not isinstance(r, dict): continue
+            try: idx = int(r.get("idx", -1))
+            except (TypeError, ValueError): continue
+            results[idx] = r
     except Exception:
-        log_event("⚠️ [VALIDATION] Scoring failed, keeping bullets as-is")
+        _log("⚠️ [VALIDATION] Scoring failed")
         return all_bullets
 
     low_scoring = sorted(
         [r for r in results.values() if r.get("score", 1.0) < 0.75],
         key=lambda x: x.get("score", 1.0))
-    log_event(f"🔍 [VALIDATION] {len(low_scoring)} bullets scored < 0.75 out of {len(flat_bullets)}")
+    _log(f"🔍 [VALIDATION] {len(low_scoring)} bullets scored < 0.75 out of {len(flat_bullets)}")
 
     for r in low_scoring[:6]:
-        raw_idx = r.get("idx", -1)
-        if not isinstance(raw_idx, int):
-            try:
-                raw_idx = int(raw_idx)
-            except (TypeError, ValueError):
-                continue
-        idx = raw_idx
-        if idx < 0 or idx >= len(flat_bullets):
-            continue
+        try: idx = int(r.get("idx", -1))
+        except (TypeError, ValueError): continue
+        if idx < 0 or idx >= len(flat_bullets): continue
         plan = bullet_plan[idx] if idx < len(bullet_plan) else {}
         task = plan.get("assigned_jd_task", "")
         tech = plan.get("primary_technology", "Python")
-        jd_phrases = plan.get("jd_phrases_to_mirror", [])
         tc = plan.get("task_category", "build_system")
         verb = re.sub(r"\\[#$%&_{}]", "",
                       flat_bullets[idx].split()[0]) if flat_bullets[idx].split() else "Built"
-
-        phrase_instruction = ""
-        if jd_phrases:
-            phrase_instruction = f'MIRROR THESE EXACT JD PHRASES: {", ".join(jd_phrases[:2])}\n'
-
         try:
             fix = await gpt_json(
-                f'Rewrite this bullet to CLEARLY demonstrate: "{task}"\n'
-                f'CURRENT (score {r.get("score", 0):.2f}): "{flat_bullets[idx][:200]}"\n'
-                f'PROBLEM: {r.get("reason", "weak alignment")}\n'
-                f'{phrase_instruction}'
+                f'Rewrite this bullet to demonstrate: "{task}"\n'
+                f'CURRENT: "{flat_bullets[idx][:200]}"\n'
                 f'Start with "{verb}". Mention {tech}. Metric: {pick_metric_hint(tc)}\n'
-                f'24-34 words. Past tense. ONE sentence. No placeholder words (XYZ, ABC, etc).\n'
+                f'24-34 words. No placeholder words.\n'
                 f'Return STRICT JSON: {{"bullet": "..."}}',
                 temperature=0.35)
             new_b = fix.get("bullet", "")
             if new_b and len(new_b.split()) >= 15:
                 new_b = await fix_capitalization_gpt(new_b)
                 new_b = adjust_bullet_length(new_b)
-                if not new_b.endswith("."):
-                    new_b = new_b.rstrip(".,;: ") + "."
+                if not new_b.endswith("."): new_b = new_b.rstrip(".,;: ") + "."
                 flat_bullets[idx] = latex_escape_text(new_b)
-                log_event(f"✅ [REALIGN] idx={idx} score={r.get('score', 0):.2f} → rewritten")
-        except Exception:
-            pass
-
+                _log(f"✅ [REALIGN] idx={idx} → rewritten")
+        except Exception: pass
     result, i = [], 0
     for block in all_bullets:
         result.append(flat_bullets[i:i + len(block)])
         i += len(block)
     return result
 
-
-# ═══════════════════════════════════════════════════════════════
-# CROSS-BLOCK SEMANTIC DEDUPLICATION  [BUG FIX]
-# ═══════════════════════════════════════════════════════════════
 
 async def deduplicate_across_blocks(
     all_bullets: List[List[str]], bullet_plan: List[Dict],
@@ -2129,58 +1974,42 @@ async def deduplicate_across_blocks(
     flat = [b for block in all_bullets for b in block]
     if len(flat) < 6:
         return all_bullets
-
     prompt = f"""Check these resume bullets for semantic redundancy.
-Two bullets are redundant if they describe essentially the same work/achievement.
 
 {json.dumps([{"idx": i, "bullet": b[:150] if isinstance(b, str) else str(b)[:150]}
              for i, b in enumerate(flat[:12])])}
 
 Return STRICT JSON:
-{{"duplicate_pairs": [{{"idx_a": 0, "idx_b": 5, "reason": "both describe data pipeline building"}}],
-"all_unique": true}}
-Only flag TRULY redundant pairs. idx_a and idx_b must be plain integers.
+{{"duplicate_pairs": [{{"idx_a": 0, "idx_b": 5, "reason": "..."}}], "all_unique": true}}
 """
     try:
         data = await gpt_json(prompt, temperature=0.0)
         pairs = data.get("duplicate_pairs", [])
     except Exception:
         return all_bullets
-
     if not pairs:
-        log_event("✅ [DEDUP] All bullets are unique")
+        _log("✅ [DEDUP] All bullets are unique")
         return all_bullets
-
-    log_event(f"🔄 [DEDUP] Found {len(pairs)} redundant pairs")
+    _log(f"🔄 [DEDUP] Found {len(pairs)} redundant pairs")
     rewritten_indices: Set[int] = set()
-
     for pair in pairs[:3]:
-        if not isinstance(pair, dict):
-            continue
-        raw_a = pair.get("idx_a", -1)
-        raw_b = pair.get("idx_b", -1)
+        if not isinstance(pair, dict): continue
         try:
-            idx_a = int(raw_a) if not isinstance(raw_a, int) else raw_a
-            idx_b = int(raw_b) if not isinstance(raw_b, int) else raw_b
-        except (TypeError, ValueError):
-            continue
-        if idx_a < 0 or idx_b < 0:
-            continue
+            idx_a = int(pair.get("idx_a", -1))
+            idx_b = int(pair.get("idx_b", -1))
+        except (TypeError, ValueError): continue
+        if idx_a < 0 or idx_b < 0: continue
         rewrite_idx = max(idx_a, idx_b)
-        if rewrite_idx >= len(flat) or rewrite_idx in rewritten_indices:
-            continue
-
+        if rewrite_idx >= len(flat) or rewrite_idx in rewritten_indices: continue
         plan = bullet_plan[rewrite_idx] if rewrite_idx < len(bullet_plan) else {}
         task = plan.get("assigned_jd_task", "different technical work")
         tech = plan.get("primary_technology", "Python")
         tc = plan.get("task_category", "build_system")
         verb = re.sub(r"\\[#$%&_{}]", "",
                       flat[rewrite_idx].split()[0]) if flat[rewrite_idx].split() else "Built"
-
         try:
             fix = await gpt_json(
-                f'This bullet is too similar to another. REWRITE to focus on: "{task}"\n'
-                f'DUPLICATE OF: "{flat[min(idx_a, idx_b)][:150]}"\n'
+                f'Rewrite to focus on: "{task}"\n'
                 f'Mention {tech}. Start with "{verb}". 24-34 words. '
                 f'Metric: {pick_metric_hint(tc)}. No placeholder words.\n'
                 f'Return STRICT JSON: {{"bullet": "..."}}',
@@ -2189,14 +2018,11 @@ Only flag TRULY redundant pairs. idx_a and idx_b must be plain integers.
             if new_b and len(new_b.split()) >= 15:
                 new_b = await fix_capitalization_gpt(new_b)
                 new_b = adjust_bullet_length(new_b)
-                if not new_b.endswith("."):
-                    new_b = new_b.rstrip(".,;: ") + "."
+                if not new_b.endswith("."): new_b = new_b.rstrip(".,;: ") + "."
                 flat[rewrite_idx] = latex_escape_text(new_b)
                 rewritten_indices.add(rewrite_idx)
-                log_event(f"✅ [DEDUP] Bullet {rewrite_idx} rewritten")
-        except Exception:
-            pass
-
+                _log(f"✅ [DEDUP] Bullet {rewrite_idx} rewritten")
+        except Exception: pass
     result, i = [], 0
     for block in all_bullets:
         result.append(flat[i:i + len(block)])
@@ -2204,128 +2030,80 @@ Only flag TRULY redundant pairs. idx_a and idx_b must be plain integers.
     return result
 
 
-# ═══════════════════════════════════════════════════════════════
-# BULLET QUALITY RUBRIC  [BUG FIX]
-# ═══════════════════════════════════════════════════════════════
-
 async def score_bullet_quality_rubric(
-    all_bullets: List[List[str]],
-    bullet_plan: List[Dict],
-    jd_text: str,
-    target_role: str,
+    all_bullets: List[List[str]], bullet_plan: List[Dict],
+    jd_text: str, target_role: str,
 ) -> List[List[str]]:
     flat = [b for block in all_bullets for b in block]
     if len(flat) < 3:
         return all_bullets
-
     checks = []
     for i, b in enumerate(flat):
         plan = bullet_plan[i] if i < len(bullet_plan) else {}
-        checks.append({
-            "idx": i,
-            "bullet": b[:180],
-            "assigned_task": plan.get("assigned_jd_task", "")[:80],
-            "jd_phrases": plan.get("jd_phrases_to_mirror", [])[:2],
-        })
+        checks.append({"idx": i, "bullet": b[:180],
+                        "assigned_task": plan.get("assigned_jd_task", "")[:80]})
+    prompt = f"""Score each resume bullet on 4 axes (0-3). Target role: {target_role}
 
-    prompt = f"""Score each resume bullet on 4 axes (0=poor, 1=weak, 2=good, 3=excellent).
-Target role: {target_role}
-
-  task_specificity:  Concrete specific task described vs vague generic claim
-  jd_phrase_usage:   JD language mirrored vs generic resume-speak
-  metric_quality:    Concrete count/latency/throughput vs missing/bare-round-%
-  verb_strength:     Strong action verb vs "worked on" / "helped with"
+  task_specificity, jd_phrase_usage, metric_quality, verb_strength
 
 BULLETS:
-{json.dumps([{"idx": c["idx"], "bullet": c["bullet"], "task": c["assigned_task"]}
-             for c in checks[:12]])}
+{json.dumps(checks[:12])}
 
-Return STRICT JSON — idx must be a plain integer:
+Return STRICT JSON:
 {{"scores": [{{"idx": 0, "task_specificity": 2, "jd_phrase_usage": 1, "metric_quality": 3,
               "verb_strength": 2, "total": 8, "weakest_axis": "jd_phrase_usage"}}]}}
 """
     try:
         data = await gpt_json(prompt, temperature=0.0)
-        raw_scores = data.get("scores") or []
         scores = {}
-        for s in raw_scores:
-            if not isinstance(s, dict):
-                continue
-            raw_idx = s.get("idx")
-            try:
-                idx = int(raw_idx) if not isinstance(raw_idx, int) else raw_idx
-            except (TypeError, ValueError):
-                continue
+        for s in (data.get("scores") or []):
+            if not isinstance(s, dict): continue
+            try: idx = int(s.get("idx", -1))
+            except (TypeError, ValueError): continue
             scores[idx] = s
     except Exception:
-        log_event("⚠️ [RUBRIC] Scoring failed, skipping quality pass")
+        _log("⚠️ [RUBRIC] Scoring failed")
         return all_bullets
 
     weak = sorted(
         [s for s in scores.values() if s.get("total", 12) <= 5],
         key=lambda x: x.get("total", 12))
-    log_event(f"📐 [RUBRIC] {len(weak)} bullets scored ≤ 5/12 out of {len(flat)}")
+    _log(f"📐 [RUBRIC] {len(weak)} bullets scored ≤ 5/12 out of {len(flat)}")
 
     axis_instructions = {
-        "task_specificity": (
-            "Make the bullet MUCH MORE SPECIFIC. Name the exact artifact built, "
-            "the exact problem solved, the exact dataset/system used."),
-        "jd_phrase_usage": (
-            "Rewrite to INCORPORATE EXACT LANGUAGE from the JD. "
-            "Mirror the JD's vocabulary throughout."),
-        "metric_quality": (
-            "Replace the metric with a CONCRETE NUMBER ending in an odd digit "
-            "(43ms not 40ms, 13K not 10K). Use counts, latency, throughput, or time saved — NOT just percentages."),
-        "verb_strength": (
-            "Replace the opening verb with a STRONG ACTION VERB: Architected, Engineered, "
-            "Deployed, Designed, Automated, Optimized, Productionized, Orchestrated."),
+        "task_specificity": "Name the exact artifact, problem, dataset.",
+        "jd_phrase_usage": "Mirror the JD's vocabulary.",
+        "metric_quality": "Use a CONCRETE NUMBER (odd digit). Counts, latency, time — not just %.",
+        "verb_strength": "Use strong verb: Architected, Engineered, Deployed, Automated.",
     }
-
     for s in weak[:6]:
-        raw_idx = s.get("idx", -1)
-        try:
-            idx = int(raw_idx) if not isinstance(raw_idx, int) else raw_idx
-        except (TypeError, ValueError):
-            continue
-        if idx < 0 or idx >= len(flat):
-            continue
+        try: idx = int(s.get("idx", -1))
+        except (TypeError, ValueError): continue
+        if idx < 0 or idx >= len(flat): continue
         plan = bullet_plan[idx] if idx < len(bullet_plan) else {}
         task = plan.get("assigned_jd_task", "")
         tech = plan.get("primary_technology", "Python")
         tc = plan.get("task_category", "build_system")
-        jd_phrases = plan.get("jd_phrases_to_mirror", [])
         verb = re.sub(r"\\[#$%&_{}]", "",
                       flat[idx].split()[0]) if flat[idx].split() else "Built"
         weakest = s.get("weakest_axis", "task_specificity")
-        improvement = axis_instructions.get(weakest, "Improve overall specificity.")
-
-        phrase_hint = ""
-        if jd_phrases and weakest == "jd_phrase_usage":
-            phrase_hint = f'INCORPORATE THESE EXACT PHRASES: {", ".join(jd_phrases[:2])}\n'
-
+        improvement = axis_instructions.get(weakest, "Improve specificity.")
         try:
             fix = await gpt_json(
-                f'Improve this resume bullet. Score={s.get("total", "?")}/12, '
-                f'weakest: {weakest}.\n'
-                f'CURRENT: "{flat[idx][:200]}"\n'
-                f'TASK: "{task}"\n'
-                f'IMPROVEMENT: {improvement}\n'
-                f'{phrase_hint}'
+                f'Improve this bullet. Score={s.get("total", "?")}/12, weakest: {weakest}.\n'
+                f'CURRENT: "{flat[idx][:200]}"\nTASK: "{task}"\nIMPROVEMENT: {improvement}\n'
                 f'Start with "{verb}". Mention {tech}. Metric: {pick_metric_hint(tc)}\n'
-                f'24-34 words. Past tense. ONE sentence. No placeholder words.\n'
+                f'24-34 words. No placeholder words.\n'
                 f'Return STRICT JSON: {{"bullet": "..."}}',
                 temperature=0.4)
             new_b = fix.get("bullet", "")
             if new_b and len(new_b.split()) >= 15:
                 new_b = await fix_capitalization_gpt(new_b)
                 new_b = adjust_bullet_length(new_b)
-                if not new_b.endswith("."):
-                    new_b = new_b.rstrip(".,;: ") + "."
+                if not new_b.endswith("."): new_b = new_b.rstrip(".,;: ") + "."
                 flat[idx] = latex_escape_text(new_b)
-                log_event(f"✅ [RUBRIC] idx={idx} total={s.get('total')} → improved ({weakest})")
-        except Exception:
-            pass
-
+                _log(f"✅ [RUBRIC] idx={idx} total={s.get('total')} → improved ({weakest})")
+        except Exception: pass
     result, i = [], 0
     for block in all_bullets:
         result.append(flat[i:i + len(block)])
@@ -2344,16 +2122,12 @@ async def remediate_coverage_gaps(
     flat = [b for block in all_bullets for b in block]
     plain = " ".join(flat).lower()
     missing_must = [k for k in must_have_keywords if k.lower() not in plain]
-
     if not missing_must:
-        log_event("✅ [COVERAGE] All must-have keywords present")
+        _log("✅ [COVERAGE] All must-have keywords present")
         return all_bullets
-
-    log_event(f"⚠️ [COVERAGE] {len(missing_must)} must-have keywords missing: {missing_must[:5]}")
-
+    _log(f"⚠️ [COVERAGE] {len(missing_must)} must-have keywords missing: {missing_must[:5]}")
     for kw in missing_must[:3]:
-        if not flat:
-            break
+        if not flat: break
         weakest_idx = len(flat) - 1
         plan = bullet_plan[weakest_idx] if weakest_idx < len(bullet_plan) else {}
         task = plan.get("assigned_jd_task", "technical contribution")
@@ -2361,22 +2135,19 @@ async def remediate_coverage_gaps(
                       flat[weakest_idx].split()[0]) if flat[weakest_idx].split() else "Built"
         try:
             fix = await gpt_json(
-                f'Rewrite this bullet to naturally incorporate "{kw}" (must-have JD keyword).\n'
+                f'Rewrite to incorporate "{kw}" (must-have JD keyword).\n'
                 f'CURRENT: "{flat[weakest_idx][:200]}"\nTASK: "{task}"\n'
-                f'Keep starting verb "{verb}". 24-34 words. Keyword must appear naturally.\n'
+                f'Keep verb "{verb}". 24-34 words. Keyword must appear naturally.\n'
                 f'Return STRICT JSON: {{"bullet": "..."}}',
                 temperature=0.3)
             new_b = fix.get("bullet", "")
             if new_b and kw.lower() in new_b.lower() and len(new_b.split()) >= 15:
                 new_b = await fix_capitalization_gpt(new_b)
                 new_b = adjust_bullet_length(new_b)
-                if not new_b.endswith("."):
-                    new_b = new_b.rstrip(".,;: ") + "."
+                if not new_b.endswith("."): new_b = new_b.rstrip(".,;: ") + "."
                 flat[weakest_idx] = latex_escape_text(new_b)
-                log_event(f"✅ [REMEDIATE] Injected '{kw}' into bullet {weakest_idx}")
-        except Exception:
-            pass
-
+                _log(f"✅ [REMEDIATE] Injected '{kw}' into bullet {weakest_idx}")
+        except Exception: pass
     result, i = [], 0
     for block in all_bullets:
         result.append(flat[i:i + len(block)])
@@ -2401,7 +2172,6 @@ async def rewrite_experience_section(
     bullet_plan = master_plan.get("bullet_plan", [])
     exp_companies = await _extract_experience_companies(tex)
     exp_used: Set[str] = set()
-
     all_blocks: List[List[str]] = []
     exp_pat = section_rx("Experience")
     block_index = 0
@@ -2413,11 +2183,9 @@ async def rewrite_experience_section(
         i = 0
         while True:
             a = section.find(s_tag, i)
-            if a < 0:
-                break
+            if a < 0: break
             b = section.find(e_tag, a)
-            if b < 0:
-                break
+            if b < 0: break
             ec = (exp_companies[block_index]
                   if block_index < len(exp_companies) else f"Company {block_index + 1}")
             plans = [bp for bp in bullet_plan if bp.get("block_index") == block_index]
@@ -2439,30 +2207,23 @@ async def rewrite_experience_section(
             abs_pos += 3
             i = b + len(e_tag)
 
-    log_event("🔍 [VALIDATE] Scoring bullet-task alignment...")
+    _log("🔍 [VALIDATE] Scoring bullet-task alignment...")
     all_blocks = await validate_and_fix_task_alignment(
         all_blocks, bullet_plan, jd_text, target_role, role_archetype)
-
-    log_event("🔄 [DEDUP] Checking cross-block redundancy...")
+    _log("🔄 [DEDUP] Checking cross-block redundancy...")
     all_blocks = await deduplicate_across_blocks(
         all_blocks, bullet_plan, jd_text, role_archetype)
-
-    log_event("📐 [RUBRIC] Running 4-axis quality rubric...")
+    _log("📐 [RUBRIC] Running 4-axis quality rubric...")
     all_blocks = await score_bullet_quality_rubric(
         all_blocks, bullet_plan, jd_text, target_role)
-
-    # v2.5.0: Enforce metric diversity
-    log_event("📊 [METRIC DIV] Enforcing metric type diversity...")
+    _log("📊 [METRIC DIV] Enforcing metric type diversity...")
     all_blocks = await enforce_metric_diversity(
         all_blocks, bullet_plan, target_role, jd_text)
-
     must_have = jd_info.get("must_have", [])
     if must_have:
-        log_event("📊 [REMEDIATE] Checking must-have keyword coverage...")
+        _log("📊 [REMEDIATE] Checking must-have keyword coverage...")
         all_blocks = await remediate_coverage_gaps(all_blocks, must_have, bullet_plan, jd_text)
-
-    # v2.5.0: Sanitize placeholder words in all bullets
-    log_event("🔧 [SANITIZE] Checking for placeholder words (XYZ, ABC, etc.)...")
+    _log("🔧 [SANITIZE] Checking for placeholder words (XYZ, ABC, etc.)...")
     all_blocks = await sanitize_all_bullets(
         all_blocks, target_company, target_role, exp_companies)
 
@@ -2501,14 +2262,13 @@ async def rewrite_experience_section(
                 if isinstance(kw, str) and isinstance(b, str) and kw.lower() in b.lower():
                     exp_used.add(kw.lower())
 
-    log_event(f"✅ [EXPERIENCE] {len(exp_used)} keywords, {len(_used_verbs_global)} unique verbs")
+    _log(f"✅ [EXPERIENCE] {len(exp_used)} keywords, {len(_used_verbs_global)} unique verbs")
     return "".join(out), exp_used
 
 
 async def _extract_experience_companies(tex: str) -> List[str]:
     m = section_rx("Experience").search(tex)
-    if not m:
-        return []
+    if not m: return []
     sec = m.group(1)
     companies = re.findall(r"\\resumeSubheading\{[^}]*\}\{[^}]*\}\{([^}]*)\}", sec)
     if not companies:
@@ -2521,7 +2281,7 @@ async def _extract_experience_companies(tex: str) -> List[str]:
 
 
 # ═══════════════════════════════════════════════════════════════
-# JD-SEEDED PROJECT GENERATOR — v2.5.0: "Title — one-liner" format
+# JD-SEEDED PROJECT GENERATOR
 # ═══════════════════════════════════════════════════════════════
 
 async def generate_jd_projects(
@@ -2529,55 +2289,29 @@ async def generate_jd_projects(
     role_archetype: Dict[str, Any], must_have_keywords: List[str],
     target_role: str,
 ) -> List[Dict[str, str]]:
-    """v2.5.0: Generate exactly 2 projects with separate name and description.
-    Returns list of dicts with 'name' and 'description' keys."""
     high_tasks = [t for t in jd_tasks if t.get("priority") == "high"][:2]
     if len(high_tasks) < 2:
         high_tasks = jd_tasks[:2]
     top_tools = must_have_keywords[:8]
+    prompt = f"""Generate exactly 2 resume project entries for {target_role}.
 
-    prompt = f"""Generate exactly 2 resume project entries for someone applying for {target_role}.
-
-FULL JOB DESCRIPTION (use EXACT tool names from here):
+JOB DESCRIPTION:
 {jd_text[:3500]}
 
-HIGH-PRIORITY JD TASKS TO MIRROR:
+HIGH-PRIORITY TASKS:
 Task 1: {high_tasks[0].get('task_description', '') if high_tasks else ''}
-  Tools: {', '.join(high_tasks[0].get('implied_technologies', [])[:3]) if high_tasks else ''}
-
 Task 2: {high_tasks[1].get('task_description', '') if len(high_tasks) > 1 else ''}
-  Tools: {', '.join(high_tasks[1].get('implied_technologies', [])[:3]) if len(high_tasks) > 1 else ''}
 
-MUST-INCLUDE TOOLS (from JD): {', '.join(top_tools[:6])}
+MUST-INCLUDE TOOLS: {', '.join(top_tools[:6])}
 
 RULES:
-1. Each project has a NAME and a DESCRIPTION (separate fields).
-2. NAME: Real CS/ML project name (e.g., "MedNotes Classifier", "StreamSense Pipeline", "SpectraVision Analyzer").
-   NEVER use placeholder names like "Project XYZ" or "Tool ABC".
-3. DESCRIPTION: ONE sentence, 18-28 words, past tense describing what was built + specific result.
-4. Tools MUST come from the JD — no invented tools.
-5. Result must be SPECIFIC with a number ending in an odd digit — NOT a bare round percentage.
-   Use diverse metric types: counts, from-X-to-Y, time savings, throughput — not just %.
-6. Use "%" not "\\%".
-7. NEVER use placeholder words: XYZ, ABC, Foo, Bar, widget, gadget, Acme, "some tool".
+1. NAME and DESCRIPTION as separate fields.
+2. NAME: Real CS project name. Never "Project XYZ".
+3. DESCRIPTION: ONE sentence, 18-28 words, past tense, specific result with odd-digit number.
+4. Tools from JD only. Use "%" not "\\%". No placeholder words.
 
 Return STRICT JSON:
-{{
-    "projects": [
-        {{
-            "name": "Descriptive Project Name",
-            "description": "One-line past-tense description (18-28 words) with specific result.",
-            "tools_used": ["tool1", "tool2"],
-            "jd_task_mirrored": "task description"
-        }},
-        {{
-            "name": "Descriptive Project Name",
-            "description": "One-line past-tense description (18-28 words) with specific result.",
-            "tools_used": ["tool1", "tool2"],
-            "jd_task_mirrored": "task description"
-        }}
-    ]
-}}
+{{"projects": [{{"name": "...", "description": "...", "tools_used": [...], "jd_task_mirrored": "..."}}]}}
 """
     for attempt_temp in [0.3, 0.5]:
         try:
@@ -2587,14 +2321,11 @@ Return STRICT JSON:
             for p in projects[:2]:
                 name = str(p.get("name", "")).strip()
                 desc = str(p.get("description", "")).strip()
-                if not name or not desc:
-                    continue
+                if not name or not desc: continue
                 name = await fix_capitalization_gpt(name)
                 desc = await fix_capitalization_gpt(desc)
                 desc = adjust_bullet_length(desc)
-                if not desc.endswith("."):
-                    desc = desc.rstrip(".,;: ") + "."
-                # Sanitize any placeholders
+                if not desc.endswith("."): desc = desc.rstrip(".,;: ") + "."
                 if _PLACEHOLDER_PATTERNS.search(name) or _PLACEHOLDER_PATTERNS.search(desc):
                     combined = f"{name} — {desc}"
                     combined = await sanitize_placeholder_words(combined, role=target_role)
@@ -2603,28 +2334,29 @@ Return STRICT JSON:
                         name, desc = parts[0].strip(), parts[1].strip()
                 if name and desc and len(desc.split()) >= 10:
                     result.append({"name": name, "description": desc})
-                    log_event(f"🔨 [PROJECT] {name} → {p.get('tools_used', [])}")
+                    _log(f"🔨 [PROJECT] {name} → {p.get('tools_used', [])}")
             if len(result) >= 2:
                 return result[:2]
-            log_event(f"⚠️ [PROJECT] Only {len(result)} projects, retrying...")
         except Exception as e:
-            log_event(f"⚠️ [PROJECT] Attempt failed: {e}")
+            _log(f"⚠️ [PROJECT] Attempt failed: {e}")
     return []
 
 
 def inject_projects_section(tex: str, projects: List[Dict[str, str]]) -> str:
-    """v2.5.0: Inject projects as '\\textbf{Title} -- one-liner' format,
-    placed after Experience section, before Achievements section."""
     if not projects:
         return tex
-
-    # Build project items in "Title — description" format
     items = []
     for p in projects[:2]:
-        name = latex_escape_text(p.get("name", "Project"))
-        desc = latex_escape_text(p.get("description", ""))
-        items.append(f"    \\resumeItem{{\\textbf{{{name}}} -- {desc}}}")
-
+        name_raw = (p.get("name", "Project") or "Project").strip()
+        desc_raw = (p.get("description", "") or "").strip()
+        
+        name_escaped = latex_escape_text(name_raw)
+        desc_escaped = latex_escape_text(desc_raw)
+        
+        inner = f"\\textbf{{{name_escaped}}} -- {desc_escaped}"
+        inner = _validate_resumeItem_braces(inner)
+        
+        items.append(f"    \\resumeItem{{{inner}}}")
     items_tex = "\n".join(items)
     projects_block = (
         "%-----------PROJECTS-----------\n"
@@ -2635,36 +2367,22 @@ def inject_projects_section(tex: str, projects: List[Dict[str, str]]) -> str:
         + "  \\resumeItemListEnd\n"
         "  }\n"
     )
-
-    # Remove existing Projects section if present
+    # Remove existing Projects section
     proj_pat = section_rx("Projects")
     m = proj_pat.search(tex)
     if m:
         tex = tex[:m.start()] + tex[m.end():]
-
-    # Insert after Experience, before Achievements/Skills
-    # Priority: after Experience → before Achievements → before Skills → before \end{document}
-    achievement_anchors = [
-        r"%-----------ACHIEVEMENTS",
-        r"%-----------AWARDS",
-        r"%-----------HONORS",
-        r"\\section{Achievements",
-        r"\\section{Awards",
-        r"\\section{Honors",
-    ]
-    for anchor in achievement_anchors:
+    # Insert before Achievements/Skills/end
+    for anchor in [r"%-----------ACHIEVEMENTS", r"%-----------AWARDS", r"%-----------HONORS",
+                   r"\\section{Achievements", r"\\section{Awards", r"\\section{Honors"]:
         am = re.search(re.escape(anchor) if anchor.startswith("%-") else anchor, tex, re.I)
         if am:
             return tex[:am.start()] + projects_block + "\n" + tex[am.start():]
-
-    # Fallback: before Skills
     skills_pat = re.compile(
         r"(%-----------TECHNICAL SKILLS-----------|\\section\*?\{\s*Skills\s*\})", re.I)
     sm = skills_pat.search(tex)
     if sm:
         return tex[:sm.start()] + projects_block + "\n" + tex[sm.start():]
-
-    # Last fallback: before \end{document}
     end_doc = tex.rfind(r"\end{document}")
     if end_doc >= 0:
         return tex[:end_doc] + projects_block + "\n" + tex[end_doc:]
@@ -2687,84 +2405,84 @@ async def rewrite_projects_section(
     unused_kws = [k for k in all_keywords if k.lower() not in used_keywords][:10]
     ak = role_archetype.get("key", "general_tech")
     bf = role_archetype.get("bullet_focus", "")
-    prompt = f"""Rewrite these {len(items)} project bullets to better align with this JD.
-Each project MUST be in the format: "\\textbf{{Project Name}} -- one-line description with specific result."
-TARGET ROLE: {role_archetype.get('name', 'Technical Role')} ({ak}) | Focus: {bf}
-JD (first 2000 chars): {jd_text[:2000]}
-CURRENT PROJECT BULLETS: {json.dumps([strip_all_macros_keep_text(section[i[1] + 1:i[2]])[:150] for i in items])}
-UNUSED JD KEYWORDS: {', '.join(unused_kws[:8])}
+    prompt = f"""Rewrite these {len(items)} project bullets for this JD.
+Format: "ProjectName -- one-line description with specific result."
+Do NOT include any LaTeX commands like \\textbf in your output.
+Just return plain text: "Project Name -- description."
+TARGET: {role_archetype.get('name', 'Technical Role')} ({ak}) | Focus: {bf}
+JD: {jd_text[:2000]}
+CURRENT: {json.dumps([strip_all_macros_keep_text(section[i[1] + 1:i[2]])[:150] for i in items])}
+UNUSED KEYWORDS: {', '.join(unused_kws[:8])}
 JD TASKS: {json.dumps([t['task_description'] for t in uncovered_tasks[:len(items)]])}
-Rewrite each: format "ProjectName -- description", 18-28 words in description, past tense,
-specific results with diverse metric types (counts, from-to, time, throughput — not just %),
-numbers end in odd digits. No placeholder words (XYZ, ABC, Foo, etc).
-Return STRICT JSON: {{"bullets": ["\\\\textbf{{Name}} -- description", ...], "keywords_used": ["kw1", ...]}}"""
+18-28 words description, past tense, diverse metrics, odd digits. No placeholder words.
+Return STRICT JSON: {{"bullets": ["Project Name -- description.", ...], "keywords_used": ["kw1", ...]}}"""
     try:
         data = await gpt_json(prompt, temperature=0.3)
         new_bullets = data.get("bullets", [])
         proj_used = set(str(k).lower() for k in (data.get("keywords_used") or []))
         if len(new_bullets) != len(items):
             return tex, set()
-
-        cleaned_bullets = []
-        for idx in range(len(new_bullets)):
-            b = str(new_bullets[idx]).strip()
-
-            # Keep LaTeX macros like \textbf{...} untouched.
-            # Do NOT pass full LaTeX through GPT capitalization fixer.
-            # Do NOT latex_escape_text the full string.
-
-            if not b.endswith("."):
-                b = b.rstrip(".,;: ") + "."
-
-            cleaned_bullets.append(b)
-
-        replacements = cleaned_bullets[:len(items)]
-        if len(replacements) < len(items):
-            replacements += [None] * (len(items) - len(replacements))
-
+        
         new_section_text = section
         for idx in range(len(items) - 1, -1, -1):
-            if idx < len(replacements) and replacements[idx] is not None:
+            if idx < len(new_bullets):
                 s, ob, cb, e = items[idx]
-                new_section_text = (
-                    new_section_text[:ob + 1]
-                    + replacements[idx]
-                    + new_section_text[cb:]
-                )
-
+                raw_bullet = str(new_bullets[idx]).strip()
+                if not raw_bullet.endswith("."):
+                    raw_bullet = raw_bullet.rstrip(".,;: ") + "."
+                
+                # Strip any LaTeX commands GPT may have included despite instructions
+                raw_bullet = re.sub(r'\\textbf\{([^}]*)\}', r'\1', raw_bullet)
+                raw_bullet = re.sub(r'\\[a-zA-Z]+\{([^}]*)\}', r'\1', raw_bullet)
+                
+                # Split into name -- description and build safe LaTeX
+                if " -- " in raw_bullet:
+                    name_part, desc_part = raw_bullet.split(" -- ", 1)
+                    name_escaped = latex_escape_text(name_part.strip())
+                    desc_escaped = latex_escape_text(desc_part.strip())
+                    safe_content = f"\\textbf{{{name_escaped}}} -- {desc_escaped}"
+                elif " - " in raw_bullet:
+                    name_part, desc_part = raw_bullet.split(" - ", 1)
+                    name_escaped = latex_escape_text(name_part.strip())
+                    desc_escaped = latex_escape_text(desc_part.strip())
+                    safe_content = f"\\textbf{{{name_escaped}}} -- {desc_escaped}"
+                else:
+                    safe_content = latex_escape_text(raw_bullet)
+                
+                safe_content = _validate_resumeItem_braces(safe_content)
+                
+                new_section_text = (new_section_text[:ob + 1] 
+                                   + safe_content 
+                                   + new_section_text[cb:])
+        
         result = tex[:m.start()] + new_section_text + tex[m.end():]
-        log_event(f"✅ [PROJECTS] Rewrote {len(cleaned_bullets)} bullets")
+        _log(f"✅ [PROJECTS] Rewrote {len(new_bullets)} bullets")
         return result, proj_used
-
     except Exception as e:
-        log_event(f"⚠️ [PROJECTS] Rewrite failed: {e}")
+        _log(f"⚠️ [PROJECTS] Rewrite failed: {e}")
         return tex, set()
 
 
 # ═══════════════════════════════════════════════════════════════
-# PDF / TRIM HELPERS — v2.4.0+: enforce min 9 experience bullets
+# PDF / TRIM HELPERS
 # ═══════════════════════════════════════════════════════════════
 
 MIN_EXPERIENCE_BULLETS = 9
 
+
 def _pdf_page_count(pdf: Optional[bytes]) -> int:
-    if not pdf or len(pdf) < 10:
-        return 0
+    if not pdf or len(pdf) < 10: return 0
     for m in re.finditer(rb"/Type\s*/Pages\b", pdf):
         cm = re.search(rb"/Count\s+(\d+)", pdf[m.start():m.start() + 512])
         if cm:
             c = int(cm.group(1))
-            if c > 0:
-                return c
+            if c > 0: return c
     ac = [int(c) for c in re.findall(rb"/Count\s+(\d+)", pdf)]
-    if ac and max(ac) > 0:
-        return max(ac)
+    if ac and max(ac) > 0: return max(ac)
     lp = re.findall(rb"/Type\s*/Page(?!\s*/Pages)\b(?=[\s/\]>])", pdf)
-    if lp:
-        return len(lp)
+    if lp: return len(lp)
     mb = len(re.findall(rb"/MediaBox\s*\[", pdf))
-    if mb > 0:
-        return mb
+    if mb > 0: return mb
     return 2 if len(pdf) / 1024 > 134 else 1
 
 
@@ -2796,18 +2514,30 @@ def remove_one_achievement_bullet(tex: str) -> Tuple[str, bool]:
     for sec in ACHIEVEMENT_SECTIONS:
         pat = section_rx(sec)
         m = pat.search(tex)
-        if not m:
-            continue
+        if not m: continue
         full = m.group(1)
         items = find_resume_items(full)
-        if not items:
-            continue
+        if not items: continue
         s, _, _, e = items[-1]
         ns = full[:s] + full[e:]
         if not find_resume_items(ns):
             return tex[:m.start()] + tex[m.end():], True
         return tex[:m.start()] + ns + tex[m.end():], True
     return tex, False
+
+
+def remove_section_entirely(tex: str, section_name: str) -> Tuple[str, bool]:
+    pat = section_rx(section_name)
+    m = pat.search(tex)
+    if not m: return tex, False
+    start = m.start()
+    prefix_check = tex[max(0, start - 80):start]
+    header_match = re.search(r"%-+[A-Z\s]+-+\n\s*$", prefix_check)
+    if header_match:
+        start = max(0, start - 80) + header_match.start()
+    tex = tex[:start] + tex[m.end():]
+    _log(f"✂️ [TRIM] Removed entire '{section_name}' section")
+    return tex, True
 
 
 def score_bullet_relevance(bullet_text: str, all_keywords: List[str]) -> float:
@@ -2826,27 +2556,24 @@ def remove_least_relevant_bullet(
         for match in section_rx(sec_name).finditer(tex):
             full = match.group(1)
             items = find_resume_items(full)
-            if len(items) < 2:
-                continue
+            if len(items) < 2: continue
             if sec_name == "Experience":
                 total_exp = _count_experience_bullets(tex)
                 if total_exp <= MIN_EXPERIENCE_BULLETS:
-                    log_event(f"🛡️ [TRIM] Skipping Experience — {total_exp} bullets ≤ {MIN_EXPERIENCE_BULLETS} minimum")
+                    _log(f"🛡️ [TRIM] Skipping Experience — {total_exp} ≤ {MIN_EXPERIENCE_BULLETS}")
                     continue
             for idx, (s, ob, cb, e) in enumerate(items):
                 bullet_text = full[ob + 1:cb]
                 score = score_bullet_relevance(bullet_text, all_keywords)
-                if sec_name == "Projects":
-                    score += 0.05
+                if sec_name == "Projects": score += 0.05
                 candidates.append((score, match, items, idx, full, sec_name))
-    if not candidates:
-        return tex, False
+    if not candidates: return tex, False
     candidates.sort(key=lambda x: x[0])
     score, match, items, idx, full, sec_name = candidates[0]
     s, ob, cb, e = items[idx]
     new_full = full[:s] + full[e:]
     result = tex[:match.start()] + new_full + tex[match.end():]
-    log_event(f"✂️ [TRIM] Removed bullet (score={score:.2f}) from {sec_name}")
+    _log(f"✂️ [TRIM] Removed bullet (score={score:.2f}) from {sec_name}")
     return result, True
 
 
@@ -2859,10 +2586,11 @@ def compute_coverage(tex: str, keywords: List[str]) -> Dict[str, Any]:
 
 
 # ═══════════════════════════════════════════════════════════════
-# SECTION SIZE REDUCER — v2.4.0+: add \small to all sections
+# SECTION SIZE REDUCER — v2.6.1: SAFE \small wrapping
 # ═══════════════════════════════════════════════════════════════
 
 def apply_small_to_sections(tex: str) -> str:
+    """Add \\small to sections, with brace-balance safety check."""
     section_names = [
         "Experience", "Education", "Projects", "Skills",
         "Achievements", "Achievements & Leadership", "Awards",
@@ -2872,102 +2600,135 @@ def apply_small_to_sections(tex: str) -> str:
         pat = section_rx(name)
         for m in pat.finditer(tex):
             section_text = m.group(1)
-            if r"\small" in section_text[:80]:
+            if r"\small" in section_text[:120]:
                 continue
             header_match = re.match(r"(\\section\*?\{[^}]*\})", section_text)
             if not header_match:
                 continue
             header = header_match.group(1)
             rest = section_text[len(header):]
+
+            # v2.6.1 FIX: Check brace balance of rest BEFORE wrapping
+            balance_before = _brace_balance(rest)
+            if balance_before != 0:
+                _log(f"⚠️ [SMALL] Skipping \\small wrap for '{name}' — brace imbalance={balance_before}")
+                continue
+
             new_section = header + "\n{\\small" + rest + "}\n"
+
+            # v2.6.1 FIX: Verify brace balance after wrapping
+            balance_after = _brace_balance(new_section)
+            if balance_after != 0:
+                _log(f"⚠️ [SMALL] \\small wrap would break braces for '{name}' (balance={balance_after}), skipping")
+                continue
+
             tex = tex[:m.start()] + new_section + tex[m.end():]
-            break
+            break  # Only first match per section name
     return tex
 
 
 # ═══════════════════════════════════════════════════════════════
-# ADDITIONAL INFO SECTION — NEW in v2.5.0
+# LATEX SANITY PASS — v2.6.1: ACTUALLY FIXES issues
 # ═══════════════════════════════════════════════════════════════
 
-def inject_additional_info_section(
-    tex: str, skills_list: List[str], courses: List[str],
-    target_role: str, target_company: str,
-) -> str:
-    """v2.5.0: Add an 'Additional Information' section with skill hashtags
-    and relevant coursework for enhanced metadata visibility."""
-    # Build skill hashtags (top 15 most relevant)
-    skill_tags = [f"\\#{_ensure_cap(s).replace(' ', '')}" for s in skills_list[:15] if s]
-    tags_str = " ".join(skill_tags)
+def latex_sanity_pass(tex: str) -> str:
+    """Fix common LaTeX issues that cause compilation failures."""
+    # 1. Remove duplicate \begin{document} or \end{document}
+    begins = [m.start() for m in re.finditer(r"\\begin\{document\}", tex)]
+    if len(begins) > 1:
+        _log(f"⚠️ [SANITY] Found {len(begins)} \\begin{{document}} — removing duplicates")
+        # Keep the first one, remove the rest (in reverse order to preserve positions)
+        for pos in reversed(begins[1:]):
+            tex = tex[:pos] + tex[pos + len(r"\begin{document}"):]
 
-    # Build coursework string (top 6)
-    course_str = ", ".join(latex_escape_text(c) for c in courses[:6] if c)
+    ends = [m.start() for m in re.finditer(r"\\end\{document\}", tex)]
+    if len(ends) > 1:
+        _log(f"⚠️ [SANITY] Found {len(ends)} \\end{{document}} — removing duplicates")
+        for pos in reversed(ends[:-1]):
+            tex = tex[:pos] + tex[pos + len(r"\end{document}"):]
 
-    info_lines = []
-    if tags_str:
-        info_lines.append(f"\\item \\textbf{{Key Skills:}} \\small{{{tags_str}}}")
-    if course_str:
-        info_lines.append(f"\\item \\textbf{{Relevant Coursework:}} \\small{{{course_str}}}")
+    # 2. Remove duplicate \usepackage{hyperref}
+    hyperref_matches = list(re.finditer(r'\\usepackage(\[[^\]]*\])?\{hyperref\}', tex))
+    if len(hyperref_matches) > 1:
+        _log(f"⚠️ [SANITY] Found {len(hyperref_matches)} \\usepackage{{hyperref}} — removing duplicates")
+        for m in reversed(hyperref_matches[1:]):
+            line_start = tex.rfind('\n', 0, m.start())
+            line_end = tex.find('\n', m.end())
+            if line_end < 0: line_end = len(tex)
+            tex = tex[:line_start + 1] + tex[line_end + 1:]
 
-    if not info_lines:
-        return tex
+    # 3. Check and FIX brace balance
+    balance = _brace_balance(tex)
+    if balance != 0:
+        _log(f"⚠️ [SANITY] Brace imbalance: {balance} (positive=missing }}, negative=extra }})")
+        if balance > 0:
+            # Missing closing braces — add them before \end{document}
+            end_doc = tex.rfind(r"\end{document}")
+            if end_doc >= 0:
+                fix = "}" * balance
+                _log(f"🔧 [SANITY] Inserting {balance} closing brace(s) before \\end{{document}}")
+                tex = tex[:end_doc] + fix + "\n" + tex[end_doc:]
+            else:
+                tex = tex + "}" * balance
+        elif balance < 0:
+            # Extra closing braces — try to remove trailing ones
+            extra = abs(balance)
+            _log(f"🔧 [SANITY] Removing {extra} extra closing brace(s)")
+            # Remove from end, before \end{document}
+            end_doc = tex.rfind(r"\end{document}")
+            if end_doc >= 0:
+                before_end = tex[:end_doc].rstrip()
+                removed = 0
+                while removed < extra and before_end.endswith("}"):
+                    before_end = before_end[:-1].rstrip()
+                    removed += 1
+                if removed > 0:
+                    tex = before_end + "\n" + tex[end_doc:]
 
-    info_block = (
-        "%-----------ADDITIONAL INFORMATION-----------\n"
-        "\\section{Additional Information}\n"
-        "{\\small\n"
-        "\\begin{itemize}[leftmargin=0.15in, label={}]\n"
-        + "\n".join(f"  {line}" for line in info_lines) + "\n"
-        "\\end{itemize}\n"
-        "}\n"
-    )
+        # Re-check
+        new_balance = _brace_balance(tex)
+        if new_balance != 0:
+            _log(f"⚠️ [SANITY] Still imbalanced after fix: {new_balance}")
+        else:
+            _log(f"✅ [SANITY] Brace balance restored")
 
-    # Check if Additional Information section already exists
-    addl_pat = section_rx("Additional Information")
-    m = addl_pat.search(tex)
-    if m:
-        return tex[:m.start()] + info_block + tex[m.end():]
-
-    # Insert before \end{document}
-    end_doc = tex.rfind(r"\end{document}")
-    if end_doc >= 0:
-        return tex[:end_doc] + info_block + "\n" + tex[end_doc:]
     return tex
 
 
 # ═══════════════════════════════════════════════════════════════
-# MAIN OPTIMIZER v2.5.0
+# MAIN OPTIMIZER v2.6.1
 # ═══════════════════════════════════════════════════════════════
 
 async def optimize_resume(
     base_tex: str, jd_text: str, target_company: str, target_role: str,
     extra_keywords: Optional[str] = None,
 ) -> Tuple[str, Dict[str, Any]]:
-    log_event("🟦 [OPTIMIZE] v2.5.0 — metadata, placeholders, metric diversity, project titles")
+    _log("🟦 [OPTIMIZE] v2.6.1 — enhanced debugging, brace-safe \\small, sanity fixes")
     clear_skill_validation_cache()
 
     jd_snippet = jd_text[:500]
 
-    # 1) Keywords
+    _log("📌 [STEP 1] Extracting keywords...")
     jd_info = await extract_keywords_with_priority(jd_text)
 
-    # 2) Role archetype + tone
+    _log("📌 [STEP 2] Classifying role archetype + tone...")
     role_archetype = await classify_role_and_tone(jd_text, target_role)
 
-    # 3) JD tasks
+    _log("📌 [STEP 3] Decomposing JD into tasks...")
     jd_tasks = await decompose_jd_into_tasks(jd_text, target_company, target_role, role_archetype)
 
-    # 4) JD key phrases
+    _log("📌 [STEP 4] Extracting JD key phrases...")
     jd_phrases = await extract_jd_key_phrases(jd_text)
 
-    # 5) Company core
+    _log("📌 [STEP 5] Extracting company core requirements...")
     company_core = await extract_company_core_requirements(target_company, target_role, jd_text)
     core_keywords = await fix_capitalization_batch(
         [str(k).strip() for k in (company_core.get("core_keywords") or []) if str(k).strip()])
 
-    # 6) Ideal candidate
+    _log("📌 [STEP 6] Profiling ideal candidate...")
     ideal_candidate = await profile_ideal_candidate(jd_text, target_company, target_role)
 
-    # 7) Validate keywords with JD context
+    _log("📌 [STEP 7] Validating keywords...")
     all_raw = list(jd_info.get("all_keywords") or [])
     for k in core_keywords:
         if k and k.lower() not in [x.lower() for x in all_raw]:
@@ -2987,10 +2748,9 @@ async def optimize_resume(
     core_keywords = core_v
     all_keywords = validated
 
-    # 7b) Extract ALL JD skills including soft skills
+    _log("📌 [STEP 7b] Extracting all JD skills...")
     all_jd_skills = await extract_all_jd_skills(jd_text)
 
-    # 8) Extra keywords
     extra_list: List[str] = []
     if extra_keywords:
         for t in re.split(r"[,\n;]+", extra_keywords):
@@ -3005,42 +2765,41 @@ async def optimize_resume(
             all_keywords.append(k)
     jd_info["extra_keywords"] = extra_list
 
-    # 9) Experience companies
+    _log("📌 [STEP 9] Extracting experience companies...")
     exp_companies = await _extract_experience_companies(base_tex)
+    _log(f"   Found {len(exp_companies)} companies: {exp_companies}")
 
-    # 10) Master plan
+    _log("📌 [STEP 10] Planning 12 bullets...")
     master_plan = await plan_all_12_bullets(
         jd_text, target_company, target_role, jd_tasks, all_keywords,
         ideal_candidate, role_archetype, exp_companies)
 
-    # 11) Coursework
+    _log("📌 [STEP 11] Extracting coursework...")
     courses = await extract_coursework_gpt(jd_text, 24)
 
-    # 12) Split
+    _log("📌 [STEP 12] Splitting preamble/body...")
     preamble, body = _split_preamble_body(base_tex)
+    _log(f"   Preamble: {len(preamble)} chars, Body: {len(body)} chars")
 
-    # 13) Coursework
+    _log("📌 [STEP 13] Replacing coursework...")
     body = replace_relevant_coursework_distinct(body, courses, 8)
 
-    # 14) Experience
+    _log("📌 [STEP 14] Rewriting experience section...")
     body, exp_used = await rewrite_experience_section(
         body, jd_text, jd_info, target_company, target_role,
         core_keywords, master_plan, role_archetype, all_keywords)
 
-    # 15) Generate 2 JD-seeded projects (v2.5.0: Title — one-liner format)
-    log_event("🔨 [PROJECTS] Generating 1-2 JD-mirrored projects (title — description)...")
+    _log("📌 [STEP 15] Generating JD-mirrored projects...")
     project_entries = await generate_jd_projects(
         jd_text, jd_tasks, role_archetype, jd_info.get("must_have", []), target_role)
     body = inject_projects_section(body, project_entries[:2])
-    log_event(f"📁 [PROJECTS] Injected {len(project_entries[:2])} projects")
+    _log(f"📁 [PROJECTS] Injected {len(project_entries[:2])} projects")
 
-    # 15b) Rewrite pre-existing project bullets
     body, proj_used = await rewrite_projects_section(
         body, jd_text, jd_tasks, role_archetype, all_keywords, exp_used)
     exp_used.update(proj_used)
 
-    # 16) ATS self-simulation
-    log_event("🤖 [ATS SIM] Running ATS self-simulation pass...")
+    _log("📌 [STEP 16] ATS self-simulation pass...")
     ats_extra = await ats_self_simulation_pass(
         body, jd_text, all_keywords, jd_info.get("must_have", []))
     ats_kw_set = {x.lower() for x in all_keywords}
@@ -3049,16 +2808,14 @@ async def optimize_resume(
             all_keywords.append(k)
             ats_kw_set.add(k.lower())
 
-# 17) Skills section — ranked by JD relevance, CAPPED to avoid page overflow (v2.5.1)
+    _log("📌 [STEP 17] Building skills section...")
     skills_raw, seen = [], set()
-
     def _add(lst):
         for k in lst:
             k = (k or "").strip()
             if k and k.lower() not in seen:
                 seen.add(k.lower()); skills_raw.append(k)
 
-    # Add in priority order (must-have first, generic last)
     _add(jd_info.get("must_have", []))
     _add(core_keywords)
     _add(jd_info.get("should_have", []))
@@ -3067,7 +2824,6 @@ async def optimize_resume(
           if isinstance(k, str) and k and len(k.split()) <= 4])
     _add(extra_list)
     _add(ats_extra)
-    # Only add all_jd_skills that overlap with must/should (not the full dump)
     _high_priority_set = {k.lower() for k in
                           jd_info.get("must_have", []) + jd_info.get("should_have", [])}
     _add([s for s in all_jd_skills if s.lower() in _high_priority_set])
@@ -3076,7 +2832,6 @@ async def optimize_resume(
     if skills_validated:
         skills_validated = await fix_capitalization_batch(skills_validated)
 
-    # Rank and cap — only keep skills that matter to this JD
     skills_list = rank_skills_by_jd_relevance(
         skills_validated,
         must_have=jd_info.get("must_have", []),
@@ -3088,35 +2843,40 @@ async def optimize_resume(
     )
 
     body = await replace_skills_section(body, skills_list, jd_text)
-    log_event(f"📋 [SKILLS] {len(skills_raw)} raw → {len(skills_validated)} valid → {len(skills_list)} final (cap={MAX_SKILLS})")
+    _log(f"📋 [SKILLS] {len(skills_raw)} raw → {len(skills_validated)} valid → {len(skills_list)} final (cap={MAX_SKILLS})")
 
-    # 18) Apply \small to all sections for one-page fit
+    _log("📌 [STEP 18] Applying \\small to sections...")
     body = apply_small_to_sections(body)
 
-    # 19) Merge
+    _log("📌 [STEP 19] Merging preamble + body...")
     final_tex = _merge_tex(preamble, body)
 
-    # 20) v2.5.0: Inject PDF metadata (author, keywords, coursework, creator)
-    log_event("📄 [METADATA] Injecting PDF metadata...")
+    # Check brace balance right after merge
+    merge_balance = _brace_balance(final_tex)
+    _log(f"📌 [BRACE CHECK] After merge: balance={merge_balance}")
+
+    _log("📌 [STEP 20] Injecting PDF metadata...")
     final_tex = inject_pdf_metadata(
         final_tex, target_company, target_role, skills_list, courses)
 
-    # 21) Coverage
+    meta_balance = _brace_balance(final_tex)
+    _log(f"📌 [BRACE CHECK] After metadata: balance={meta_balance}")
+
+    _log("📌 [STEP 21] Running LaTeX sanity pass...")
+    final_tex = latex_sanity_pass(final_tex)
+
+    _log("📌 [STEP 22] Computing coverage...")
     coverage = compute_coverage(final_tex, all_keywords)
 
-    # 22) Phrase mirroring report
     phrases_present, phrases_missing = check_phrase_coverage(final_tex, jd_phrases)
-    log_event(f"🔤 [PHRASE MIRROR] {len(phrases_present)}/{len(jd_phrases)} JD phrases present")
-    log_event(f"📊 [COVERAGE] {coverage['ratio']:.1%}")
+    _log(f"🔤 [PHRASE MIRROR] {len(phrases_present)}/{len(jd_phrases)} JD phrases present")
+    _log(f"📊 [COVERAGE] {coverage['ratio']:.1%}")
 
-    # 23) Log experience bullet count
     exp_bullet_count = _count_experience_bullets(final_tex)
-    log_event(f"📝 [EXP BULLETS] {exp_bullet_count} experience bullets (min={MIN_EXPERIENCE_BULLETS})")
+    _log(f"📝 [EXP BULLETS] {exp_bullet_count} experience bullets (min={MIN_EXPERIENCE_BULLETS})")
 
-    # Extract project bullet strings for response
     project_bullet_strs = [
-        f"{p.get('name', '')} -- {p.get('description', '')}" for p in project_entries
-    ]
+        f"{p.get('name', '')} -- {p.get('description', '')}" for p in project_entries]
 
     return final_tex, {
         "jd_info": jd_info, "company_core": company_core, "ideal_candidate": ideal_candidate,
@@ -3158,7 +2918,45 @@ async def optimize_resume(
 
 
 # ═══════════════════════════════════════════════════════════════
-# API ENDPOINT
+# LATEX LOG READER — v2.6.1 NEW: Read actual pdflatex errors
+# ═══════════════════════════════════════════════════════════════
+
+def _read_latex_log(workdir: str) -> str:
+    """Find and read the pdflatex .log file, return last 60 lines."""
+    log_files = list(Path(workdir).glob("*.log"))
+    if not log_files:
+        return "(no .log file found)"
+    log_path = log_files[0]
+    try:
+        content = log_path.read_text(encoding="utf-8", errors="replace")
+        lines = content.strip().split("\n")
+        # Return last 60 lines which usually contain the error
+        tail = lines[-60:] if len(lines) > 60 else lines
+        return "\n".join(tail)
+    except Exception as e:
+        return f"(failed to read log: {e})"
+
+
+def _find_latex_errors(log_text: str) -> List[str]:
+    """Extract specific error lines from pdflatex log."""
+    errors = []
+    for line in log_text.split("\n"):
+        line = line.strip()
+        if line.startswith("!") or "Error:" in line or "Fatal error" in line:
+            errors.append(line)
+        elif "Undefined control sequence" in line:
+            errors.append(line)
+        elif "Missing" in line and ("inserted" in line or "}" in line or "$" in line):
+            errors.append(line)
+        elif "Extra }" in line or "Extra {" in line:
+            errors.append(line)
+        elif "Runaway argument" in line:
+            errors.append(line)
+    return errors
+
+
+# ═══════════════════════════════════════════════════════════════
+# API ENDPOINT — v2.6.1: with real error logging
 # ═══════════════════════════════════════════════════════════════
 
 @router.post("/")
@@ -3191,7 +2989,10 @@ async def optimize_endpoint(
                 raise HTTPException(500, "Default base resume not found")
             raw_tex = dp.read_text(encoding="utf-8")
 
+        _log(f"📄 [INPUT] Base TeX: {len(raw_tex)} chars")
+
         target_company, target_role = await extract_company_role(jd_text)
+        _log(f"🎯 [TARGET] {target_role} at {target_company}")
         sc, sr = safe_filename(target_company), safe_filename(target_role)
 
         optimized_tex, info = await optimize_resume(
@@ -3200,31 +3001,115 @@ async def optimize_endpoint(
         cur_tex = optimized_tex
         resume_keywords = info.get("all_keywords", [])
 
-        def _compile(t):
+        def _compile(t: str) -> bytes:
+            """Compile LaTeX with FULL error logging."""
             r = render_final_tex(t)
+            r = latex_sanity_pass(r)
+
+            # Check brace balance before compile
+            balance = _brace_balance(r)
+            if balance != 0:
+                _log(f"⚠️ [PRE-COMPILE] Brace imbalance: {balance}")
+
+            # Write debug .tex ALWAYS (overwrite each time)
+            debug_path = Path(f"/tmp/debug_{sc}_{sr}.tex")
+            debug_path.write_text(r, encoding="utf-8")
+
             try:
                 result = compile_latex_safely(r)
             except Exception as exc:
-                Path(f"/tmp/debug_{sc}_{sr}.tex").write_text(r, encoding="utf-8")
+                _log(f"💥 [LATEX] compile_latex_safely raised: {type(exc).__name__}: {exc}")
+                _log(f"💥 [LATEX] Debug .tex saved: {debug_path}")
+
+                # Try to find and read the log file
+                # Check common temp directories
+                for tmp_base in ["/tmp", tempfile.gettempdir()]:
+                    for log_dir in Path(tmp_base).glob("latex_builds/tmp*"):
+                        if log_dir.is_dir():
+                            log_text = _read_latex_log(str(log_dir))
+                            if "(no .log file" not in log_text:
+                                errors = _find_latex_errors(log_text)
+                                if errors:
+                                    print("\n" + "=" * 70, flush=True)
+                                    print("💥 PDFLATEX ERRORS:", flush=True)
+                                    for e in errors:
+                                        print(f"   {e}", flush=True)
+                                    print("=" * 70, flush=True)
+                                print("\n📋 PDFLATEX LOG TAIL (last 60 lines):", flush=True)
+                                print(log_text, flush=True)
+                                print("=" * 70 + "\n", flush=True)
+                                break
+
                 raise HTTPException(500, f"LaTeX failed: {exc}")
+
             if not result:
+                _log(f"💥 [LATEX] Empty output (compile returned None/empty)")
+                _log(f"💥 [LATEX] Debug .tex saved: {debug_path}")
+
+                # Same log reading for empty output
+                for tmp_base in ["/tmp", tempfile.gettempdir()]:
+                    for log_dir in Path(tmp_base).glob("latex_builds/tmp*"):
+                        if log_dir.is_dir():
+                            log_text = _read_latex_log(str(log_dir))
+                            if "(no .log file" not in log_text:
+                                errors = _find_latex_errors(log_text)
+                                if errors:
+                                    print("\n" + "=" * 70, flush=True)
+                                    print("💥 PDFLATEX ERRORS:", flush=True)
+                                    for e in errors:
+                                        print(f"   {e}", flush=True)
+                                    print("=" * 70, flush=True)
+                                print("\n📋 PDFLATEX LOG TAIL (last 60 lines):", flush=True)
+                                print(log_text, flush=True)
+                                print("=" * 70 + "\n", flush=True)
+                                break
+
                 raise HTTPException(500, "LaTeX empty output.")
+
+            _log(f"✅ [LATEX] Compiled successfully: {len(result)} bytes")
             return result
 
+        _log("📌 [COMPILE] First compilation attempt...")
         cur_pdf = _compile(cur_tex)
+        _log(f"📌 [COMPILE] Success! Pages: {_pdf_page_count(cur_pdf)}, Size: {len(cur_pdf)} bytes")
+
         trims, streak, prev = 0, 0, len(cur_pdf)
 
         skills_list = info.get("skills_list", [])
-        _skills_already_trimmed = False
+        _skills_trimmed_tight = False
+        _skills_trimmed_emergency = False
+        _additional_info_removed = False
 
-        while trims < 60:
-            if _pdf_page_count(cur_pdf) <= 1:
-                break
-
-            exp_count = _count_experience_bullets(cur_tex)
+        # ═══ AGGRESSIVE PAGE-TRIM LOOP ═══
+        while trims < 80 and _pdf_page_count(cur_pdf) > 1:
+            nt, ok = None, False
 
             nt, ok = remove_one_achievement_bullet(cur_tex)
+
+            if not ok and not _additional_info_removed:
+                nt, ok = remove_section_entirely(cur_tex, "Additional Information")
+                if ok: _additional_info_removed = True
+
+            if not ok and not _skills_trimmed_tight and len(skills_list) > MAX_SKILLS_TIGHT:
+                trimmed = rank_skills_by_jd_relevance(
+                    skills_list,
+                    must_have=info.get("jd_info", {}).get("must_have", []),
+                    should_have=info.get("jd_info", {}).get("should_have", []),
+                    nice_to_have=info.get("jd_info", {}).get("nice_to_have", []),
+                    core_keywords=info.get("jd_info", {}).get("all_keywords", [])[:15],
+                    jd_text=jd_text, max_skills=MAX_SKILLS_TIGHT)
+                new_skills_tex = render_skills_section_flat(trimmed)
+                skills_pat = re.compile(
+                    r"(\\section\*?\{Skills\}[\s\S]*?)(?=%-----------|\\section\*?\{|\\end\{document\})", re.I)
+                if re.search(skills_pat, cur_tex):
+                    nt = re.sub(skills_pat, lambda _: new_skills_tex + "\n", cur_tex)
+                    ok = True
+                    _skills_trimmed_tight = True
+                    skills_list = trimmed
+                    _log(f"✂️ [TRIM-SKILLS] Reduced to {len(trimmed)} (cap={MAX_SKILLS_TIGHT})")
+
             if not ok:
+                exp_count = _count_experience_bullets(cur_tex)
                 if exp_count > MIN_EXPERIENCE_BULLETS:
                     nt, ok = remove_least_relevant_bullet(
                         cur_tex, resume_keywords, ("Experience", "Projects"))
@@ -3232,41 +3117,49 @@ async def optimize_endpoint(
                     nt, ok = remove_least_relevant_bullet(
                         cur_tex, resume_keywords, ("Projects",))
 
-            # v2.5.1: If no more bullets to trim, shrink the skills list
-            if not ok and not _skills_already_trimmed and len(skills_list) > MAX_SKILLS_TIGHT:
-                trimmed_skills = rank_skills_by_jd_relevance(
+            if not ok and not _skills_trimmed_emergency and len(skills_list) > MAX_SKILLS_EMERGENCY:
+                trimmed = rank_skills_by_jd_relevance(
                     skills_list,
                     must_have=info.get("jd_info", {}).get("must_have", []),
                     should_have=info.get("jd_info", {}).get("should_have", []),
                     nice_to_have=info.get("jd_info", {}).get("nice_to_have", []),
                     core_keywords=info.get("jd_info", {}).get("all_keywords", [])[:15],
-                    jd_text=jd_text,
-                    max_skills=MAX_SKILLS_TIGHT,
-                )
-                new_skills_tex = render_skills_section_flat(trimmed_skills)
+                    jd_text=jd_text, max_skills=MAX_SKILLS_EMERGENCY)
+                new_skills_tex = render_skills_section_flat(trimmed)
                 skills_pat = re.compile(
-                    r"(\\section\*?\{Skills\}[\s\S]*?)(?=%-----------|\\section\*?\{|\\end\{document\})",
-                    re.I)
+                    r"(\\section\*?\{Skills\}[\s\S]*?)(?=%-----------|\\section\*?\{|\\end\{document\})", re.I)
                 if re.search(skills_pat, cur_tex):
                     nt = re.sub(skills_pat, lambda _: new_skills_tex + "\n", cur_tex)
                     ok = True
-                    _skills_already_trimmed = True
-                    skills_list = trimmed_skills
-                    log_event(f"✂️ [TRIM-SKILLS] Reduced skills to {len(trimmed_skills)} (cap={MAX_SKILLS_TIGHT})")
+                    _skills_trimmed_emergency = True
+                    skills_list = trimmed
+                    _log(f"✂️ [TRIM-SKILLS-EMRG] Reduced to {len(trimmed)} (cap={MAX_SKILLS_EMERGENCY})")
 
             if not ok:
-                log_event(f"🛡️ [TRIM] No more removable content (exp={exp_count})")
+                exp_count = _count_experience_bullets(cur_tex)
+                if exp_count > 6:
+                    nt, ok = remove_least_relevant_bullet(
+                        cur_tex, resume_keywords, ("Experience",))
+                    if ok:
+                        _log(f"⚠️ [TRIM] Removed experience bullet below MIN ({exp_count - 1} remaining)")
+
+            if not ok:
+                _log(f"🛡️ [TRIM] No more removable content")
                 break
+
             try:
                 np = _compile(nt)
             except HTTPException:
+                _log(f"⚠️ [TRIM] Compilation failed after trim #{trims + 1}, stopping trim loop")
                 break
+
             trims += 1
             ns = len(np)
             if ns >= prev:
                 streak += 1
                 if streak >= 4:
-                    cur_tex, cur_pdf = nt, np; break
+                    cur_tex, cur_pdf = nt, np
+                    break
             else:
                 streak = 0
             cur_tex, cur_pdf, prev = nt, np, ns
@@ -3286,9 +3179,10 @@ async def optimize_endpoint(
             op.write_bytes(cur_pdf)
 
         phrase_cov = info.get("jd_phrase_coverage", {})
-
         final_exp_count = _count_experience_bullets(cur_tex)
-        log_event(f"📝 [FINAL] {final_exp_count} experience bullets after trimming")
+        final_pages = _pdf_page_count(cur_pdf)
+        _log(f"📝 [FINAL] {final_exp_count} experience bullets, {final_pages} page(s), {trims} trims")
+        _log(f"✅ [DONE] Score={score}%, Verdict={verdict}")
 
         return JSONResponse({
             "alignment_score": score, "alignment_percent": f"{score}%",
@@ -3303,7 +3197,7 @@ async def optimize_endpoint(
             "tex_string": render_final_tex(cur_tex),
             "pdf_base64": base64.b64encode(cur_pdf).decode("ascii"),
             "coverage_ratio": ratio, "coverage_present": matched, "coverage_missing": missing,
-            "trim_summary": {"items_removed": trims, "final_pages": _pdf_page_count(cur_pdf),
+            "trim_summary": {"items_removed": trims, "final_pages": final_pages,
                              "final_experience_bullets": final_exp_count},
             "role_archetype": info.get("role_archetype", {}),
             "jd_tasks_count": len(info.get("jd_tasks", [])),
@@ -3314,7 +3208,7 @@ async def optimize_endpoint(
             },
             "technology_specificity": {
                 "specific_technologies_used": info.get("specific_technologies_used", [])},
-            "skills_list": info.get("skills_list", []),
+            "skills_list": skills_list,
             "skills_breakdown": info.get("skills_breakdown", {}),
             "ats_extra_keywords": info.get("ats_extra_keywords", []),
             "project_bullets_generated": info.get("project_bullets_generated", []),
@@ -3326,5 +3220,9 @@ async def optimize_endpoint(
     except HTTPException:
         raise
     except Exception as e:
-        log_event(f"💥 [PIPELINE] Failed: {e}")
+        _log(f"💥 [PIPELINE] Failed: {e}")
+        print(f"\n{'=' * 70}", flush=True)
+        print(f"💥 FULL TRACEBACK:", flush=True)
+        traceback.print_exc()
+        print(f"{'=' * 70}\n", flush=True)
         raise HTTPException(500, str(e))
