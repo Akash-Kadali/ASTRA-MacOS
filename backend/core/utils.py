@@ -91,6 +91,7 @@ def build_filenames(company: str, role: str) -> Dict[str, str]:
     r = slug_part(role)
     return {
         "optimized":    f"Sri_{c}_{r}.pdf",
+        "temp":    f"Sri_Kadali_Resume.pdf",
         "humanized":    f"Sri_Kadali_{c}_{r}.pdf",
         "cover_letter": f"Sri_{c}_{r}_Cover_Letter.pdf",
     }
@@ -101,27 +102,30 @@ def build_output_paths(company: str, role: str) -> Dict[str, Path]:
     Convenience helper that returns the *full* Paths for each final artifact,
     using directories from config (if available).
 
-    Returns dict with keys: optimized, humanized, cover_letter
+    Returns dict with keys: optimized, humanized, temp, cover_letter
     """
     names = build_filenames(company, role)
     try:
         # Prefer config-provided directories (typically absolute/user-data-safe)
         opt_dir = Path(getattr(_cfg, "OPTIMIZED_DIR"))
         hum_dir = Path(getattr(_cfg, "HUMANIZED_DIR"))
+        temp_dir = Path(getattr(_cfg, "TEMP_DIR"))
         cov_dir = Path(getattr(_cfg, "COVER_LETTERS_DIR"))
     except Exception:
         # Safe fallbacks — project-local relative paths
-        opt_dir = Path("data/Optimized")
-        hum_dir = Path("data/Humanized")
-        cov_dir = Path("data/Cover Letters")
+        opt_dir = Path("Optimized")
+        hum_dir = Path("Humanized")
+        temp_dir = Path("Temp")
+        cov_dir = Path("Cover Letters")
 
     # Ensure the directories exist
-    for d in (opt_dir, hum_dir, cov_dir):
+    for d in (opt_dir, hum_dir, cov_dir, temp_dir):
         d.mkdir(parents=True, exist_ok=True)
 
     return {
         "optimized": (opt_dir / names["optimized"]).resolve(),
         "humanized": (hum_dir / names["humanized"]).resolve(),
+        "temp": (temp_dir / names["temp"]).resolve(),
         "cover_letter": (cov_dir / names["cover_letter"]).resolve(),
     }
 

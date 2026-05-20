@@ -79,6 +79,7 @@ def _resolve_env_path(var_name: str, default_path: Path) -> Path:
     return p
 
 OPTIMIZED_DIR = _resolve_env_path("OPTIMIZED_DIR", DATA_DIR / "Optimized")
+TEMP_DIR = _resolve_env_path("TEMP_DIR", DATA_DIR / "Temp")
 HUMANIZED_DIR = _resolve_env_path("HUMANIZED_DIR", DATA_DIR / "Humanized")
 COVER_LETTERS_DIR = _resolve_env_path("COVER_LETTERS_DIR", DATA_DIR / "Cover Letters")
 
@@ -97,6 +98,7 @@ for d in (
     SAMPLES_COVER_LETTERS_DIR,
     SAMPLES_JOB_RESUME_HUMANIZED_DIR,
     OPTIMIZED_DIR,
+    TEMP_DIR,
     HUMANIZED_DIR,
     COVER_LETTERS_DIR,
 ):
@@ -116,7 +118,7 @@ DEBUG_MODE = _getenv_clean("DEBUG", "true").lower() == "true"
 MAX_UPLOAD_MB = int(_getenv_clean("MAX_UPLOAD_MB", "5"))
 ALLOWED_EXTENSIONS = {".tex", ".txt"}
 
-DEFAULT_MODEL = _getenv_clean("DEFAULT_MODEL", "gpt-5.4-mini")
+DEFAULT_MODEL = _getenv_clean("DEFAULT_MODEL", "gpt-5.4-nano")
 API_BASE_URL = _getenv_clean("API_BASE_URL", "http://127.0.0.1:8000")
 
 CANDIDATE_NAME = _getenv_clean("CANDIDATE_NAME", "Sri Akash Kadali")
@@ -213,7 +215,7 @@ MASTERMINDS_MODEL = _getenv_clean("MASTERMINDS_MODEL", DEFAULT_MODEL)
 SUPERHUMAN_LOCAL_ENABLED = _getenv_clean("SUPERHUMAN_LOCAL_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 SUPERHUMAN_MODEL = _getenv_clean("SUPERHUMAN_MODEL", DEFAULT_MODEL)
 COVERLETTER_MODEL = _getenv_clean("COVERLETTER_MODEL", DEFAULT_MODEL)
-TALK_SUMMARY_MODEL = _getenv_clean("TALK_SUMMARY_MODEL", "gpt-5.4-mini")
+TALK_SUMMARY_MODEL = _getenv_clean("TALK_SUMMARY_MODEL", "gpt-5.4-nano")
 TALK_ANSWER_MODEL = _getenv_clean("TALK_ANSWER_MODEL", DEFAULT_MODEL)
 
 
@@ -306,18 +308,18 @@ os.environ.setdefault("BASE_COVERLETTER_PATH", str(BASE_COVERLETTER_PATH))
 
 OPENAI_MODELS = [
     "gpt-5",
-    "gpt-5-mini",
+    "gpt-5-nano",
     "gpt-5-nano",
     "gpt-5-chat-latest",
     "gpt-5-thinking",
-    "gpt-5-thinking-mini",
+    "gpt-5-thinking-nano",
     "gpt-5-thinking-nano",
     "gpt-5-pro",
     "gpt-5.4",
-    "gpt-5.4-mini",
+    "gpt-5.4-nano",
     "gpt-5.4-nano",
     "o3",
-    "o3-mini",
+    "o3-nano",
 ]
 
 MODEL_ALIASES = {
@@ -325,22 +327,22 @@ MODEL_ALIASES = {
     "GPT-5 Fast / Instant": "gpt-5-chat-latest",
     "GPT-5 Thinking": "gpt-5-thinking",
     "GPT-5 Pro": "gpt-5-pro",
-    "GPT-5 Mini": "gpt-5-mini",
+    "GPT-5 Nano": "gpt-5-nano",
     "GPT-5 Nano": "gpt-5-nano",
     "GPT-5.4": "gpt-5.4",
-    "GPT-5.4 Mini": "gpt-5.4-mini",
+    "GPT-5.4 Nano": "gpt-5.4-nano",
     "GPT-5.4 Nano": "gpt-5.4-nano",
 }
 
 OPENAI_MODEL_PRICING = {
     "gpt-5": {"input": 1.25, "output": 10.00, "cached_input": 0.125},
     "gpt-5.4": {"input": 2.50, "output": 10.00, "cached_input": 0.625},
-    "gpt-5.4-mini": {"input": 0.25, "output": 2.00, "cached_input": 0.025},
+    "gpt-5.4-nano": {"input": 0.25, "output": 2.00, "cached_input": 0.025},
     "gpt-5.4-nano": {"input": 0.05, "output": 0.40, "cached_input": 0.005},
     "gpt-5-nano": {"input": 0.05, "output": 0.40, "cached_input": 0.005},
     "gpt-5-pro": {"input": 15.00, "output": 120.00},
     "o3": {"input": 1.10, "output": 4.40},
-    "o3-mini": {"input": 0.60, "output": 2.50},
+    "o3-nano": {"input": 0.60, "output": 2.50},
 }
 
 AIHUMANIZE_PLANS = {
@@ -379,6 +381,8 @@ def build_filenames(company: str, role: str) -> dict[str, str]:
 
     • Optimized resumes:
         "Sri_{Company}_{Role}.pdf"
+    • Temp resumes:
+        "Sri_Kadali_Resume.pdf"
     • Humanized resumes:
         "Sri_Kadali_{Company}_{Role}.pdf"
     • Cover letters:
@@ -387,6 +391,7 @@ def build_filenames(company: str, role: str) -> dict[str, str]:
     c, r = _slug(company), _slug(role)
     return {
         "optimized":    f"Sri_{c}_{r}.pdf",
+        "temp":         f"Sri_Kadali_Resume.pdf",
         "humanized":    f"Sri_Kadali_{c}_{r}.pdf",
         "cover_letter": f"Sri_{c}_{r}_CoverLetter.pdf",
     }
@@ -398,6 +403,9 @@ def get_optimized_pdf_path(company: str, role: str) -> Path:
     names = build_filenames(company, role)
     return (OPTIMIZED_DIR / names["optimized"]).resolve()
 
+def get_temp_pdf_path(company: str, role: str) -> Path:
+    names = build_filenames(company, role)
+    return (TEMP_DIR / names["temp"]).resolve()
 
 def get_humanized_pdf_path(company: str, role: str) -> Path:
     names = build_filenames(company, role)
@@ -414,6 +422,8 @@ def get_coverletter_pdf_path(company: str, role: str) -> Path:
 def get_sample_resume_pdf_path(company: str, role: str) -> Path:
     return get_optimized_pdf_path(company, role)
 
+def get_sample_temp_pdf_path(company: str, role: str) -> Path:
+    return get_temp_pdf_path(company, role)
 
 def get_sample_humanized_pdf_path(company: str, role: str) -> Path:
     return get_humanized_pdf_path(company, role)
@@ -421,16 +431,6 @@ def get_sample_humanized_pdf_path(company: str, role: str) -> Path:
 
 def get_sample_coverletter_pdf_path(company: str, role: str) -> Path:
     return get_coverletter_pdf_path(company, role)
-
-
-# --- Deprecated: per-job folder builder (left as no-op alias to avoid import errors) ---
-
-def get_job_run_dir(company: str, role: str) -> Path:
-    """
-    Deprecated: Per-job directories are no longer used.
-    Returns OPTIMIZED_DIR for compatibility if any caller still references this.
-    """
-    return OPTIMIZED_DIR
 
 
 # ============================================================
@@ -452,4 +452,5 @@ if __name__ == "__main__":
     print(f"DEFAULT_MODEL         : {DEFAULT_MODEL}")
     print(f"OPTIMIZED_DIR         : {OPTIMIZED_DIR}")
     print(f"HUMANIZED_DIR         : {HUMANIZED_DIR}")
+    print(f"TEMP_DIR              : {TEMP_DIR}")
     print(f"COVER_LETTERS_DIR     : {COVER_LETTERS_DIR}")

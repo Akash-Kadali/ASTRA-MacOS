@@ -3,7 +3,7 @@
  HIREX v2.0.0 — talk.py (ULTIMATE KILLER ANSWERS)
  ------------------------------------------------------------
  FIXES vs v1.0.0:
- - Model names: gpt-5.4-mini → gpt-4o-mini (actual model)
+ - Model names: gpt-5.4-nano → gpt-4o-mini (actual model)
  - _score_length: fixed unreachable code after early return
  - CGPA filter: consolidated from 6 redundant calls to 1 final gate
  - _SESSION_FACTS: now actually used for cross-question consistency
@@ -1768,3 +1768,4 @@ async def filter_cgpa_endpoint(text: str):
     ok, violations = _validate_no_cgpa(filtered)
     return {"original": text, "filtered": filtered, "is_clean": ok,
             "violations_found": violations if not ok else []}
+
