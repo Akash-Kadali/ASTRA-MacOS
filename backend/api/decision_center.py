@@ -17,6 +17,7 @@ from fastapi.responses import Response
 
 from backend.api import applications, jobright, jobright_agent
 from backend.core import config
+from backend.core import operational_store
 
 router = APIRouter(prefix="/api/decision-center", tags=["decision-center"])
 STORE = Path(config.DATA_DIR) / "decision_center.json"
@@ -141,6 +142,8 @@ def _qualification_evidence(job: dict[str, Any]) -> list[str]:
 def _eligibility(job: dict[str, Any]) -> dict[str, Any]:
     evidence = _qualification_evidence(job)
     reasons: list[str] = []
+    profile = jobright_agent.settings().get("profile", {})
+    years_experience = int(re.search(r"\d+", str(profile.get("years_experience") or "2")).group(0))
     title = str(job.get("title") or "")
     # Jobright sometimes returns a title before the full JD is fetched.  Titles
     # such as "Doctorate Degree" are already conclusive and must not sit in the
@@ -158,15 +161,15 @@ def _eligibility(job: dict[str, Any]) -> dict[str, Any]:
     if jobright._requires_current_student(job) or title_requires_future_graduation:
         reasons.append("This role requires current enrolment or a future graduation window.")
     required = "\n".join((job.get("description_sections") or {}).get("required", "").splitlines())
-    if re.search(r"\b(?:u\.?s\.? citizen|united states citizen|green card|permanent resident)\b", required, re.I):
+    if re.search(r"\b(?:u\.?s\.? citizen|united states citizen|green card|permanent resident)\b", required, re.I) and str(profile.get("citizenship", "")).casefold() not in {"us", "usa", "united states", "united states of america"}:
         reasons.append("The required qualifications contain a citizenship or permanent-residency restriction.")
     if re.search(r"\b(?:active|current)\s+(?:security\s+)?clearance\b", required, re.I):
         reasons.append("The role requires an active security clearance.")
-    if re.search(r"(?:no|not).{0,35}(?:visa|immigration|sponsor)|(?:sponsor|visa).{0,35}(?:not available|unavailable)", required, re.I):
+    if str(profile.get("requires_sponsorship", "")).casefold() == "yes" and re.search(r"(?:no|not).{0,35}(?:visa|immigration|sponsor)|(?:sponsor|visa).{0,35}(?:not available|unavailable)", required, re.I):
         reasons.append("The role states that employment sponsorship is unavailable.")
     exp = [int(x) for x in re.findall(r"\b(\d{1,2})\s*\+?\s*(?:-|to)?\s*\d*\s*years?", required, re.I)]
-    if exp and min(exp) > 2:
-        reasons.append(f"The role requires at least {min(exp)} years of experience; the saved profile uses 2 years.")
+    if exp and min(exp) > years_experience:
+        reasons.append(f"The role requires at least {min(exp)} years of experience; the saved profile uses {years_experience} years.")
     if reasons:
         return {"status": "not_eligible", "score": 0, "reasons": reasons, "evidence": evidence}
     if len(str(job.get("description") or "")) < 300:
@@ -313,8 +316,45 @@ def prepare_job(job_id: str) -> dict[str, Any]:
 @router.get("/review")
 def review_queue() -> dict[str, Any]:
     statuses = {"ready_to_submit", "needs_attention", "error", "review_approved", "review_rejected"}
-    events = [x for x in jobright_agent._load(jobright_agent.LOG, []) if x.get("status") in statuses]
-    return {"items": events[:250], "total": len(events)}
+    legacy = [x for x in jobright_agent._load(jobright_agent.LOG, []) if x.get("status") in statuses]
+    checkpoints = [x for x in operational_store.checkpoints() if x.get("status") in statuses]
+    jobs = {str(x.get("id")): x for x in jobright._read_store().get("items", [])}
+    items = []
+    seen = set()
+    for checkpoint in checkpoints:
+        job_id = str(checkpoint.get("job_id") or "")
+        job = jobs.get(job_id, {})
+        items.append({**checkpoint, "company": job.get("company", ""), "title": job.get("title", "")})
+        seen.add(job_id)
+    items.extend(x for x in legacy if str(x.get("job_id") or "") not in seen)
+    return {"items": items[:250], "total": len(items)}
+
+
+@router.patch("/review/{job_id}")
+def update_review(job_id: str, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    action = str(payload.get("action") or "")
+    if action not in {"review_approved", "review_rejected", "needs_attention"}:
+        raise HTTPException(400, "Unsupported review action")
+    checkpoint = operational_store.save_checkpoint(
+        job_id, status=action, step="human_review",
+        message=str(payload.get("message") or action.replace("_", " ")),
+        answers=dict(payload.get("answers") or {}),
+        unanswered_fields=list(payload.get("unanswered_fields") or []),
+    )
+    operational_store.add_activity("review", action, checkpoint["message"], job_id)
+    return checkpoint
+
+
+@router.post("/review/{job_id}/resume")
+def resume_review(job_id: str) -> dict[str, Any]:
+    checkpoint = operational_store.get_checkpoint(job_id)
+    if not checkpoint:
+        raise HTTPException(404, "No application checkpoint exists for this job")
+    if jobright_agent._runtime.get("running"):
+        raise HTTPException(409, "The application agent is already running")
+    result = jobright_agent.dry_run(job_id)
+    operational_store.add_activity("agent", "resumed", "Resumed from the saved application checkpoint", job_id)
+    return {**result, "checkpoint": checkpoint}
 
 
 @router.get("/jobs/{job_id}/integrity")
@@ -448,7 +488,15 @@ def package(job_id: str):
         archive.writestr("job-description.txt", str(job.get("description") or job.get("card_text") or ""))
         archive.writestr("job-link.txt", str(job.get("application_url") or job.get("url") or ""))
         archive.writestr("decision-report.json", json.dumps(decorated, ensure_ascii=False, indent=2))
-        archive.writestr("application-answers.json", json.dumps({"job_id": job_id, "answers": [], "note": "Answers are added when the agent prepares this application."}, indent=2))
+        checkpoint = operational_store.get_checkpoint(job_id) or {}
+        archive.writestr("application-answers.json", json.dumps({
+            "job_id": job_id,
+            "status": checkpoint.get("status", "not_prepared"),
+            "completed_fields": checkpoint.get("completed_fields", []),
+            "unanswered_fields": checkpoint.get("unanswered_fields", []),
+            "answers": checkpoint.get("answers", {}),
+            "evidence_path": checkpoint.get("evidence_path", ""),
+        }, ensure_ascii=False, indent=2))
         pdf = Path(str(match.get("pdf_path") or ""))
         if pdf.is_file():
             archive.writestr("resume.pdf", applications._read_pdf_bytes(pdf))
@@ -479,6 +527,46 @@ def save_view(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     return view
 
 
+@router.delete("/saved-views/{view_id}")
+def delete_view(view_id: str) -> dict[str, Any]:
+    state = _load()
+    before = len(state.get("saved_views", []))
+    state["saved_views"] = [x for x in state.get("saved_views", []) if str(x.get("id")) != view_id]
+    _save(state)
+    return {"ok": True, "deleted": before - len(state["saved_views"])}
+
+
+@router.get("/profile")
+def profile() -> dict[str, Any]:
+    return {"profile": jobright_agent.settings().get("profile", {})}
+
+
+@router.patch("/profile")
+def update_profile(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    current = jobright_agent.settings()
+    profile_value = {**current.get("profile", {}), **dict(payload.get("profile") or payload)}
+    profile_value["profile_complete"] = all(str(profile_value.get(x, "")).strip() for x in (
+        "first_name", "last_name", "email", "phone", "location", "authorized_to_work",
+        "requires_sponsorship", "citizenship", "years_experience",
+    ))
+    merged = {**current, "profile": profile_value, "auto_submit": False}
+    jobright_agent._save(jobright_agent.SETTINGS, merged)
+    operational_store.add_activity("profile", "updated", "Eligibility profile updated")
+    return {"profile": profile_value}
+
+
+@router.get("/operations")
+def operations() -> dict[str, Any]:
+    operational_store.mirror_json("applications", applications.STORE_PATH)
+    operational_store.mirror_json("decisions", STORE)
+    operational_store.mirror_json("jobright", jobright.STORE)
+    return {
+        "database": operational_store.status(),
+        "activity": operational_store.activities(100),
+        "checkpoints": operational_store.checkpoints(250),
+    }
+
+
 @router.get("/analytics")
 def analytics() -> dict[str, Any]:
     apps = list(applications._load().get("applications", {}).values())
@@ -497,6 +585,10 @@ def analytics() -> dict[str, Any]:
 def backup() -> dict[str, Any]:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     folder = BACKUPS / stamp
+    sequence = 2
+    while folder.exists():
+        folder = BACKUPS / f"{stamp}-{sequence}"
+        sequence += 1
     folder.mkdir(parents=True, exist_ok=False)
     sources = [applications.STORE_PATH, jobright.STORE, jobright_agent.SETTINGS, jobright_agent.LOG, STORE]
     copied = []
@@ -514,3 +606,51 @@ def list_backups() -> dict[str, Any]:
         for folder in sorted((x for x in BACKUPS.iterdir() if x.is_dir()), reverse=True):
             items.append({"id": folder.name, "path": str(folder), "files": sorted(x.name for x in folder.iterdir() if x.is_file())})
     return {"items": items, "total": len(items)}
+
+
+@router.post("/backups/{backup_id}/restore")
+def restore_backup(backup_id: str) -> dict[str, Any]:
+    if not re.fullmatch(r"\d{8}-\d{6}(?:-\d+)?", backup_id):
+        raise HTTPException(400, "Invalid backup identifier")
+    folder = BACKUPS / backup_id
+    if not folder.is_dir():
+        raise HTTPException(404, "Backup not found")
+    # Always preserve the current state before restoring older data.
+    safety = backup()
+    targets = {x.name: x for x in (
+        applications.STORE_PATH, jobright.STORE, jobright_agent.SETTINGS, jobright_agent.LOG, STORE
+    )}
+    restored = []
+    for source in folder.iterdir():
+        target = targets.get(source.name)
+        if source.is_file() and target:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            pending = target.with_suffix(target.suffix + ".restore")
+            shutil.copy2(source, pending)
+            os.replace(pending, target)
+            restored.append(source.name)
+    operational_store.add_activity("backup", "restored", f"Restored backup {backup_id}",
+                                   safety_backup=safety["path"], files=restored)
+    return {"ok": True, "restored": restored, "safety_backup": safety["path"]}
+
+
+@router.post("/integrity/repair")
+def repair_integrity(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    action = str(payload.get("action") or "")
+    if action == "rescan":
+        result = applications.scan_archive()
+        operational_store.mirror_json("applications", applications.STORE_PATH)
+        return {"ok": True, "action": action, "result": result}
+    if action != "forget_missing":
+        raise HTTPException(400, "Supported repair actions are rescan and forget_missing")
+    removed = 0
+    with applications._LOCK:
+        store = applications._load()
+        for app in store.get("applications", {}).values():
+            files = list(app.get("files", []))
+            kept = [x for x in files if Path(str(x.get("path") or "")).is_file()]
+            removed += len(files) - len(kept)
+            app["files"] = kept
+        applications._save(store)
+    operational_store.add_activity("integrity", "repaired", f"Removed {removed} missing file references")
+    return {"ok": True, "action": action, "removed": removed}

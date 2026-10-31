@@ -14,6 +14,8 @@ node_modules/
 *.tsbuildinfo
 frontend-modern/vite.config.js
 frontend-modern/vite.config.d.ts
+frontend-modern/test-results/
+frontend-modern/playwright-report/
 
 # Generated documents and local working files
 Optimized_Resumes/
@@ -32,3 +34,4 @@ backend/data/pdf_text_cache/
 backend/data/jobright*.json
 backend/data/decision_center.json
 backend/data/backups/
+backend/data/*.sqlite3*

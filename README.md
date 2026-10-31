@@ -1,5 +1,9 @@
 # ASTRA for macOS
 
+<p align="center">
+  <img src="frontend/static/assets/ASTRA.png" alt="ASTRA for macOS" width="900">
+</p>
+
 ASTRA is a local career operating system for tailoring LaTeX résumés, creating cover letters, reviewing Jobright opportunities, tracking applications, and preparing job-application answers. It runs locally on macOS and serves its UI at `http://127.0.0.1:8000`.
 
 <p align="center">
@@ -14,6 +18,7 @@ ASTRA is a local career operating system for tailoring LaTeX résumés, creating
 - Talk to HIREX answers grounded in the selected résumé and job description
 - Jobright import with role, education, duplicate, and prior-application filtering
 - Application Decision Centre with explainable matching, eligibility evidence, document checks, safe preparation, corrections, comparison, packages, timelines, analytics, and backups
+- Agent Operations workspace with human review, persistent checkpoints, editable eligibility profile, PDF repair, backup restore, interview kits, follow-up drafts, and an SQLite audit trail
 - Application tracker for recruiter calls, interviews, follow-ups, offers, and rejections
 - Single-instance macOS launcher fixed to port 8000
 - Light and dark appearance with a React 19 interface
@@ -100,6 +105,7 @@ PYTHONPATH=. pytest backend/tests -q
 cd frontend-modern
 npm run typecheck
 npm run build
+npm run test:e2e
 ```
 
 ## Build the macOS app

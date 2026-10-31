@@ -18,6 +18,7 @@ from fastapi import APIRouter, Body, HTTPException
 
 from backend.api import applications, jobright
 from backend.core.config import DATA_DIR
+from backend.core import operational_store
 
 router = APIRouter(prefix="/api/jobright/agent", tags=["jobright-agent"])
 SETTINGS = Path(DATA_DIR) / "jobright_agent.json"
@@ -102,6 +103,18 @@ def _event(job: dict[str, Any], status: str, message: str, **extra: Any) -> None
         _save(LOG, events[:1000])
     job.update(agent_status=status, agent_message=message, agent_updated_at=datetime.now().astimezone().isoformat(), **extra)
     jobright._write_store([job])
+    operational_store.save_checkpoint(
+        str(job.get("id") or ""), status=status,
+        step=status, message=message,
+        url=str(job.get("application_url") or job.get("url") or ""),
+        resume_path=str(extra.get("resume_path") or job.get("agent_resume_path") or ""),
+        evidence_path=str(extra.get("evidence_path") or ""),
+        unanswered_fields=extra.get("unanswered_fields", []),
+        completed_fields=extra.get("completed_fields", []),
+        answers=extra.get("answers", {}),
+    )
+    operational_store.add_activity("agent", status, message, str(job.get("id") or ""),
+                                   company=job.get("company"), role=job.get("title"), **extra)
 
 
 def _ensure_description(job: dict[str, Any], browser_context: Any = None) -> dict[str, Any]:
@@ -325,7 +338,7 @@ def _hirex_answer(question: str, job: dict[str, Any], resume: Path, profile: dic
 
 
 def _apply(job: dict[str, Any], resume: Path, cfg: dict[str, Any], browser_context: Any = None,
-           evidence_path: Path | None = None) -> tuple[str, str]:
+           evidence_path: Path | None = None) -> tuple[str, str, dict[str, Any]]:
     from playwright.sync_api import sync_playwright
     profile = cfg["profile"]
     own_playwright = own_context = False
@@ -337,6 +350,8 @@ def _apply(job: dict[str, Any], resume: Path, cfg: dict[str, Any], browser_conte
         context = playwright.chromium.launch_persistent_context(
             str(jobright.PROFILE), channel="chrome", headless=True)
     page = context.new_page()
+    completed_fields: list[str] = []
+    generated_answers: dict[str, str] = {}
     try:
         page.goto(job["application_url"], wait_until="domcontentloaded", timeout=120000)
         page.wait_for_timeout(3500)
@@ -349,6 +364,7 @@ def _apply(job: dict[str, Any], resume: Path, cfg: dict[str, Any], browser_conte
                     continue
                 if kind == "file":
                     node.set_input_files(str(resume))
+                    completed_fields.append(_question_for(node) or "Résumé upload")
                     continue
                 if kind in {"checkbox", "radio", "submit", "button"} or node.input_value().strip():
                     continue
@@ -356,6 +372,7 @@ def _apply(job: dict[str, Any], resume: Path, cfg: dict[str, Any], browser_conte
                 value = _field_value(label, profile, job)
                 if value:
                     node.fill(value)
+                    completed_fields.append(label[:180])
             except Exception:
                 continue
         if cfg.get("company_question_ai"):
@@ -367,6 +384,8 @@ def _apply(job: dict[str, Any], resume: Path, cfg: dict[str, Any], browser_conte
                     answer = _hirex_answer(question, job, resume, profile)
                     if answer:
                         node.fill(answer)
+                        completed_fields.append(question[:180])
+                        generated_answers[question[:300]] = answer
                 except Exception:
                     continue
         unresolved = _fill_comboboxes(page, profile)
@@ -391,18 +410,30 @@ def _apply(job: dict[str, Any], resume: Path, cfg: dict[str, Any], browser_conte
             evidence_path.parent.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=str(evidence_path), full_page=True)
         if unresolved:
-            return "needs_attention", "Required questions need answers: " + ", ".join(unresolved[:6])
+            return "needs_attention", "Required questions need answers: " + ", ".join(unresolved[:6]), {
+                "completed_fields": completed_fields, "unanswered_fields": unresolved,
+                "answers": generated_answers,
+            }
         if not cfg.get("auto_submit"):
-            return "ready_to_submit", "Application is filled and waiting for final review."
+            return "ready_to_submit", "Application is filled and waiting for final review.", {
+                "completed_fields": completed_fields, "unanswered_fields": [],
+                "answers": generated_answers,
+            }
         buttons = page.get_by_role("button", name=re.compile(r"submit application|submit|apply now", re.I))
         if not buttons.count():
-            return "needs_attention", "The ATS submit button was not recognized."
+            return "needs_attention", "The ATS submit button was not recognized.", {
+                "completed_fields": completed_fields, "unanswered_fields": ["Submit button was not recognized"],
+                "answers": generated_answers,
+            }
         buttons.last.click()
         page.wait_for_timeout(6000)
         text = page.locator("body").inner_text()[:8000]
         if re.search(r"thank you|application (?:was )?submitted|successfully applied|we received your application", text, re.I):
-            return "applied", "Application submitted successfully."
-        return "needs_attention", "Submission was attempted but confirmation was not detected."
+            return "applied", "Application submitted successfully.", {"completed_fields": completed_fields, "answers": generated_answers}
+        return "needs_attention", "Submission was attempted but confirmation was not detected.", {
+            "completed_fields": completed_fields, "unanswered_fields": ["Submission confirmation was not detected"],
+            "answers": generated_answers,
+        }
     finally:
         try:
             page.close()
@@ -458,8 +489,9 @@ def run_agent(target_job_id: str | None = None, dry_run: bool = False) -> None:
                         resume = _generate_resume(job)
                         _event(job, "applying", "Opening employer application and attaching tailored résumé.")
                         evidence = DRY_RUNS / f"{job['id']}.png" if dry_run else None
-                        status, message = _apply(job, resume, cfg, browser_context, evidence)
-                        _event(job, status, message, **({"evidence_path": str(evidence)} if evidence else {}))
+                        status, message, review = _apply(job, resume, cfg, browser_context, evidence)
+                        _event(job, status, message, **review,
+                               **({"evidence_path": str(evidence)} if evidence else {}))
                         if status == "applied":
                             completed += 1
                     except Exception as exc:
