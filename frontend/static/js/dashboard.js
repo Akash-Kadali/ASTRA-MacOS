@@ -1,32 +1,34 @@
 /* ============================================================
-   ASTRA • dashboard.js (v2.1.0 — Analytics & History Dashboard)
+   HIREX • dashboard.js (v1.0.0 — Analytics & History Dashboard)
    ------------------------------------------------------------
    Features:
    • Fetches /api/dashboard (summary + trend + history) with timeout
-   • Falls back to /api/dashboard/summary automatically
+   • Falls back to /api/dashboard/summary and /api/dashboard/stats
    • Renders the Dashboard UI (ids from dashboard.html)
    • Uses unified localStorage history (hirex_history) as fallback
    • Caches API data for 12h; works offline from cache
    • Optional refresh/status elements if present
    • Safe even if parts of the DOM/Chart.js are missing
+   • Properly displays total_resumes and all stat counts
    Author: Sri Akash Kadali
    ============================================================ */
 
 document.addEventListener("DOMContentLoaded", () => {
-  const APP = "ASTRA";
-  const APP_VERSION = "v2.1.0";
+  const APP = "HIREX";
+  const APP_VERSION = "v1.0.0";
 
   /* ------------------------------------------------------------
      🔧 DOM References (optional-safe)
   ------------------------------------------------------------ */
   const $ = (id) => document.getElementById(id);
 
-  // Metric counters
-  const elOpt   = $("opt_count");
-  const elCL    = $("cl_count");
-  const elHM    = $("hm_count");
-  const elMM    = $("mm_count");
-  const elTalk  = $("talk_count");
+  // Metric counters - support multiple ID conventions
+  const elOpt   = $("opt_count") || $("optimize_count") || $("total_optimized");
+  const elCL    = $("cl_count") || $("coverletter_count") || $("total_coverletters");
+  const elHM    = $("hm_count") || $("humanize_count") || $("superhuman_count") || $("total_humanized");
+  const elMM    = $("mm_count") || $("mastermind_count");
+  const elTalk  = $("talk_count") || $("talk_queries");
+  const elTotal = $("total_resumes") || $("resume_count");
 
   // Chart canvases
   const cvs = {
@@ -38,15 +40,15 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   // Optional elements
-  const refreshBtn = $("dashboard-refresh");
-  const statusBar  = $("dashboard-status");
+  const refreshBtn = $("dashboard-refresh") || $("refresh-btn");
+  const statusBar  = $("dashboard-status") || $("status-bar");
 
   /* ------------------------------------------------------------
      🧠 Utilities
   ------------------------------------------------------------ */
-  const RT = (window.ASTRA ?? window.HIREX) || {};
+  const RT = (window.HIREX ?? window.ASTRA) || {};
   const debug = (msg, data) => (typeof RT.debugLog === "function" ? RT.debugLog(msg, data) : void 0);
-  const toast = (msg, t = 3000) => (RT.toast ? RT.toast(msg, t) : console.info(msg));
+  const toast = (msg, t = 3000) => (RT.toast ? RT.toast(msg, t) : console.info(`[HIREX] ${msg}`));
 
   const getApiBase = () => {
     try { if (typeof RT.getApiBase === "function") return RT.getApiBase(); } catch {}
@@ -59,8 +61,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const dayIdx = (d) => (d.getDay() + 6) % 7; // Monday=0
 
   const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-  const CACHE_KEY_NEW = "astra_dashboard_cache_v2";
-  const CACHE_KEY_OLD = "hirex_dashboard_cache_v2"; // migrate if present
+  const CACHE_KEY_NEW = "hirex_dashboard_cache_v2";
+  const CACHE_KEY_OLD = "astra_dashboard_cache_v2"; // migrate if present
 
   const loadCache = () => {
     const read = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
@@ -85,7 +87,7 @@ document.addEventListener("DOMContentLoaded", () => {
         JSON.stringify({ ...data, _cached_at: Date.now(), version: APP_VERSION })
       );
     } catch (e) {
-      console.warn("[ASTRA] Dashboard cache save failed:", e);
+      console.warn("[HIREX] Dashboard cache save failed:", e);
     }
   };
 
@@ -214,21 +216,48 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const renderMetrics = (summary = {}, fallbackHistory = []) => {
-    // API (v2 backend) fields:
-    //  optimize_runs, coverletters, superhuman_calls, talk_queries, mastermind_chats
+    // API (v1.0.0 backend) fields from dashboard.py:
+    // summary: optimize_runs, coverletters, superhuman_calls, talk_queries, mastermind_chats
+    // Also: total_resumes, total_optimized, total_humanized, total_coverletters_files, total_contexts
+    // Top-level may also have: optimize, coverletters, superhuman, talk, mastermind (from /metrics)
+    
     const histCounts = countsFromHistory(normalizeHistory(fallbackHistory));
 
-    const opt  = pickNum(summary, ["optimize_runs", "opt_count", "opt", "optimizations"], histCounts.optimization);
-    const cl   = pickNum(summary, ["coverletters", "cl_count"],                       histCounts.coverletter);
-    const hm   = pickNum(summary, ["superhuman_calls", "hm_count", "humanize"],       histCounts.humanize);
-    const mm   = pickNum(summary, ["mastermind_chats", "mm_count"],                   histCounts.mastermind);
-    const talk = pickNum(summary, ["talk_queries", "talk_count"],                     histCounts.talk);
+    // Try multiple field names for each metric (API returns different names in different endpoints)
+    const opt = pickNum(summary, [
+      "optimize_runs", "optimize", "opt_count", "opt", "optimizations", 
+      "total_optimized", "total_resumes"
+    ], histCounts.optimization);
+    
+    const cl = pickNum(summary, [
+      "coverletters", "cl_count", "total_coverletters", "total_coverletters_files"
+    ], histCounts.coverletter);
+    
+    const hm = pickNum(summary, [
+      "superhuman_calls", "superhuman", "hm_count", "humanize", "total_humanized"
+    ], histCounts.humanize);
+    
+    const mm = pickNum(summary, [
+      "mastermind_chats", "mastermind", "mm_count"
+    ], histCounts.mastermind);
+    
+    const talk = pickNum(summary, [
+      "talk_queries", "talk", "talk_count"
+    ], histCounts.talk);
 
-    if (elOpt)  elOpt.textContent  = String(opt);
-    if (elCL)   elCL.textContent   = String(cl);
-    if (elHM)   elHM.textContent   = String(hm);
-    if (elMM)   elMM.textContent   = String(mm);
-    if (elTalk) elTalk.textContent = String(talk);
+    const total = pickNum(summary, [
+      "total_resumes", "total_optimized", "distinct_company_roles", "total_contexts"
+    ], Math.max(opt, histCounts.optimization));
+
+    // Update DOM elements
+    if (elOpt)   elOpt.textContent   = String(opt);
+    if (elCL)    elCL.textContent    = String(cl);
+    if (elHM)    elHM.textContent    = String(hm);
+    if (elMM)    elMM.textContent    = String(mm);
+    if (elTalk)  elTalk.textContent  = String(talk);
+    if (elTotal) elTotal.textContent = String(total);
+
+    debug("METRICS_RENDERED", { opt, cl, hm, mm, talk, total });
   };
 
   const coerce7 = (arr) => {
@@ -268,7 +297,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const sMM   = haveTrend("mastermind")    ? trend.mastermind    : seriesFromHistory(normHist, "mastermind");
     const sTalk = haveTrend("talk")          ? trend.talk          : seriesFromHistory(normHist, "talk");
 
-    if (!window.Chart) return; // graceful if Chart.js missing
+    if (!window.Chart) {
+      console.warn("[HIREX] Chart.js not loaded - skipping chart rendering");
+      return;
+    }
 
     cvs.optimizations && ensureChart(cvs.optimizations, makeLineCfg("Optimizations", sOpt,  "rgba(91,208,255,0.85)", "rgba(159,120,255,0.30)"));
     cvs.coverletters  && ensureChart(cvs.coverletters,  makeBarCfg ("Cover Letters", sCL, "rgba(255,184,77,0.85)", "rgba(255,107,107,0.30)"));
@@ -278,42 +310,79 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   /* ------------------------------------------------------------
-     🛰️ Fetch + Fallback
+     🛰️ Fetch + Fallback (IMPROVED - tries multiple endpoints)
   ------------------------------------------------------------ */
   function shapeApiData(raw) {
     // Accept multiple server shapes; prefer explicit fields
+    // The backend may return data at top level OR nested in summary
     const summary = raw.summary || raw.totals || raw.counts || raw.metrics || {};
     const trend   = raw.trend   || raw.series  || {};
     const history = Array.isArray(raw.history) ? raw.history : [];
-    return { summary, trend, history };
+    
+    // Merge top-level fields into summary (backend returns some fields at both levels)
+    const mergedSummary = {
+      ...summary,
+      // Top-level fields from /api/dashboard root response
+      total_resumes: raw.total_resumes ?? summary.total_resumes,
+      optimize_runs: raw.optimize_runs ?? summary.optimize_runs,
+      coverletters: raw.coverletters ?? summary.coverletters,
+      superhuman_calls: raw.superhuman_calls ?? summary.superhuman_calls,
+      talk_queries: raw.talk_queries ?? summary.talk_queries,
+      mastermind_chats: raw.mastermind_chats ?? summary.mastermind_chats,
+      // From /metrics endpoint
+      optimize: raw.optimize ?? summary.optimize,
+      superhuman: raw.superhuman ?? summary.superhuman,
+      talk: raw.talk ?? summary.talk,
+      mastermind: raw.mastermind ?? summary.mastermind,
+      // File-based counts
+      total_optimized: raw.total_optimized ?? summary.total_optimized,
+      total_humanized: raw.total_humanized ?? summary.total_humanized,
+      total_coverletters_files: raw.total_coverletters_files ?? summary.total_coverletters_files,
+      total_contexts: raw.total_contexts ?? summary.total_contexts,
+      distinct_company_roles: raw.distinct_company_roles ?? summary.distinct_company_roles,
+    };
+    
+    return { summary: mergedSummary, trend, history };
   }
 
   async function fetchDashboard() {
     if (statusBar) statusBar.textContent = "Fetching…";
+    
+    // Try multiple endpoints in order of preference
     const urls = [
-      `${apiBase}/api/dashboard`,
-      `${apiBase}/api/dashboard/summary`
+      `${apiBase}/api/dashboard`,           // Main endpoint (returns summary + trend + history)
+      `${apiBase}/api/dashboard/summary`,   // Summary only
+      `${apiBase}/api/dashboard/stats`,     // Simplified stats (new endpoint)
+      `${apiBase}/api/dashboard/metrics`,   // Metrics only
     ];
 
+    let lastError = null;
+    
     for (const url of urls) {
       try {
         const data = await fetchJSON(url, 10000);
         const shaped = shapeApiData(data);
+        
         // Defensive shaping
         shaped.summary ||= {};
         shaped.trend   ||= {};
         shaped.history = Array.isArray(shaped.history) ? shaped.history : [];
-        saveCache(shaped);
-        if (statusBar) statusBar.textContent = `Live ✓  (${apiBase.replace(/^https?:\/\//,"")})`;
-        debug("Dashboard fetch OK", { endpoint: url, history: shaped.history.length });
-        return shaped;
+        
+        // Only cache if we got meaningful data
+        if (Object.keys(shaped.summary).length > 0 || shaped.history.length > 0) {
+          saveCache(shaped);
+          if (statusBar) statusBar.textContent = `Live ✓  (${apiBase.replace(/^https?:\/\//,"")})`;
+          debug("Dashboard fetch OK", { endpoint: url, summaryKeys: Object.keys(shaped.summary), historyLen: shaped.history.length });
+          return shaped;
+        }
       } catch (e) {
+        lastError = e;
         debug("Dashboard endpoint failed", { endpoint: url, error: e?.message });
       }
     }
 
-    // If both endpoints failed:
-    console.warn("[ASTRA] Dashboard fetch error — using cache/local");
+    // If all endpoints failed:
+    console.warn("[HIREX] Dashboard fetch error — using cache/local", lastError);
     toast("⚠️ Backend unreachable — showing cached data if available.");
     if (statusBar) statusBar.textContent = "Offline (cached)";
 
@@ -330,6 +399,7 @@ document.addEventListener("DOMContentLoaded", () => {
         superhuman_calls: counts.humanize,
         mastermind_chats: counts.mastermind,
         talk_queries:     counts.talk,
+        total_resumes:    counts.optimization, // Best guess
       },
       trend: {
         optimizations: seriesFromHistory(history, "optimization"),
@@ -353,6 +423,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await fetchDashboard();
       renderMetrics(data.summary || {}, data.history || []);
       renderCharts(data.trend || {}, data.history || []);
+      toast("✅ Dashboard refreshed");
+    } catch (e) {
+      console.error("[HIREX] Refresh failed:", e);
+      toast("❌ Refresh failed");
     } finally {
       refreshBtn.disabled = false;
     }
@@ -362,16 +436,24 @@ document.addEventListener("DOMContentLoaded", () => {
      🚀 Init: render from cache (if any), then fetch fresh
   ------------------------------------------------------------ */
   (async () => {
+    // First, render from cache for instant feedback
     const cached = loadCache();
     if (cached) {
       renderMetrics(cached.summary || {}, cached.history || []);
       renderCharts(cached.trend || {}, cached.history || []);
       if (statusBar) statusBar.textContent = "Loaded from cache";
+      debug("CACHE_LOADED", { summaryKeys: Object.keys(cached.summary || {}) });
     }
 
-    const fresh = await fetchDashboard();
-    renderMetrics(fresh.summary || {}, fresh.history || []);
-    renderCharts(fresh.trend || {}, fresh.history || []);
+    // Then fetch fresh data
+    try {
+      const fresh = await fetchDashboard();
+      renderMetrics(fresh.summary || {}, fresh.history || []);
+      renderCharts(fresh.trend || {}, fresh.history || []);
+    } catch (e) {
+      console.error("[HIREX] Dashboard init fetch failed:", e);
+      // Already handled in fetchDashboard with fallbacks
+    }
   })();
 
   /* ------------------------------------------------------------
@@ -384,12 +466,37 @@ document.addEventListener("DOMContentLoaded", () => {
     debug("Dashboard humanize toggled", { on: e.detail?.on })
   );
 
+  // Listen for optimization complete events to refresh
+  window.addEventListener("hirex:optimization-complete", async () => {
+    debug("Optimization complete - refreshing dashboard");
+    try {
+      const fresh = await fetchDashboard();
+      renderMetrics(fresh.summary || {}, fresh.history || []);
+      renderCharts(fresh.trend || {}, fresh.history || []);
+    } catch (e) {
+      console.warn("[HIREX] Auto-refresh after optimization failed:", e);
+    }
+  });
+
   /* ------------------------------------------------------------
      🧹 Cleanup
   ------------------------------------------------------------ */
   window.addEventListener("beforeunload", () => {
-    Object.values(activeCharts).forEach((ch) => ch?.destroy?.());
+    Object.values(activeCharts).forEach((ch) => {
+      try { ch?.destroy?.(); } catch {}
+    });
   });
+
+  /* ------------------------------------------------------------
+     🌐 Expose refresh function globally
+  ------------------------------------------------------------ */
+  window.HIREX = window.HIREX || {};
+  window.HIREX.refreshDashboard = async () => {
+    const data = await fetchDashboard();
+    renderMetrics(data.summary || {}, data.history || []);
+    renderCharts(data.trend || {}, data.history || []);
+    return data;
+  };
 
   /* ------------------------------------------------------------
      ✅ Init Log

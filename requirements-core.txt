@@ -1,0 +1,13 @@
+# ASTRA runtime dependencies. The original requirements.txt remains the
+# fully pinned compatibility environment used by existing installations.
+fastapi==0.128.0
+httpx==0.28.1
+openai==2.16.0
+playwright>=1.52,<2
+pydantic==2.12.5
+python-dotenv==1.2.1
+python-multipart==0.0.22
+uvicorn==0.40.0
+watchfiles==1.1.1
+websockets==16.0
+

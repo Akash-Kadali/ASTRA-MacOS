@@ -1,5 +1,5 @@
 /* ============================================================
-   HIREX • talk.js (v2.1.4 — Talk to HIREX)
+   HIREX • talk.js (v1.0.0 — Talk to HIREX)
    ------------------------------------------------------------
    Connectivity fixes:
    • Auto-detect & cache working API base (127.0.0.1 ↔ localhost ↔ same-origin)
@@ -12,7 +12,7 @@
    ============================================================ */
 
 document.addEventListener("DOMContentLoaded", () => {
-  const APP_VERSION = "v2.1.4";
+  const APP_VERSION = "v1.0.0";
   const LS_KEY = "hirex_talk_history";
   const LS_API_BASE = "hirex_api_base";
   const MAX_HISTORY = 40;
@@ -59,7 +59,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const getTone = () => (toneEl?.value || "balanced").toLowerCase();
 
   // --- Model selection: prefer chat-safe default + auto-fix responses-only picks ---
-  const CHAT_SAFE_DEFAULT_MODEL = "gpt-4o-mini";
+  const CHAT_SAFE_DEFAULT_MODEL = "gpt-5.4-nano";
   const RESPONSES_ONLY_HINTS = [/^gpt-image/i, /^dall[- ]?e/i, /^whisper/i];
   const isResponsesOnlyModel = (name) => {
     if (!name) return false;
@@ -234,7 +234,7 @@ document.addEventListener("DOMContentLoaded", () => {
       context_key: resolveContextKey(ctx) || undefined,
       context_id: ctx?.id || ctx?.context_id || undefined,
       title: ctx?.title || undefined,
-      use_latest: true,
+      use_latest: false,
     };
 
     const tryPost = async (b, path) => {
@@ -301,7 +301,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const m = String(lastErr?.message || "").toLowerCase();
     if (m.includes("only supported in v1/responses")) {
-      toast("ℹ️ Switched to a chat-safe model (gpt-4o-mini). Try again.");
+      toast("ℹ️ Switched to a chat-safe model (gpt-5.4-nano). Try again.");
       localStorage.setItem("hirex_talk_model", CHAT_SAFE_DEFAULT_MODEL);
     } else if (location.protocol === "https:" && /http:\/\/(127\.0\.0\.1|localhost)/.test(localStorage.getItem(LS_API_BASE) || "")) {
       toast("⚠️ Mixed-content blocked: run both UI and backend on the same scheme/host, or use http locally.");

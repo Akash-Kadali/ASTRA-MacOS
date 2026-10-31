@@ -1,5 +1,5 @@
 """
-HIREX • api/humanize.py (v2.1.2)
+HIREX • api/humanize.py (v1.0.0)
 Integrates with AIHumanize.io for tone-only rewriting of Experience & Project bullets.
 Targets only \resumeItem{...} entries, with strong LaTeX sanitization to avoid
 preamble duplication or document corruption. Concurrency + retry hardened.

@@ -1,5 +1,5 @@
 """
-ASTRA • core/utils.py (v2.1.2)
+ASTRA • core/utils.py (v1.0.0)
 Common utility functions shared across backend modules.
 For this version: No LaTeX escaping or text cleaning — passes LaTeX as-is.
 Author: Sri Akash Kadali
@@ -11,7 +11,9 @@ import re
 import html
 import hashlib
 import json
-from datetime import datetime
+import atexit
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -26,6 +28,29 @@ except Exception:
     LOG_PATH = Path("data/logs/events.jsonl")
 
 LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+_LOG_LOCK = threading.Lock()
+_LOG_HANDLE = None
+
+
+def _get_log_handle():
+    """Reuse a line-buffered append handle instead of opening it per event."""
+    global _LOG_HANDLE
+    if _LOG_HANDLE is None or _LOG_HANDLE.closed:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _LOG_HANDLE = open(LOG_PATH, "a", encoding="utf-8", buffering=1)
+    return _LOG_HANDLE
+
+
+def _close_log_handle() -> None:
+    global _LOG_HANDLE
+    with _LOG_LOCK:
+        if _LOG_HANDLE is not None and not _LOG_HANDLE.closed:
+            _LOG_HANDLE.flush()
+            _LOG_HANDLE.close()
+        _LOG_HANDLE = None
+
+
+atexit.register(_close_log_handle)
 
 
 # ============================================================
@@ -91,6 +116,7 @@ def build_filenames(company: str, role: str) -> Dict[str, str]:
     r = slug_part(role)
     return {
         "optimized":    f"Sri_{c}_{r}.pdf",
+        "temp":    f"Sri_Kadali_Resume.pdf",
         "humanized":    f"Sri_Kadali_{c}_{r}.pdf",
         "cover_letter": f"Sri_{c}_{r}_Cover_Letter.pdf",
     }
@@ -101,27 +127,30 @@ def build_output_paths(company: str, role: str) -> Dict[str, Path]:
     Convenience helper that returns the *full* Paths for each final artifact,
     using directories from config (if available).
 
-    Returns dict with keys: optimized, humanized, cover_letter
+    Returns dict with keys: optimized, humanized, temp, cover_letter
     """
     names = build_filenames(company, role)
     try:
         # Prefer config-provided directories (typically absolute/user-data-safe)
         opt_dir = Path(getattr(_cfg, "OPTIMIZED_DIR"))
         hum_dir = Path(getattr(_cfg, "HUMANIZED_DIR"))
+        temp_dir = Path(getattr(_cfg, "TEMP_DIR"))
         cov_dir = Path(getattr(_cfg, "COVER_LETTERS_DIR"))
     except Exception:
         # Safe fallbacks — project-local relative paths
-        opt_dir = Path("data/Optimized")
-        hum_dir = Path("data/Humanized")
-        cov_dir = Path("data/Cover Letters")
+        opt_dir = Path("Optimized")
+        hum_dir = Path("Humanized")
+        temp_dir = Path("Temp")
+        cov_dir = Path("Cover Letters")
 
     # Ensure the directories exist
-    for d in (opt_dir, hum_dir, cov_dir):
+    for d in (opt_dir, hum_dir, cov_dir, temp_dir):
         d.mkdir(parents=True, exist_ok=True)
 
     return {
         "optimized": (opt_dir / names["optimized"]).resolve(),
         "humanized": (hum_dir / names["humanized"]).resolve(),
+        "temp": (temp_dir / names["temp"]).resolve(),
         "cover_letter": (cov_dir / names["cover_letter"]).resolve(),
     }
 
@@ -157,7 +186,7 @@ def clean_text(text: Optional[str]) -> str:
 # ============================================================
 def utc_now_iso() -> str:
     """Return current UTC timestamp in ISO-8601 format."""
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
 
 
 def log_event(event: str, meta: Optional[Dict[str, Any]] = None) -> None:
@@ -186,9 +215,9 @@ def log_event(event: str, meta: Optional[Dict[str, Any]] = None) -> None:
 
     # Persistent log (append JSONL)
     try:
-        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        line = json.dumps(record, ensure_ascii=False, default=str) + "\n"
+        with _LOG_LOCK:
+            _get_log_handle().write(line)
     except Exception as e:
         print(f"[ASTRA] ⚠️ Failed to write event log: {e}")
 

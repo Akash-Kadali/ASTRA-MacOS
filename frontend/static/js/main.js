@@ -1,5 +1,5 @@
 /* ============================================================
-   ASTRA • main.js (v2.1.2 — Unified Frontend Integration)
+   ASTRA • main.js (v1.0.0 — Unified Frontend Integration)
    -------------------------------------------------------
    Handles:
    • JD submission → FastAPI /api/optimize/run (smart fallback)
@@ -15,7 +15,7 @@
 
 document.addEventListener("DOMContentLoaded", () => {
   const APP_NAME = "ASTRA";
-  const APP_VERSION = "v2.1.2";
+  const APP_VERSION = "v1.0.0";
 
   /* ------------------------------------------------------------
      🔧 Elements
@@ -55,7 +55,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const getActiveModel = () =>
     localStorage.getItem("hirex_model") ||
     (typeof RT.getCurrentModel === "function" ? RT.getCurrentModel() : "") ||
-    "gpt-4o-mini";
+    "gpt-5.4-nano";
 
   const disableForm = (state) => {
     if (!form) return;

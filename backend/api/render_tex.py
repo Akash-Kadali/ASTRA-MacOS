@@ -35,6 +35,17 @@ def render_final_tex(final_tex: str) -> str:
     # --- Normalize line endings ---
     cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
 
+    # pdflatex cannot consume several common Unicode symbols emitted by models.
+    # Convert them to LaTeX before compilation while preserving visible meaning.
+    unicode_tex = {
+        "↔": r"$\leftrightarrow$", "→": r"$\rightarrow$", "←": r"$\leftarrow$",
+        "≤": r"$\leq$", "≥": r"$\geq$", "×": r"$\times$", "±": r"$\pm$",
+        "≈": r"$\approx$", "∞": r"$\infty$", "•": r"$\bullet$",
+        "–": "--", "—": "--", "−": "-", "’": "'", "“": "``", "”": "''",
+    }
+    for symbol, replacement in unicode_tex.items():
+        cleaned = cleaned.replace(symbol, replacement)
+
     # --- Remove stray leading/trailing blank lines ---
     cleaned = re.sub(r"^\s*\n", "", cleaned)
     cleaned = re.sub(r"\n\s*$", "\n", cleaned)

@@ -40,11 +40,8 @@ for p in (ROOT_DIR, os.path.join(ROOT_DIR, "backend")):
 AUTOPEN_LOG = Path(tempfile.gettempdir()) / "astra_autopen.log"
 def _dlog(msg: str) -> None:
     try:
-        AUTOPEN_LOG.write_text(
-            (AUTOPEN_LOG.read_text(encoding="utf-8") if AUTOPEN_LOG.exists() else "")
-            + f"{time.strftime('%H:%M:%S')} | {msg}\n",
-            encoding="utf-8",
-        )
+        with AUTOPEN_LOG.open("a", encoding="utf-8") as handle:
+            handle.write(f"{time.strftime('%H:%M:%S')} | {msg}\n")
     except Exception:
         pass
 
@@ -143,6 +140,10 @@ for _modname in (
     "backend.api.humanize",
     "backend.api.mastermind",
     "backend.api.dashboard",
+    "backend.api.applications",
+    "backend.api.jobright",
+    "backend.api.jobright_agent",
+    "backend.api.decision_center",
     "backend.api.models_router",
     "backend.api.context_store",
     "backend.api.utils_router",
@@ -168,7 +169,7 @@ def _safe_import(module: str):
 
 ROUTER_NAMES = [
     "optimize", "coverletter", "talk", "superhuman", "humanize", "mastermind",
-    "dashboard", "models_router", "context_store",
+    "dashboard", "applications", "jobright", "jobright_agent", "decision_center", "models_router", "context_store",
     "utils_router", "debug",
 ]
 ROUTERS: Dict[str, object] = {name: _safe_import(name) for name in ROUTER_NAMES}
@@ -183,12 +184,17 @@ app.add_middleware(
 # ======================= Static + Frontend Mount ========================
 FRONTEND_DIR = os.path.normpath(os.path.join(ROOT_DIR, "frontend"))
 STATIC_DIR = os.path.join(FRONTEND_DIR, "static")
+MODERN_APP_DIR = os.path.join(FRONTEND_DIR, "app")
 
 if os.path.exists(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     _elog("static_mounted", {"dir": STATIC_DIR})
 else:
     _elog("static_missing", {"dir": STATIC_DIR})
+
+if os.path.exists(MODERN_APP_DIR):
+    app.mount("/app", StaticFiles(directory=MODERN_APP_DIR, html=True), name="modern_app")
+    _elog("modern_app_mounted", {"dir": MODERN_APP_DIR})
 
 def _frontend_path(filename: str) -> Optional[str]:
     candidates = [
@@ -264,6 +270,9 @@ async def trace_requests(request: Request, call_next):
 # ============================ Frontend ==================================
 @app.get("/", include_in_schema=False)
 def serve_index():
+    modern_index = os.path.join(MODERN_APP_DIR, "index.html")
+    if os.path.exists(modern_index):
+        return FileResponse(modern_index, headers={"Cache-Control": "no-store"})
     for fname in ("index.html", "master.html"):
         f = _frontend_path(fname)
         if f:
@@ -444,6 +453,15 @@ def _iter_candidates(preferred: int, rng: Tuple[int, int] | None) -> Iterable[in
 
 def _select_host_port() -> Tuple[str, int]:
     host, preferred = _env_host_port()
+    # Desktop launches are single-instance by default. Do not silently move
+    # from 8000 to 8001/8002 when an existing ASTRA process is still running.
+    if _is_port_free(host, preferred):
+        _elog("port_selected", {"host": host, "port": preferred})
+        os.environ["ASTRA_PORT"] = str(preferred)
+        return host, preferred
+    if os.getenv("ASTRA_ALLOW_PORT_FALLBACK", "0") != "1":
+        raise RuntimeError(
+            f"ASTRA port {preferred} is already in use. Refusing to start a second instance.")
     rng = _parse_range_env("ASTRA_PORT_RANGE")  # e.g. "9000-9500"
     for p in _iter_candidates(preferred, rng):
         if _is_port_free(host, p):
@@ -462,6 +480,20 @@ def _read_host_port() -> Tuple[str, int]:
 
 def _open_host_for_bind(host: str) -> str:
     return "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+
+def _existing_astra_url() -> Optional[str]:
+    """Return the current desktop URL if ASTRA already owns its fixed port."""
+    host, port = _env_host_port()
+    url = f"http://{_open_host_for_bind(host)}:{port}"
+    try:
+        with urllib.request.urlopen(f"{url}/health", timeout=1.2) as response:
+            payload = response.read(512).decode("utf-8", errors="ignore")
+            status = response.status
+        if status == 200 and '"service":"ASTRA"' in payload.replace(" ", ""):
+            return url
+    except Exception:
+        pass
+    return None
 
 def _open_url(url: str) -> bool:
     if sys.platform.startswith("win"):
@@ -538,6 +570,14 @@ def start_backend():
 
 # ================================ Main ==================================
 if __name__ == "__main__":
+    # Clicking the Dock icon again reopens the existing UI and exits this
+    # short-lived launcher. No second scheduler or fallback port is created.
+    existing_url = _existing_astra_url()
+    if existing_url and os.getenv("ASTRA_CHILD", "0") != "1":
+        _dlog(f"REOPEN existing instance {existing_url}")
+        _open_url(existing_url)
+        raise SystemExit(0)
+
     # Choose and cache the final port once for this process
     host, port = _read_host_port()
 

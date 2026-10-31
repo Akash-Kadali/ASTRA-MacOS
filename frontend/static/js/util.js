@@ -1,5 +1,5 @@
 /* ============================================================
-   HIREX • util.js (v2.1.2 — Unified Utility Layer)
+   HIREX • util.js (v1.0.0 — Unified Utility Layer)
    ------------------------------------------------------------
    Shared helper utilities across HIREX front-end modules.
 
@@ -17,7 +17,7 @@
 /* ============================================================
    🔧 Constants
    ============================================================ */
-const UTIL_VERSION = "v2.1.2";
+const UTIL_VERSION = "v1.0.0";
 const DEFAULT_BASE_TEX_PATH = "data/samples/base_resume.tex";
 const LS_KEYS = {
   THEME: "hirex-theme",
@@ -162,7 +162,7 @@ function getCurrentModel() {
   if (fromLS) return fromLS;
   if (window.HIREX?.getCurrentModel) return window.HIREX.getCurrentModel();
   const sel = document.getElementById("model");
-  return (sel && sel.value) || "gpt-4o-mini";
+  return (sel && sel.value) || "gpt-5.4-nano";
 }
 function setCurrentModel(model) {
   if (typeof model === "string" && model.trim()) {
@@ -511,7 +511,7 @@ function formatBytes(bytes, decimals = 2) {
 }
 
 /* ============================================================
-   📝 FormData / Payload Builders (align with backend v2.x)
+   📝 FormData / Payload Builders (align with backend v1.0.0)
    ============================================================ */
 function buildOptimizeFormData(jdText, useHumanize) {
   const fd = new FormData();

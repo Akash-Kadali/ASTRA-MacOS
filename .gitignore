@@ -6,6 +6,29 @@ __pycache__/
 .env
 backend/.env
 .DS_Store
+.vscode/
 venv/
 .venv/
 *.egg-info/
+node_modules/
+*.tsbuildinfo
+frontend-modern/vite.config.js
+frontend-modern/vite.config.d.ts
+
+# Generated documents and local working files
+Optimized_Resumes/
+Humanized_Resumes/
+Cover Letters/
+Temp/
+latex_errors/
+
+# Personal runtime state. The application recreates these locally.
+backend/data/application_tracker.json
+backend/data/contexts/
+backend/data/logs/
+backend/data/cache/
+backend/data/mastermind_sessions/
+backend/data/pdf_text_cache/
+backend/data/jobright*.json
+backend/data/decision_center.json
+backend/data/backups/

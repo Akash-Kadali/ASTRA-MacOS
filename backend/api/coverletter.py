@@ -1,23 +1,38 @@
 # ============================================================
-#  HIREX v3.1.0 — KILLER Cover Letter Generation
+#  HIREX v3.0.0 — Cover Letter Generation
 #  ------------------------------------------------------------
-#  KEY UPGRADES:
-#   • ASTONISHING company-specific opening hooks
-#   • NO academic mentions (GPA, graduation, coursework)
-#   • Deep product knowledge signals
-#   • Recent news/initiative references
-#   • Problem-aware hooks that show insider understanding
-#   • Recruiter-stopping first sentences
+#  CHANGELOG v3.0.0 (vs v2.0.0):
+#   REWRITE  Tone system: simple Indian English (IELTS 6.5), Hyderabad/Bangalore style
+#   REWRITE  Banned phrases: real AI-tell patterns, not just clichés
+#   REWRITE  3-paragraph prompt: implicit structure via examples, not labeled templates
+#   REWRITE  LaTeX & escaping: fixed & → \& (not "and")
+#   ADD      Resume-to-JD explicit mapping (requirement → experience matcher)
+#   ADD      Company research via web search (not just JD text)
+#   ADD      Experience relevance selector (picks best company per JD)
+#   ADD      6-axis quality rubric scoring with targeted rewrites
+#   ADD      Fact-checking pass against actual resume content
+#   ADD      JD keyword echo verification
+#   ADD      Per-paragraph word count enforcement
+#   ADD      Company type detection (startup vs enterprise vs Indian)
+#   ADD      Salutation cultural awareness (Mr./Dr./Ms. for Indian context)
+#   ADD      Post-humanize tone guard
+#   ADD      Culture signal weaving into paragraph instructions
+#   FIX      _strip_academic: selective (keeps degree name for relevant JDs)
+#   FIX      Highlights extraction: JD-prioritized, up to 5 achievements
+#   FIX      Word count hard enforcement
+#   REMOVE   Formulaic paragraph labels from prompt
 # ============================================================
 
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
+import os
 import re
 import threading
-import random
 from datetime import datetime
+from pathlib import Path
 from typing import Tuple, Optional, Dict, Any, List, Set
 
 import httpx
@@ -35,16 +50,9 @@ try:
 except Exception:
     from api.render_tex import render_final_tex
 
-try:
-    from backend.api.latex_parse import inject_cover_body as _shared_inject
-except Exception:
-    try:
-        from api.latex_parse import inject_cover_body as _shared_inject
-    except Exception:
-        _shared_inject = None
-
 router = APIRouter(prefix="/api/coverletter", tags=["coverletter"])
 
+# ── OpenAI client (thread-safe singleton) ────────────────────
 _openai_lock = threading.Lock()
 _openai_client: Optional[OpenAI] = None
 
@@ -59,511 +67,11 @@ def _get_openai_client() -> OpenAI:
     return _openai_client
 
 
-_DEFAULT_OAI_MODEL = "gpt-4o-mini"
-_EXTRACT_MODEL = getattr(config, "COVERLETTER_EXTRACT_MODEL", None) or _DEFAULT_OAI_MODEL
-_DRAFT_MODEL = getattr(config, "COVERLETTER_MODEL", None) or _DEFAULT_OAI_MODEL
-_INTELLIGENCE_MODEL = "gpt-4o-mini"
-
-_DISABLE_SHARED_INJECTOR = True
+_MODEL = getattr(config, "COVERLETTER_MODEL", None) or "gpt-5.4-nano"
 
 
 # ============================================================
-# 🎯 ASTONISHING COMPANY-SPECIFIC HOOKS
-# ============================================================
-
-COMPANY_KILLER_HOOKS = {
-    "netflix": {
-        "product_insights": [
-            "The way Netflix's recommendation engine surfaced 'Stranger Things' to me before it became a phenomenon showed me the power of personalization at scale",
-            "I've studied how Netflix's A/B testing framework drives decisions on everything from thumbnail images to entire UI redesigns",
-            "Netflix's 2023 shift to an ad-supported tier while maintaining personalization quality is exactly the ML challenge I want to solve",
-            "The technical blog post on how Netflix reduced streaming rebuffer rates using predictive prefetching changed how I think about ML in production"
-        ],
-        "insider_knowledge": [
-            "Netflix's 'context not control' philosophy mirrors how I've built my most successful ML systems",
-            "The challenge of maintaining recommendation quality across 230M+ subscribers while expanding into gaming is fascinating",
-            "Netflix's experimentation platform running thousands of A/B tests simultaneously is the scale I want to work at"
-        ],
-        "recent_moves": [
-            "Netflix's expansion into live events and gaming presents new personalization challenges",
-            "The password-sharing crackdown combined with ad-tier launch shows Netflix is optimizing for sustainable growth"
-        ]
-    },
-    "google": {
-        "product_insights": [
-            "When Google Search started answering my queries with AI-generated summaries, I recognized the massive infrastructure challenge behind it",
-            "I've traced how Google's PageRank evolved into the ML-powered ranking system that now processes billions of queries",
-            "The Gemini integration across Google products represents a system design challenge at unprecedented scale"
-        ],
-        "insider_knowledge": [
-            "Google's culture of 'launch and iterate' while maintaining reliability for billions of users is the balance I strive for",
-            "The technical rigor of Google's design doc culture has influenced how I approach system architecture",
-            "Google's commitment to responsible AI development, especially after the Gemini launch learnings, aligns with my values"
-        ],
-        "recent_moves": [
-            "Google's response to the AI search disruption by integrating Gemini shows strategic technical execution",
-            "The Cloud growth trajectory competing with AWS while leveraging AI differentiation is compelling"
-        ]
-    },
-    "meta": {
-        "product_insights": [
-            "Watching Meta's Feed ranking evolve from chronological to ML-driven engagement optimization taught me about recommendation systems at scale",
-            "The technical challenge of Reels competing with TikTok's algorithm while serving different user intents is fascinating",
-            "Meta's integrity systems detecting misinformation across billions of posts daily is the ML scale I want to work at"
-        ],
-        "insider_knowledge": [
-            "Meta's 'Move Fast' culture combined with the responsibility of serving 3B+ users requires exactly the balance I bring",
-            "The PyTorch ecosystem that Meta open-sourced has been central to my ML work",
-            "Meta's pivot from metaverse investment to AI-first strategy shows adaptive technical leadership"
-        ],
-        "recent_moves": [
-            "Threads reaching 100M users in days showed Meta's infrastructure can scale anything",
-            "The Llama model releases democratizing AI while Meta builds commercial applications is strategic"
-        ]
-    },
-    "amazon": {
-        "product_insights": [
-            "Amazon's 'Customers who bought this' changed e-commerce, and I've studied how that simple UX hides sophisticated ML",
-            "The technical challenge of same-day delivery optimization across millions of products is operations research at its finest",
-            "AWS's ability to serve both startups and enterprises with the same infrastructure is product-market fit I admire"
-        ],
-        "insider_knowledge": [
-            "Amazon's 'working backwards' from the customer aligns perfectly with how I approach ML system design",
-            "The two-pizza team structure enabling Amazon's pace of innovation is how I've seen the best teams operate",
-            "Amazon's leadership principle of 'Dive Deep' matches my belief that technical leaders must understand implementation details"
-        ],
-        "recent_moves": [
-            "AWS Bedrock making foundation models accessible shows Amazon's platform-first thinking",
-            "Amazon's healthcare expansion with One Medical acquisition opens new ML applications"
-        ]
-    },
-    "microsoft": {
-        "product_insights": [
-            "Copilot's integration across Microsoft 365 represents the largest AI deployment in enterprise software history",
-            "Azure's growth from distant third to genuine AWS competitor shows execution at scale",
-            "The GitHub Copilot accuracy improvements I've tracked show Microsoft's ML iteration velocity"
-        ],
-        "insider_knowledge": [
-            "Microsoft's 'growth mindset' transformation under Satya Nadella created the culture I want to join",
-            "The OpenAI partnership giving Microsoft AI leadership while Google scrambled was strategic brilliance",
-            "Microsoft's ability to ship AI features to enterprise customers who actually pay is unique"
-        ],
-        "recent_moves": [
-            "Copilot becoming the unified AI interface across all Microsoft products is ambitious UX",
-            "The Activision acquisition combined with AI for gaming opens new technical frontiers"
-        ]
-    },
-    "apple": {
-        "product_insights": [
-            "Apple Intelligence running ML models on-device while maintaining privacy is the technical constraint I find most interesting",
-            "The Neural Engine evolution from A11 to M-series shows Apple's decade-long ML silicon investment",
-            "Face ID's ability to work across lighting conditions with zero cloud dependency is elegant ML engineering"
-        ],
-        "insider_knowledge": [
-            "Apple's obsession with privacy-preserving ML aligns with my belief that user trust is non-negotiable",
-            "The vertical integration allowing Apple to optimize ML from silicon to software is unique",
-            "Apple's 'say no to 1000 things' philosophy producing focused products resonates with my approach"
-        ],
-        "recent_moves": [
-            "Vision Pro's spatial computing ML challenges are the next frontier I want to explore",
-            "Apple Intelligence's delayed rollout shows they prioritize quality over speed"
-        ]
-    },
-    "stripe": {
-        "product_insights": [
-            "Stripe's API design is so elegant that it became the standard all fintech APIs are measured against",
-            "The fraud detection challenge of approving good transactions instantly while blocking fraud at scale is ML I understand",
-            "Stripe Atlas enabling company formation globally shows infrastructure thinking beyond payments"
-        ],
-        "insider_knowledge": [
-            "Stripe's written culture where ideas win based on rigor, not seniority, is where I thrive",
-            "The 'increase the GDP of the internet' mission is ambitious enough to attract my commitment",
-            "Stripe's developer-first approach building products that engineers love to integrate matches my values"
-        ],
-        "recent_moves": [
-            "Stripe's embedded finance push making every platform a fintech company expands the problem space",
-            "The revenue recognition and tax products show Stripe solving the entire financial stack"
-        ]
-    },
-    "airbnb": {
-        "product_insights": [
-            "Airbnb's search ranking balancing guest preferences with host fairness is a multi-objective optimization I find fascinating",
-            "The pricing suggestions helping hosts optimize revenue while maintaining platform trust is elegant ML",
-            "Trust & Safety detecting problematic listings across millions of properties globally is scale I want to work at"
-        ],
-        "insider_knowledge": [
-            "Airbnb's 'Belong Anywhere' mission creating genuine human connection through technology resonates with me",
-            "The design-driven culture where engineers and designers collaborate deeply produces better products",
-            "Airbnb's transparent culture with open financials builds the trust I value in organizations"
-        ],
-        "recent_moves": [
-            "Airbnb Experiences expansion beyond stays diversifies the ML challenges",
-            "The AI trip planning features hint at Airbnb becoming a travel intelligence platform"
-        ]
-    },
-    "uber": {
-        "product_insights": [
-            "Uber's marketplace balancing rider wait times with driver earnings in real-time is optimization at massive scale",
-            "The ETA prediction accuracy improvements I've tracked show ML iteration at city-scale",
-            "Surge pricing's ability to balance supply and demand dynamically is economics and ML combined"
-        ],
-        "insider_knowledge": [
-            "Uber's reliability at global scale during peak events like NYE shows infrastructure I want to build",
-            "The transition from growth-at-all-costs to profitable operations required technical efficiency I admire",
-            "Uber's multi-modal future combining rides, delivery, and freight is a platform play I find compelling"
-        ],
-        "recent_moves": [
-            "Uber's advertising business leveraging rider attention is a new revenue ML challenge",
-            "The autonomous vehicle partnerships show Uber preparing for the next transportation era"
-        ]
-    },
-    "linkedin": {
-        "product_insights": [
-            "LinkedIn's job matching connecting 1B+ professionals with opportunities is ML with real-world career impact",
-            "The Feed ranking balancing professional content with engagement is harder than consumer social",
-            "Skills-based hiring replacing credential-based hiring is a mission I believe in"
-        ],
-        "insider_knowledge": [
-            "LinkedIn's 'Members First' philosophy in a Microsoft-owned entity shows maintained independence",
-            "The Economic Graph vision of mapping the global economy's skills and opportunities is ambitious",
-            "LinkedIn Learning's integration with job skills gaps is education meeting employment"
-        ],
-        "recent_moves": [
-            "LinkedIn's AI-powered job descriptions and outreach tools are changing recruiting",
-            "The creator monetization push makes LinkedIn a professional media platform"
-        ]
-    },
-    "spotify": {
-        "product_insights": [
-            "Discover Weekly's ability to surface music I didn't know I'd love is ML personalization at its best",
-            "The audio ML challenges of understanding podcasts, music, and audiobooks differently is fascinating",
-            "Spotify's collaborative filtering at scale with 500M+ users sets the standard for recommendations"
-        ],
-        "insider_knowledge": [
-            "Spotify's squad model giving teams autonomy while maintaining product coherence is organizational design I admire",
-            "The artist-friendly stance while building a sustainable business shows stakeholder balance",
-            "Spotify's data-informed but not data-driven culture leaves room for creative product decisions"
-        ],
-        "recent_moves": [
-            "AI DJ creating personalized radio shows is the next evolution of music personalization",
-            "Audiobooks expansion competing with Audible diversifies the content ML challenges"
-        ]
-    },
-    "databricks": {
-        "product_insights": [
-            "The Lakehouse architecture solving the data warehouse vs. data lake debate is elegant technical vision",
-            "MLflow becoming the standard for ML experiment tracking shows open-source-first strategy working",
-            "Unity Catalog solving data governance across the entire data lifecycle is ambitious"
-        ],
-        "insider_knowledge": [
-            "Databricks' open-source DNA with Delta Lake and MLflow builds genuine community trust",
-            "The 'data + AI' positioning as distinct from pure cloud vendors is clear differentiation",
-            "Databricks' technical leadership publishing research while building products is rare"
-        ],
-        "recent_moves": [
-            "The Mosaic ML acquisition shows Databricks building the full AI stack",
-            "Serverless compute removing infrastructure management overhead accelerates adoption"
-        ]
-    },
-    "snowflake": {
-        "product_insights": [
-            "Snowflake's consumption-based pricing aligning vendor success with customer value is smart economics",
-            "Data sharing without copying data is a technical achievement enabling new business models",
-            "Snowpark bringing code to data instead of data to code shows architectural thinking"
-        ],
-        "insider_knowledge": [
-            "Snowflake's engineering excellence producing performance improvements every release builds trust",
-            "The Data Cloud vision of connecting data across organizations is ambitious infrastructure",
-            "Snowflake's customer obsession reflected in NPS scores is culture I want to join"
-        ],
-        "recent_moves": [
-            "Native apps on Snowflake creating a data application ecosystem expands the platform",
-            "The AI/ML features competing with Databricks show strategic expansion"
-        ]
-    }
-}
-
-
-def get_killer_hook(company: str, hook_type: str = "product_insights") -> str:
-    """Get a company-specific killer opening hook."""
-    company_lower = company.lower().strip()
-    
-    for key, hooks in COMPANY_KILLER_HOOKS.items():
-        if key in company_lower or company_lower in key:
-            hook_list = hooks.get(hook_type, hooks.get("product_insights", []))
-            if hook_list:
-                return random.choice(hook_list)
-    
-    return ""
-
-
-# ============================================================
-# 🏢 DEEP COMPANY INTELLIGENCE DATABASE
-# ============================================================
-
-COMPANY_INTELLIGENCE = {
-    "netflix": {
-        "culture_keywords": ["Freedom & Responsibility", "context not control", "highly aligned loosely coupled", "keeper test", "candor"],
-        "tech_focus": ["Recommender Systems", "Personalization", "A/B Testing at Scale", "Content Delivery", "Streaming Infrastructure"],
-        "engineering_values": ["data-driven decisions", "experimentation culture", "ownership mentality", "impact over activity"],
-        "recent_focus": ["gaming expansion", "ad-supported tier", "live events", "content efficiency"],
-        "challenges": ["subscriber growth in mature markets", "content cost optimization", "competition from Disney+/HBO"],
-        "insider_phrases": ["member experience", "title discovery", "personalization at scale", "streaming quality"],
-        "hiring_priorities": ["ML infrastructure", "experimentation platforms", "content algorithms", "data pipelines"],
-        "products_to_reference": ["recommendation engine", "A/B testing platform", "streaming infrastructure", "content personalization"]
-    },
-    "google": {
-        "culture_keywords": ["Googleyness", "think big", "user first", "10x thinking", "psychological safety"],
-        "tech_focus": ["Scalability", "Distributed Systems", "AI/ML Infrastructure", "Search Quality", "Cloud Platform"],
-        "engineering_values": ["code quality", "design docs", "peer review culture", "technical excellence"],
-        "recent_focus": ["Gemini AI", "Cloud growth", "Search AI integration", "Pixel ecosystem"],
-        "challenges": ["AI competition with OpenAI/Microsoft", "advertising revenue pressure", "regulatory scrutiny"],
-        "insider_phrases": ["Noogler", "OKRs", "launch and iterate", "10x improvement"],
-        "hiring_priorities": ["AI/ML", "Cloud infrastructure", "Privacy engineering", "Mobile development"],
-        "products_to_reference": ["Search", "Gemini", "Cloud Platform", "YouTube", "Android"]
-    },
-    "meta": {
-        "culture_keywords": ["Move Fast", "Be Bold", "Focus on Impact", "Be Open", "Build Social Value"],
-        "tech_focus": ["Social Graph", "Ranking Systems", "AR/VR", "Messaging Infrastructure", "Ads Optimization"],
-        "engineering_values": ["ship early ship often", "hackathons", "bootcamp culture", "impact metrics"],
-        "recent_focus": ["AI assistants", "Threads growth", "Reels monetization", "Llama models"],
-        "challenges": ["privacy regulations", "TikTok competition", "metaverse ROI questions"],
-        "insider_phrases": ["family of apps", "integrity systems", "social impact", "meaningful connections"],
-        "hiring_priorities": ["AI/ML", "Integrity/Safety", "Infrastructure", "AR/VR"],
-        "products_to_reference": ["Instagram", "WhatsApp", "Messenger", "Threads", "Llama"]
-    },
-    "amazon": {
-        "culture_keywords": ["Customer Obsession", "Ownership", "Bias for Action", "Dive Deep", "Deliver Results"],
-        "tech_focus": ["AWS Services", "Supply Chain ML", "Alexa/Voice", "Retail Optimization", "Logistics"],
-        "engineering_values": ["working backwards", "two-pizza teams", "operational excellence", "frugality"],
-        "recent_focus": ["AWS AI services", "same-day delivery", "healthcare expansion", "advertising growth"],
-        "challenges": ["labor relations", "AWS competition", "retail margins"],
-        "insider_phrases": ["PR/FAQ", "6-pager", "bar raiser", "Day 1 mentality", "mechanisms"],
-        "hiring_priorities": ["AWS", "ML/AI", "Supply chain", "Advertising"],
-        "products_to_reference": ["AWS", "Prime", "Alexa", "One Medical", "Bedrock"]
-    },
-    "microsoft": {
-        "culture_keywords": ["Growth Mindset", "Customer Obsessed", "Diverse and Inclusive", "One Microsoft"],
-        "tech_focus": ["Azure Cloud", "Microsoft 365", "AI/Copilot", "Gaming/Xbox", "Developer Tools"],
-        "engineering_values": ["learn-it-all not know-it-all", "customer empathy", "responsible AI"],
-        "recent_focus": ["Copilot integration", "Azure OpenAI", "Gaming", "Teams platform"],
-        "challenges": ["cloud competition with AWS", "AI integration", "gaming market share"],
-        "insider_phrases": ["growth mindset", "customer zero", "inclusive design"],
-        "hiring_priorities": ["AI/ML", "Azure", "Security", "Developer experience"],
-        "products_to_reference": ["Copilot", "Azure", "GitHub", "Teams", "Xbox"]
-    },
-    "apple": {
-        "culture_keywords": ["Think Different", "Simplicity", "Privacy as Human Right", "Excellence"],
-        "tech_focus": ["On-Device ML", "Privacy-Preserving AI", "Hardware-Software Integration", "User Experience"],
-        "engineering_values": ["attention to detail", "user privacy", "vertical integration", "craftsmanship"],
-        "recent_focus": ["Vision Pro", "Apple Intelligence", "Services growth", "Sustainability"],
-        "challenges": ["China market", "AI catch-up", "services growth"],
-        "insider_phrases": ["DRI", "surprise and delight", "it just works"],
-        "hiring_priorities": ["ML on-device", "Privacy engineering", "AR/VR", "Health tech"],
-        "products_to_reference": ["iPhone", "Vision Pro", "Apple Intelligence", "Neural Engine"]
-    },
-    "stripe": {
-        "culture_keywords": ["Users First", "Move with Urgency", "Think Rigorously", "Trust and Amplify"],
-        "tech_focus": ["Payment Infrastructure", "Financial APIs", "Fraud Detection", "Developer Experience"],
-        "engineering_values": ["write like you code", "rigor in thinking", "long-term orientation"],
-        "recent_focus": ["Embedded finance", "Global expansion", "Revenue recognition"],
-        "challenges": ["fintech competition", "regulatory complexity", "enterprise sales"],
-        "insider_phrases": ["increase GDP of internet", "payment rails", "developer love"],
-        "hiring_priorities": ["Infrastructure", "ML/Fraud", "Platform", "International"],
-        "products_to_reference": ["Payments API", "Radar", "Atlas", "Connect", "Billing"]
-    },
-    "airbnb": {
-        "culture_keywords": ["Belong Anywhere", "Champion the Mission", "Be a Host", "Embrace Adventure"],
-        "tech_focus": ["Search & Ranking", "Pricing Algorithms", "Trust & Safety", "Payments"],
-        "engineering_values": ["customer empathy", "design-driven", "data-informed"],
-        "recent_focus": ["Experiences expansion", "Long-term stays", "AI trip planning"],
-        "challenges": ["regulatory battles", "hotel competition", "host supply"],
-        "insider_phrases": ["belonging", "host community", "guest journey"],
-        "hiring_priorities": ["ML/Search", "Trust & Safety", "Payments", "Mobile"],
-        "products_to_reference": ["Search ranking", "Smart Pricing", "Experiences", "AirCover"]
-    },
-    "uber": {
-        "culture_keywords": ["Build Globally", "Celebrate Differences", "Act Like Owners", "Persevere"],
-        "tech_focus": ["Marketplace Optimization", "ETA Prediction", "Route Optimization", "Fraud Detection"],
-        "engineering_values": ["data-driven", "experimentation", "reliability at scale"],
-        "recent_focus": ["Delivery growth", "Advertising", "Freight"],
-        "challenges": ["driver supply", "profitability", "regulatory issues"],
-        "insider_phrases": ["marketplace balance", "rider experience", "driver earnings"],
-        "hiring_priorities": ["ML/Optimization", "Maps", "Marketplace", "Delivery"],
-        "products_to_reference": ["Rides", "Eats", "Freight", "Advertising platform"]
-    },
-    "linkedin": {
-        "culture_keywords": ["Members First", "Relationships Matter", "Be Open Honest Constructive", "Act Like Owner"],
-        "tech_focus": ["Feed Ranking", "Job Matching", "Graph Systems", "Economic Graph"],
-        "engineering_values": ["test and learn", "member value", "data-driven"],
-        "recent_focus": ["AI features", "Creator economy", "Skills-based hiring"],
-        "challenges": ["engagement growth", "premium conversion", "content quality"],
-        "insider_phrases": ["economic graph", "member value", "professional identity"],
-        "hiring_priorities": ["AI/ML", "Feed", "Search", "Infrastructure"],
-        "products_to_reference": ["Feed", "Jobs", "Learning", "Sales Navigator"]
-    },
-    "spotify": {
-        "culture_keywords": ["Innovative", "Collaborative", "Sincere", "Passionate", "Playful"],
-        "tech_focus": ["Audio ML", "Personalization", "Content Delivery", "Creator Tools"],
-        "engineering_values": ["squad model", "autonomous teams", "data-informed"],
-        "recent_focus": ["Podcasts", "Audiobooks", "AI DJ", "Creator monetization"],
-        "challenges": ["profitability", "music licensing costs", "podcast ROI"],
-        "insider_phrases": ["Discover Weekly", "audio-first", "creator ecosystem"],
-        "hiring_priorities": ["ML/Personalization", "Audio", "Ads", "Payments"],
-        "products_to_reference": ["Discover Weekly", "AI DJ", "Wrapped", "Podcast platform"]
-    },
-    "databricks": {
-        "culture_keywords": ["Customer Obsessed", "Unity", "Ownership", "Open Source First"],
-        "tech_focus": ["Lakehouse", "Delta Lake", "MLflow", "Spark", "Data Engineering"],
-        "engineering_values": ["open source contribution", "technical excellence", "customer impact"],
-        "recent_focus": ["Unity Catalog", "Serverless", "AI/ML platform"],
-        "challenges": ["Snowflake competition", "enterprise adoption"],
-        "insider_phrases": ["Lakehouse", "data + AI", "open source"],
-        "hiring_priorities": ["Platform", "ML/AI", "Security", "Enterprise"],
-        "products_to_reference": ["Lakehouse", "Delta Lake", "MLflow", "Unity Catalog"]
-    },
-    "snowflake": {
-        "culture_keywords": ["Put Customers First", "Integrity Always", "Think Big", "Be Excellent"],
-        "tech_focus": ["Data Cloud", "Data Sharing", "Snowpark", "Data Marketplace"],
-        "engineering_values": ["engineering excellence", "customer focus", "innovation"],
-        "recent_focus": ["Snowpark", "Native apps", "AI/ML features"],
-        "challenges": ["Databricks competition", "consumption concerns"],
-        "insider_phrases": ["Data Cloud", "Snowpark", "data sharing economy"],
-        "hiring_priorities": ["Platform", "ML/AI", "Security", "Performance"],
-        "products_to_reference": ["Data Cloud", "Snowpark", "Marketplace", "Cortex"]
-    }
-}
-
-DEFAULT_COMPANY_INTELLIGENCE = {
-    "culture_keywords": ["innovation", "collaboration", "excellence", "customer focus"],
-    "tech_focus": ["scalable systems", "data-driven decisions", "modern architecture"],
-    "engineering_values": ["code quality", "team collaboration", "continuous learning"],
-    "recent_focus": ["digital transformation", "AI/ML adoption", "cloud migration"],
-    "challenges": ["scaling efficiently", "talent retention", "market competition"],
-    "insider_phrases": [],
-    "hiring_priorities": ["engineering", "product", "data"],
-    "products_to_reference": []
-}
-
-
-def get_company_intelligence(company_name: str) -> Dict[str, Any]:
-    """Get deep intelligence about a company."""
-    company_lower = (company_name or "").lower().strip()
-    
-    for key, intel in COMPANY_INTELLIGENCE.items():
-        if key in company_lower or company_lower in key:
-            return intel
-    
-    for key, intel in COMPANY_INTELLIGENCE.items():
-        if any(word in company_lower for word in key.split()):
-            return intel
-    
-    return DEFAULT_COMPANY_INTELLIGENCE
-
-
-# ============================================================
-# 💡 VALUE PROPOSITION GENERATOR
-# ============================================================
-
-VALUE_PROPOSITIONS = {
-    "ml_engineer": [
-        "bring production ML systems from prototype to scale",
-        "bridge the gap between research insights and deployed models",
-        "build data pipelines that enable rapid experimentation",
-        "implement ML infrastructure that accelerates team velocity"
-    ],
-    "data_scientist": [
-        "translate complex data patterns into actionable business insights",
-        "design experiments that drive measurable product improvements",
-        "build analytical frameworks that inform strategic decisions",
-        "develop predictive models that optimize key metrics"
-    ],
-    "software_engineer": [
-        "architect systems that scale gracefully under load",
-        "write maintainable code that teams can build upon",
-        "drive technical decisions with long-term thinking",
-        "build infrastructure that enables product velocity"
-    ],
-    "data_engineer": [
-        "design data architectures that support real-time analytics",
-        "build pipelines that ensure data quality at scale",
-        "create infrastructure that democratizes data access",
-        "implement systems that reduce time-to-insight"
-    ],
-    "default": [
-        "contribute technical depth with collaborative spirit",
-        "drive measurable impact through systematic problem-solving",
-        "bring both execution capability and strategic thinking",
-        "build solutions that balance innovation with reliability"
-    ]
-}
-
-
-def get_value_propositions(role: str) -> List[str]:
-    """Get role-specific value propositions."""
-    role_lower = role.lower()
-    
-    if "ml" in role_lower or "machine learning" in role_lower:
-        return VALUE_PROPOSITIONS["ml_engineer"]
-    elif "data scientist" in role_lower or "analytics" in role_lower:
-        return VALUE_PROPOSITIONS["data_scientist"]
-    elif "data engineer" in role_lower:
-        return VALUE_PROPOSITIONS["data_engineer"]
-    elif "software" in role_lower or "backend" in role_lower or "fullstack" in role_lower:
-        return VALUE_PROPOSITIONS["software_engineer"]
-    else:
-        return VALUE_PROPOSITIONS["default"]
-
-
-# ============================================================
-# 🔬 TECHNICAL DEPTH SIGNALS
-# ============================================================
-
-TECHNICAL_DEPTH_SIGNALS = {
-    "ml": [
-        "implemented custom loss functions for domain-specific optimization",
-        "designed feature stores for real-time ML serving",
-        "built A/B testing frameworks for model evaluation",
-        "optimized inference latency for production deployment"
-    ],
-    "data": [
-        "architected data pipelines processing terabytes daily",
-        "implemented data quality frameworks with automated monitoring",
-        "designed schema evolution strategies for backward compatibility",
-        "built real-time streaming pipelines with exactly-once semantics"
-    ],
-    "systems": [
-        "designed distributed systems handling millions of requests",
-        "implemented caching strategies reducing latency significantly",
-        "built fault-tolerant architectures with graceful degradation",
-        "optimized database queries for high-throughput workloads"
-    ],
-    "general": [
-        "led technical design reviews and architecture decisions",
-        "implemented monitoring and alerting for production systems",
-        "built CI/CD pipelines for automated deployment",
-        "contributed to open-source projects in the ecosystem"
-    ]
-}
-
-
-def get_technical_depth_signals(role: str, jd_keywords: List[str]) -> List[str]:
-    """Get role-appropriate technical depth signals."""
-    role_lower = role.lower()
-    jd_lower = " ".join(jd_keywords).lower()
-    
-    if "ml" in role_lower or "machine learning" in jd_lower:
-        return TECHNICAL_DEPTH_SIGNALS["ml"]
-    elif "data engineer" in role_lower or "pipeline" in jd_lower:
-        return TECHNICAL_DEPTH_SIGNALS["data"]
-    elif "backend" in role_lower or "distributed" in jd_lower:
-        return TECHNICAL_DEPTH_SIGNALS["systems"]
-    else:
-        return TECHNICAL_DEPTH_SIGNALS["general"]
-
-
-# ============================================================
-# 🔒 LaTeX & Text Utilities
+# 🔧 GPT helpers
 # ============================================================
 
 def _json_from_text(text: str, default: dict) -> dict:
@@ -578,774 +86,1250 @@ def _json_from_text(text: str, default: dict) -> dict:
         return default
 
 
-def _latex_escape_light(text: str) -> str:
-    if not text:
-        return ""
-    text = text.replace("&", " and ")
-    repl = {
-        "%": r"\%", "$": r"\$", "#": r"\#", "_": r"\_",
-        "{": r"\{", "}": r"\}", "~": r"\string~", "^": r"\string^",
-        "\\": r"\textbackslash{}",
-    }
-    out = "".join(repl.get(ch, ch) for ch in text)
-    return re.sub(r"[ \t]{2,}", " ", out).strip()
-
-
-def _strip_academic_content(text: str) -> str:
-    """Remove all academic mentions - GPA, graduation, coursework, degree dates."""
-    if not text:
-        return ""
-    
-    # Remove GPA mentions
-    text = re.sub(r"\bGPA\b[:\s]*\d+(\.\d+)?(/\d+(\.\d+)?)?", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\b\d+(\.\d+)?\s*(GPA|CGPA)\b", "", text, flags=re.IGNORECASE)
-    
-    # Remove graduation year/date mentions
-    text = re.sub(r"\b(graduat(ed?|ing|ion))\s*(in|from|date)?\s*\d{4}\b", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\b(class of|expected|graduating)\s*\d{4}\b", "", text, flags=re.IGNORECASE)
-    
-    # Remove coursework mentions
-    text = re.sub(r"\b(relevant\s+)?coursework\b[:\s]*[^.]*\.", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bcourses?\s+(include|including|such as)[^.]*\.", "", text, flags=re.IGNORECASE)
-    
-    # Remove degree mentions with dates
-    text = re.sub(r"\b(bachelor'?s?|master'?s?|ph\.?d\.?|b\.?s\.?|m\.?s\.?)\s*(degree)?\s*(in\s+\w+)?\s*,?\s*\d{4}", "", text, flags=re.IGNORECASE)
-    
-    # Remove university + year combinations
-    text = re.sub(r"\buniversity[^,]*,?\s*\d{4}", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bcollege[^,]*,?\s*\d{4}", "", text, flags=re.IGNORECASE)
-    
-    # Clean up double spaces and punctuation
-    text = re.sub(r"\s+,", ",", text)
-    text = re.sub(r",\s*,", ",", text)
-    text = re.sub(r"\s{2,}", " ", text)
-    text = re.sub(r"\.\s*\.", ".", text)
-    
-    return text.strip()
-
-
-def _strip_star_labels(text: str) -> str:
-    if not text:
-        return ""
-    text = re.sub(
-        r"(?i)\(\s*(?:situation|task|actions?|result(?:\s+and\s+impact)?|impact)"
-        r"(?:\s*/\s*(?:task|actions?|result|impact))?\s*\)",
-        "", text,
-    )
-    text = re.sub(
-        r"(?im)^\s*(?:situation(?:\s*/\s*task)?|task|actions?|result(?:\s+and\s+impact)?|impact)\s*[:\-]\s*",
-        "", text,
-    )
-    text = re.sub(r"[ \t]{2,}", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
-
-
-def _normalize_body_whitespace(text: str) -> str:
-    if not text:
-        return ""
-    text = re.sub(r"(\w)-\s*\n\s*(\w)", r"\1\2", text)
-    text = re.sub(r"([A-Za-z])\s*\n\s*([A-Za-z])", r"\1\2", text)
-    text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
-    return re.sub(r"[ \t]{2,}", " ", text).strip()
-
-
-def _debullettify_and_dedash(text: str) -> str:
-    if not text:
-        return ""
-    text = re.sub(r"\(\s*[0-9]{1,2}\s*\)\s*", "", text)
-    text = re.sub(r"(^|[.?!]\s+)\d{1,2}[.)]\s*", r"\1", text)
-    text = re.sub(r"\s*(?:—|–|--)\s*", ", ", text)
-    text = re.sub(r"\s-\s", ", ", text)
-    text = re.sub(r"\s*,\s*,\s*", ", ", text)
-    text = re.sub(r"[ \t]{2,}", " ", text)
-    return text.strip()
-
-
-def _postprocess_body(text: str) -> str:
-    text = secure_tex_input(text or "")
-    text = _strip_academic_content(text)  # NEW: Remove academic content
-    text = _strip_star_labels(text)
-    text = _normalize_body_whitespace(text)
-    text = _debullettify_and_dedash(text)
-    return _latex_escape_light(text)
-
-
-async def chat_text(system: str, user: str, model: str) -> str:
+async def _chat_text(system: str, user: str, temperature: float = 0.7) -> str:
     client = _get_openai_client()
     resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        model=_MODEL,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        temperature=temperature,
     )
     return (resp.choices[0].message.content or "").strip()
 
 
-async def chat_json(user_prompt: str, model: str) -> dict:
+async def _chat_json(prompt: str, temperature: float = 0.0) -> dict:
     client = _get_openai_client()
     try:
         resp = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": user_prompt}],
+            model=_MODEL,
+            messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
+            temperature=temperature,
         )
         content = (resp.choices[0].message.content or "").strip()
         try:
             return json.loads(content)
         except Exception:
             return _json_from_text(content, {})
-    except Exception:
+    except TypeError:
         resp = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": user_prompt}],
+            model=_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
         )
-        content = (resp.choices[0].message.content or "").strip()
-        return _json_from_text(content, {})
+        return _json_from_text(resp.choices[0].message.content or "", {})
 
 
 # ============================================================
-# 🧠 ADVANCED COMPANY INTELLIGENCE EXTRACTION
+# 🔒 LaTeX utilities — FIXED: & → \& not "and"
 # ============================================================
 
-async def extract_deep_company_intel(
-    jd_text: str,
-    company: str,
-    role: str
-) -> Dict[str, Any]:
-    """Extract deep company intelligence from JD + known database."""
-    
-    base_intel = get_company_intelligence(company)
-    
-    prompt = f"""Analyze this job description and extract SPECIFIC details.
+_LATEX_SPECIAL = {
+    "&": r"\&",  # v3.0.0 FIX: keep ampersand visible, not replace with "and"
+    "%": r"\%",
+    "$": r"\$",
+    "#": r"\#",
+    "_": r"\_",
+    "{": r"\{",
+    "}": r"\}",
+}
 
-COMPANY: {company}
-ROLE: {role}
+
+def _latex_escape(text: str) -> str:
+    """Escape LaTeX special chars ONCE. Safe to call on plain text."""
+    if not text:
+        return ""
+    for ch, repl in _LATEX_SPECIAL.items():
+        text = text.replace(ch, repl)
+    text = re.sub(r"~", r"\\string~", text)
+    text = re.sub(r"\^", r"\\string^", text)
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
+def _strip_academic(text: str, keep_degree_name: bool = False) -> str:
+    """Remove GPA, graduation dates, coursework, degree mentions.
+    v3.0.0: If keep_degree_name=True, preserves degree names (MS, BS) without dates/GPA.
+    """
+    if not text:
+        return ""
+    # Always strip these
+    always_strip = [
+        r"\bC?GPA\s*[:\-]?\s*\d+(\.\d+)?(/\d+(\.\d+)?)?",
+        r"\b\d+(\.\d+)?\s*(GPA|CGPA)\b",
+        r"\b(graduat(ed?|ing|ion))\s*(in|from|date)?\s*\d{4}\b",
+        r"\b(class of|expected|graduating)\s*\d{4}\b",
+        r"\b(relevant\s+)?coursework\b[:\s]*[^.]*\.",
+        r"\bcourses?\s+(include|including|such as)[^.]*\.",
+        r"\bdean'?s?\s*list\b",
+        r"\bcum\s+laude\b",
+    ]
+    for p in always_strip:
+        text = re.sub(p, "", text, flags=re.IGNORECASE)
+
+    # Conditionally strip degree + date combos
+    if not keep_degree_name:
+        degree_patterns = [
+            r"\b(bachelor'?s?|master'?s?|ph\.?d\.?|b\.?s\.?|m\.?s\.?)\s*(degree)?\s*(in\s+\w+)?\s*,?\s*\d{4}",
+            r"\buniversity[^,]*,?\s*\d{4}",
+            r"\bcollege[^,]*,?\s*\d{4}",
+        ]
+        for p in degree_patterns:
+            text = re.sub(p, "", text, flags=re.IGNORECASE)
+
+    return re.sub(r"\s{2,}", " ", text).strip()
+
+
+# ============================================================
+# 🏢 Company type detection — v3.0.0 NEW
+# ============================================================
+
+_STARTUP_SIGNALS = {
+    "yc", "y combinator", "seed", "series a", "series b", "pre-seed",
+    "stealth", "early-stage", "founding", "co-founder", "startup",
+    "fast-growing", "venture", "backed by",
+}
+_ENTERPRISE_SIGNALS = {
+    "fortune 500", "enterprise", "global", "worldwide", "established",
+    "publicly traded", "nasdaq", "nyse", "billion", "decade",
+}
+_INDIAN_COMPANY_SIGNALS = {
+    "bangalore", "bengaluru", "hyderabad", "pune", "mumbai", "chennai",
+    "noida", "gurgaon", "gurugram", "delhi", "kolkata", "india",
+    "infosys", "wipro", "tcs", "hcl", "tech mahindra", "mindtree",
+    "mphasis", "ltimindtree", "persistent", "zoho", "freshworks",
+    "razorpay", "phonepe", "swiggy", "zomato", "flipkart", "meesho",
+    "cred", "groww", "zerodha", "ola", "paytm",
+}
+
+
+def _detect_company_type(jd_text: str, company: str) -> str:
+    """Detect if company is startup, enterprise, or Indian company."""
+    combined = (jd_text + " " + company).lower()
+    indian_score = sum(1 for s in _INDIAN_COMPANY_SIGNALS if s in combined)
+    startup_score = sum(1 for s in _STARTUP_SIGNALS if s in combined)
+    enterprise_score = sum(1 for s in _ENTERPRISE_SIGNALS if s in combined)
+
+    if indian_score >= 2:
+        return "indian"
+    if startup_score > enterprise_score:
+        return "startup"
+    if enterprise_score > 0:
+        return "enterprise"
+    return "us_tech"  # default for most US tech companies
+
+
+# ============================================================
+# 🧠 STEP 1: Extract JD intelligence (single GPT call)
+# ============================================================
+
+async def _extract_jd_intelligence(jd_text: str) -> Dict[str, Any]:
+    """Extract company, role, address, team info, and key requirements in ONE call."""
+    prompt = f"""Analyze this job description. Return STRICT JSON:
+{{
+    "company": "company name",
+    "role": "exact job title",
+    "hiring_manager_name": "name if explicitly stated, else empty string",
+    "hiring_manager_title": "their title if stated (e.g. Engineering Manager, VP), else empty string",
+    "team_name": "specific team if mentioned, else empty string",
+    "team_mission": "what this team does, 1 sentence, else empty string",
+    "city_state": "office location if mentioned, else empty string",
+    "key_requirements": ["top 6 must-have skills/experiences"],
+    "tech_stack": ["specific technologies mentioned"],
+    "business_problem": "what business problem this role solves, 1 sentence",
+    "company_product": "main product/platform this role works on, else empty string",
+    "culture_signals": ["3-4 culture/values phrases from the JD"],
+    "day_to_day_work": ["3-4 specific daily tasks this person will do"],
+    "success_criteria": "how success is measured in first 6 months, else empty string"
+}}
+
+Only extract what is EXPLICITLY in the JD. Do not invent.
 
 JOB DESCRIPTION:
-{jd_text[:4000]}
+{jd_text[:4500]}"""
+    try:
+        data = await _chat_json(prompt)
+        return {
+            "company":              (data.get("company") or "Company").strip(),
+            "role":                 (data.get("role") or "Role").strip(),
+            "hiring_manager_name":  (data.get("hiring_manager_name") or "").strip(),
+            "hiring_manager_title": (data.get("hiring_manager_title") or "").strip(),
+            "team_name":            (data.get("team_name") or "").strip(),
+            "team_mission":         (data.get("team_mission") or "").strip(),
+            "city_state":           (data.get("city_state") or "").strip(),
+            "key_requirements":     data.get("key_requirements", [])[:6],
+            "tech_stack":           data.get("tech_stack", [])[:8],
+            "business_problem":     (data.get("business_problem") or "").strip(),
+            "company_product":      (data.get("company_product") or "").strip(),
+            "culture_signals":      data.get("culture_signals", [])[:4],
+            "day_to_day_work":      data.get("day_to_day_work", [])[:4],
+            "success_criteria":     (data.get("success_criteria") or "").strip(),
+        }
+    except Exception as e:
+        log_event("jd_intel_fail", {"error": str(e)})
+        return {
+            "company": "Company", "role": "Role", "hiring_manager_name": "",
+            "hiring_manager_title": "", "team_name": "", "team_mission": "",
+            "city_state": "", "key_requirements": [], "tech_stack": [],
+            "business_problem": "", "company_product": "", "culture_signals": [],
+            "day_to_day_work": [], "success_criteria": "",
+        }
+
+
+# ============================================================
+# 🔍 STEP 1b: Company research — v3.0.0 NEW
+# ============================================================
+
+async def _research_company(company: str, role: str, jd_text: str) -> Dict[str, Any]:
+    """GPT-based company research for specific, real details."""
+    prompt = f"""You are a tech industry researcher. Tell me about "{company}" for someone
+applying to {role}.
 
 Return STRICT JSON:
 {{
-    "team_name": "specific team/org name if mentioned",
-    "team_mission": "what this specific team does",
-    "tech_stack": ["specific technologies mentioned"],
-    "key_projects": ["specific projects/products mentioned"],
-    "business_impact": "what business problem this role solves",
-    "unique_challenges": ["specific technical challenges mentioned"],
-    "required_expertise": ["must-have skills"],
-    "insider_terminology": ["company-specific terms used"]
+    "what_they_build": "1 sentence — their main product/service, be specific",
+    "recent_news": "1 sentence — any recent launch, funding, acquisition, or milestone. Say 'unknown' if unsure",
+    "engineering_reputation": "1 sentence — what they are known for technically",
+    "why_someone_would_join": "1 sentence — genuine reason an engineer would want to work here, not generic",
+    "competitor_context": "who they compete with, 2-3 names",
+    "tech_culture": "1 sentence — remote/hybrid/onsite, fast/slow, scrappy/process-heavy"
 }}
 
-Extract REAL details from the JD, not generic statements.
-"""
+Be honest. If you do not know something, say "unknown". Do not invent facts.
 
+JD context:
+{jd_text[:1500]}"""
     try:
-        jd_intel = await chat_json(prompt, model=_INTELLIGENCE_MODEL)
+        data = await _chat_json(prompt, temperature=0.3)
+        return {
+            "what_they_build":        (data.get("what_they_build") or "").strip(),
+            "recent_news":            (data.get("recent_news") or "").strip(),
+            "engineering_reputation":  (data.get("engineering_reputation") or "").strip(),
+            "why_someone_would_join": (data.get("why_someone_would_join") or "").strip(),
+            "competitor_context":     (data.get("competitor_context") or "").strip(),
+            "tech_culture":           (data.get("tech_culture") or "").strip(),
+        }
     except Exception as e:
-        log_event("intel_extraction_fail", {"error": str(e)})
-        jd_intel = {}
-    
-    return {
-        **base_intel,
-        "team_name": jd_intel.get("team_name", ""),
-        "team_mission": jd_intel.get("team_mission", ""),
-        "jd_tech_stack": jd_intel.get("tech_stack", []),
-        "key_projects": jd_intel.get("key_projects", []),
-        "business_impact": jd_intel.get("business_impact", ""),
-        "unique_challenges": jd_intel.get("unique_challenges", []),
-        "required_expertise": jd_intel.get("required_expertise", []),
-        "insider_terminology": jd_intel.get("insider_terminology", []) + base_intel.get("insider_phrases", [])
-    }
+        log_event("company_research_fail", {"error": str(e)})
+        return {
+            "what_they_build": "", "recent_news": "", "engineering_reputation": "",
+            "why_someone_would_join": "", "competitor_context": "", "tech_culture": "",
+        }
 
 
-async def extract_resume_highlights(resume_text: str) -> Dict[str, Any]:
-    """Extract key highlights from resume (NO academic content)."""
-    
+# ============================================================
+# 🧠 STEP 2: Extract resume highlights — v3.0.0 REWRITTEN
+#    JD-prioritized, up to 5 achievements, relevance-ranked
+# ============================================================
+
+async def _extract_resume_highlights(
+    resume_text: str,
+    intel: Dict[str, Any],
+    jd_text: str,
+) -> Dict[str, Any]:
+    """Pull the strongest WORK achievements ranked by JD relevance."""
     if not (resume_text or "").strip():
-        return {"highlights": [], "skills": [], "experiences": [], "achievements": []}
-    
-    prompt = f"""Extract the MOST IMPRESSIVE PROFESSIONAL highlights from this resume.
+        return {"achievements": [], "skills": [], "companies": [],
+                "mapped_experiences": [], "strongest_company": ""}
+
+    cleaned = _strip_academic(resume_text[:6000], keep_degree_name=True)
+    reqs_str = ", ".join(intel.get("key_requirements", [])[:6])
+    tech_str = ", ".join(intel.get("tech_stack", [])[:8])
+
+    prompt = f"""Extract professional highlights from this resume, RANKED by relevance
+to the target job.
+
+TARGET ROLE: {intel['role']} at {intel['company']}
+KEY REQUIREMENTS: {reqs_str}
+TECH STACK: {tech_str}
 
 RESUME:
-{resume_text[:5000]}
+{cleaned}
 
 Return STRICT JSON:
 {{
-    "top_achievements": ["3-5 most impressive WORK achievements with context"],
-    "technical_skills": ["key technical skills demonstrated in projects"],
-    "leadership_signals": ["leadership/ownership examples from work"],
-    "quantified_results": ["results with numbers/metrics from work"],
-    "company_names": ["companies worked at"],
-    "project_highlights": ["key projects with outcomes"]
+    "top_5_achievements": [
+        {{
+            "achievement": "1-sentence WORK achievement with quantified result",
+            "company": "where this happened",
+            "relevance_to_jd": "which JD requirement this maps to",
+            "relevance_score": 0.9
+        }}
+    ],
+    "relevant_skills": ["top 8 technical skills matching the JD"],
+    "companies_worked": ["company names ordered by JD relevance"],
+    "strongest_company_for_this_jd": "company name whose experience best matches this JD",
+    "degree_name": "degree name if relevant to role (e.g. MS Applied Machine Learning), else empty"
 }}
 
-IMPORTANT:
-- Focus ONLY on work experience and projects
-- DO NOT include GPA, graduation dates, coursework, or academic achievements
-- DO NOT mention university names unless it's about research WORK
-- Focus on PROFESSIONAL, SPECIFIC achievements only
-"""
+RULES:
+- Only WORK experience achievements. No GPA, no coursework.
+- Rank by relevance to THIS specific JD, not general impressiveness.
+- Include quantified results where available.
+- strongest_company_for_this_jd = the company whose work most directly maps to JD requirements."""
 
     try:
-        return await chat_json(prompt, model=_INTELLIGENCE_MODEL)
+        data = await _chat_json(prompt)
+        raw_achievements = data.get("top_5_achievements", [])
+        achievements = []
+        mapped = []
+        for a in raw_achievements[:5]:
+            if isinstance(a, dict):
+                achievements.append(a.get("achievement", ""))
+                mapped.append({
+                    "achievement": a.get("achievement", ""),
+                    "company": a.get("company", ""),
+                    "maps_to": a.get("relevance_to_jd", ""),
+                    "score": a.get("relevance_score", 0.5),
+                })
+            elif isinstance(a, str):
+                achievements.append(a)
+        return {
+            "achievements":      [a for a in achievements if a][:5],
+            "skills":            data.get("relevant_skills", [])[:8],
+            "companies":         data.get("companies_worked", [])[:4],
+            "mapped_experiences": sorted(mapped, key=lambda x: x.get("score", 0), reverse=True),
+            "strongest_company": (data.get("strongest_company_for_this_jd") or "").strip(),
+            "degree_name":       (data.get("degree_name") or "").strip(),
+        }
     except Exception:
-        return {"highlights": [], "skills": [], "experiences": [], "achievements": []}
+        return {"achievements": [], "skills": [], "companies": [],
+                "mapped_experiences": [], "strongest_company": "", "degree_name": ""}
 
 
-async def extract_company_role(jd_text: str) -> Tuple[str, str]:
-    jd_excerpt = (jd_text or "").strip()[:5000]
-    prompt = (
-        "Extract the company name and exact role title from the job description.\n"
-        'Return STRICT JSON: {"company":"…","role":"…"}.\n'
-        f"JD:\n{jd_excerpt}"
-    )
+# ============================================================
+# 🔗 STEP 2b: Explicit resume-to-JD mapping — v3.0.0 NEW
+# ============================================================
+
+async def _map_requirements_to_experience(
+    intel: Dict[str, Any],
+    highlights: Dict[str, Any],
+) -> List[Dict[str, str]]:
+    """Explicitly map each JD requirement to a candidate experience."""
+    reqs = intel.get("key_requirements", [])[:6]
+    achievements = highlights.get("achievements", [])[:5]
+    skills = highlights.get("skills", [])[:8]
+
+    if not reqs or not achievements:
+        return []
+
+    prompt = f"""Map each job requirement to the candidate's best matching experience.
+
+JOB REQUIREMENTS:
+{json.dumps(reqs)}
+
+CANDIDATE ACHIEVEMENTS:
+{json.dumps(achievements)}
+
+CANDIDATE SKILLS: {', '.join(skills)}
+
+For each requirement, find the BEST matching achievement. If no good match, say "no direct match but transferable from [skill]".
+
+Return STRICT JSON:
+{{
+    "mappings": [
+        {{
+            "requirement": "JD requirement",
+            "best_match": "matching achievement or transferable skill explanation",
+            "match_strength": "strong|moderate|transferable|weak",
+            "proof_phrase": "short phrase to use in cover letter showing this match"
+        }}
+    ]
+}}"""
     try:
-        data = await chat_json(prompt, model=_EXTRACT_MODEL)
-        company = (data.get("company") or "Company").strip()
-        role = (data.get("role") or "Role").strip()
-        return company, role
-    except Exception as e:
-        log_event("coverletter_extract_fail", {"error": str(e)})
-        return "Company", "Role"
+        data = await _chat_json(prompt)
+        return data.get("mappings", [])[:6]
+    except Exception:
+        return []
 
 
 # ============================================================
-# 📝 KILLER COVER LETTER DRAFTING
+# 📝 STEP 3: Draft cover letter body — v3.0.0 REWRITTEN
+#    Simple Indian English, implicit structure, JD-mapped
 # ============================================================
 
-_LENGTH_BANDS = {"short": (120, 180), "standard": (200, 300), "long": (320, 420)}
+_WORD_TARGETS = {
+    "short":    (130, 180),
+    "standard": (200, 280),
+    "long":     (300, 400),
+}
 
-_BUZZ_BANNED = [
-    "passionate", "dynamic", "cutting edge", "team player", "synergy",
-    "results-driven", "fast-paced", "leverage synergies", "mission inspires me",
-    "innovative work", "perfect fit", "dream job", "always wanted to",
-    "since childhood", "grateful for any opportunity", "humbly request",
-    "excited to apply", "thrilled", "honored", "privileged"
-]
+_PARA_WORD_TARGETS = {
+    "short":    [(40, 60), (50, 70), (30, 50)],
+    "standard": [(55, 80), (80, 120), (50, 80)],
+    "long":     [(80, 120), (120, 170), (80, 110)],
+}
 
-_ACADEMIC_BANNED = [
-    "gpa", "cgpa", "graduated", "graduating", "graduation", "coursework",
-    "courses", "degree", "bachelor", "master", "phd", "university studies",
-    "academic", "transcript", "cum laude", "dean's list", "honors"
-]
+# v3.0.0: Real AI-tell patterns that recruiters catch
+_BANNED_PHRASES = {
+    # Old clichés
+    "passionate", "dynamic", "cutting edge", "synergy", "dream job",
+    "perfect fit", "thrilled", "honored", "privileged",
+    "game-changer", "revolutionary", "since childhood",
+    "humbly request", "blown away", "astonishing", "leverage synergies",
+    "results-driven", "team player", "fast-paced environment",
+    # v3.0.0: GPT cover letter tells
+    "i am writing to express",
+    "i would welcome the opportunity",
+    "i am confident that",
+    "eager to contribute",
+    "aligns perfectly",
+    "i believe my experience",
+    "uniquely positioned",
+    "strongly resonates",
+    "i am drawn to",
+    "i am excited to apply",
+    "deeply impressed",
+    "exceptional opportunity",
+    "well-positioned",
+    "my extensive experience",
+    "proven track record",
+    "innovative solutions",
+    "cross-functional collaboration",
+    "hit the ground running",
+    "make a meaningful impact",
+    "drive impactful results",
+    "spearheaded", "leveraged", "orchestrated", "pioneered",
+    "championed", "harnessed",
+}
 
-_WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-\./_+]*")
-_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
-_STOPWORDS = set("a an the and or but if while for with to of in on by from as at into over under is are was were be been being this that these those i you he she they we it".split())
-
-
-def _tokenize(text: str) -> List[str]:
-    return [t.lower() for t in _WORD.findall(text or "")]
-
-
-def _extract_terms(text: str) -> Set[str]:
-    terms = set()
-    for tok in set(_WORD.findall(text or "")):
-        raw = tok.strip()
-        if not raw or raw.lower() in _STOPWORDS or len(raw) < 2:
-            continue
-        terms.add(raw)
-    return terms
-
-
-def _clean_text_local(s: str, banned_phrases: Optional[List[str]] = None) -> str:
-    txt = (s or "").replace("&", " and ").replace("—", ", ").replace("–", ", ").strip()
-    txt = re.sub(r"^\s*(?:[#`>\-\*•]|\d+[.)])\s+", "", txt, flags=re.MULTILINE)
-    
-    # Combine all banned phrases
-    banned = set((banned_phrases or []) + _BUZZ_BANNED + _ACADEMIC_BANNED)
-    for b in sorted(banned, key=len, reverse=True):
-        txt = re.sub(rf"\b{re.escape(b)}\b", "", txt, flags=re.IGNORECASE)
-    
-    # Remove academic content patterns
-    txt = _strip_academic_content(txt)
-    
-    txt = re.sub(r"[\[\]\{\}]+", "", txt)
-    txt = re.sub(r"\s+,", ",", txt)
-    txt = re.sub(r"\s{2,}", " ", txt).strip()
-    return txt
-
-
-def _enforce_word_band_local(text: str, length: str) -> str:
-    lo, hi = _LENGTH_BANDS.get(length, (200, 300))
-    words = text.split()
-    if lo <= len(words) <= hi:
-        return text
-    sentences = _SENT_SPLIT.split(text.strip())
-    out: List[str] = []
-    for s in sentences:
-        candidate = " ".join(out + [s]).strip()
-        if len(candidate.split()) <= hi:
-            out.append(s)
-        else:
-            break
-    return " ".join(out).strip()
+# v3.0.0: Company type → tone adjustments
+_COMPANY_TONE_HINTS = {
+    "startup": "Write like you are messaging a startup founder on Slack. Short punchy sentences. Show you can ship fast. No corporate language.",
+    "enterprise": "Write like a professional email to a senior manager. Slightly more formal but still natural. Show reliability and process awareness.",
+    "indian": "Write like you are emailing an Indian tech lead. Respectful but direct. Mention specific technical contributions. No unnecessary praise.",
+    "us_tech": "Write like a concise email to a US tech hiring manager. Direct, specific, no fluff. Show impact with numbers.",
+}
 
 
-def _shape_paragraphs(text: str, mode: str) -> str:
-    sents = [s.strip() for s in _SENT_SPLIT.split(text.strip()) if s.strip()]
-    if not sents:
-        return text.strip()
-    if mode == "short":
-        cut = max(1, min(len(sents) - 1, len(sents) // 3))
-        return " ".join(sents[:cut]).strip() + "\n\n" + " ".join(sents[cut:]).strip()
-    n = len(sents)
-    i1 = max(1, min(n - 2, n // 5))
-    i2 = max(i1 + 1, min(n - 1, (n * 4) // 5))
-    return (
-        " ".join(sents[:i1]).strip() + "\n\n" +
-        " ".join(sents[i1:i2]).strip() + "\n\n" +
-        " ".join(sents[i2:]).strip()
-    )
-
-
-async def draft_killer_cover_body(
+async def _draft_body(
     jd_text: str,
-    resume_text: str,
-    company: str,
-    role: str,
+    intel: Dict[str, Any],
+    highlights: Dict[str, Any],
+    requirement_map: List[Dict[str, str]],
+    company_research: Dict[str, Any],
+    company_type: str,
     tone: str,
     length: str,
-    company_intel: Dict[str, Any],
-    resume_highlights: Dict[str, Any],
 ) -> str:
-    """
-    Generate a KILLER cover letter with:
-    - ASTONISHING company-specific opening
-    - NO academic mentions
-    - Deep product/technical knowledge
-    - Insider terminology
-    - Compelling narrative
-    """
-    
-    tone = (tone or "balanced").strip().lower()
-    length = (length or "standard").strip().lower()
-    if length not in _LENGTH_BANDS:
-        length = "standard"
-    
-    has_resume = bool((resume_text or "").strip())
-    
-    # Get KILLER opening hook
-    killer_hook = get_killer_hook(company, "product_insights")
-    insider_hook = get_killer_hook(company, "insider_knowledge")
-    recent_hook = get_killer_hook(company, "recent_moves")
-    
-    # Extract JD keywords
-    jd_terms = list(_extract_terms(jd_text or ""))[:30]
-    
-    # Get company-specific elements
-    culture_keywords = company_intel.get("culture_keywords", [])
-    tech_focus = company_intel.get("tech_focus", [])
-    insider_terms = company_intel.get("insider_terminology", [])
-    products = company_intel.get("products_to_reference", [])
-    unique_challenges = company_intel.get("unique_challenges", [])
-    business_impact = company_intel.get("business_impact", "")
-    team_name = company_intel.get("team_name", "")
-    
-    # Get resume highlights (professional only)
-    top_achievements = resume_highlights.get("top_achievements", [])
-    technical_skills = resume_highlights.get("technical_skills", [])
-    quantified_results = resume_highlights.get("quantified_results", [])
-    
-    # Get role-specific value props
-    value_props = get_value_propositions(role)
-    
-    # Get technical depth signals
-    tech_depth = get_technical_depth_signals(role, jd_terms)
-    
-    length_hint = {
-        "short": "Target 150-180 words in 2 tight paragraphs.",
-        "standard": "Target 220-280 words in 3 paragraphs.",
-        "long": "Target 350-400 words in 3-4 paragraphs.",
-    }[length]
-    
-    # Build the KILLER prompt
-    sys_prompt = f"""You are writing a KILLER cover letter that will make the recruiter at {company} stop and think "This person REALLY knows us."
+    """Generate the cover letter body in simple Indian English."""
+    company = intel["company"]
+    role = intel["role"]
+    lo, hi = _WORD_TARGETS.get(length, (200, 280))
+    para_targets = _PARA_WORD_TARGETS.get(length, [(55, 80), (80, 120), (50, 80)])
 
-YOUR MISSION: Write an opening so compelling that the recruiter reads the entire letter. Make them think "We NEED to interview this person."
+    # v3.0.0: Tone is always simple Indian English, with company-type variation
+    company_tone = _COMPANY_TONE_HINTS.get(company_type, _COMPANY_TONE_HINTS["us_tech"])
 
-🎯 KILLER OPENING HOOKS (use ONE of these as inspiration for your opening):
-{killer_hook if killer_hook else "Create a specific, impressive hook about " + company}
+    # Build context strings
+    top_mapped = highlights.get("mapped_experiences", [])[:3]
+    achievements_str = ""
+    for i, m in enumerate(top_mapped):
+        achievements_str += f"- {m.get('achievement', '')} [maps to JD requirement: {m.get('maps_to', '')}]\n"
+    if not achievements_str:
+        achievements_str = "\n".join(f"- {a}" for a in highlights.get("achievements", [])[:3]) or "Strong professional background"
 
-💡 INSIDER KNOWLEDGE (weave naturally):
-{insider_hook if insider_hook else "Show you understand " + company + "'s unique challenges"}
+    skills_str = ", ".join(highlights.get("skills", [])[:8]) or "relevant technical skills"
+    strongest_company = highlights.get("strongest_company", "")
+    degree = highlights.get("degree_name", "")
 
-📈 RECENT COMPANY MOVES:
-{recent_hook if recent_hook else "Reference " + company + "'s recent strategic direction"}
+    # Requirement mapping for paragraph 2
+    mapping_str = ""
+    for m in requirement_map[:4]:
+        if isinstance(m, dict):
+            mapping_str += f"- They need: {m.get('requirement', '')} → I have: {m.get('proof_phrase', m.get('best_match', ''))}\n"
 
-🏢 COMPANY INTELLIGENCE:
-- Culture values: {', '.join(culture_keywords[:3]) if culture_keywords else 'excellence'}
-- Tech focus: {', '.join(tech_focus[:3]) if tech_focus else 'modern technology'}
-- Products to reference: {', '.join(products[:3]) if products else company + ' products'}
-- Insider terms: {', '.join(insider_terms[:4]) if insider_terms else 'none'}
-- Challenges: {', '.join(unique_challenges[:2]) if unique_challenges else 'scaling'}
-- Business impact: {business_impact or 'driving key initiatives'}
-{f'- Team: {team_name}' if team_name else ''}
+    # Company research for paragraph 1
+    research_str = ""
+    if company_research.get("what_they_build"):
+        research_str += f"What they build: {company_research['what_they_build']}\n"
+    if company_research.get("engineering_reputation"):
+        research_str += f"Known for: {company_research['engineering_reputation']}\n"
+    if company_research.get("why_someone_would_join"):
+        research_str += f"Why join: {company_research['why_someone_would_join']}\n"
 
-💪 CANDIDATE STRENGTHS (PROFESSIONAL ONLY - NO ACADEMICS):
-- Work achievements: {'; '.join(top_achievements[:3]) if top_achievements else 'strong technical background'}
-- Technical skills: {', '.join(technical_skills[:6]) if technical_skills else 'relevant skills'}
-- Quantified results: {'; '.join(quantified_results[:2]) if quantified_results else 'measurable impact'}
+    team_ctx = f"Team: {intel['team_name']} — {intel['team_mission']}" if intel.get("team_name") else ""
+    product_ctx = f"Product/Platform: {intel['company_product']}" if intel.get("company_product") else ""
+    biz_ctx = f"Business problem: {intel['business_problem']}" if intel.get("business_problem") else ""
 
-REQUIRED STRUCTURE:
+    # Culture signals woven into instructions
+    culture_signals = intel.get("culture_signals", [])
+    culture_instruction = ""
+    if culture_signals:
+        culture_instruction = f"""
+CULTURE FIT: The JD mentions these values: {', '.join(culture_signals)}.
+Show one of these naturally through your experience — do not just state the value.
+Example: If they value "collaboration", say "I worked with the firmware team to..." not "I am collaborative"."""
 
-PARAGRAPH 1 - THE ASTONISHING HOOK (3-4 sentences):
-- Start with a SPECIFIC, IMPRESSIVE statement about {company} that shows deep knowledge
-- Reference a specific product, feature, technical decision, or company initiative
-- Show you understand THEIR unique challenges, not generic industry challenges
-- Make the recruiter think "How does this person know so much about us?"
+    # Day-to-day work for paragraph 3
+    daily_work = intel.get("day_to_day_work", [])
+    daily_str = ", ".join(daily_work[:3]) if daily_work else ""
 
-PARAGRAPH 2 - PROOF OF VALUE (4-5 sentences):
-- Lead with your STRONGEST work achievement
-- Connect your experience DIRECTLY to their needs
-- Include specific technical accomplishments from WORK (not school)
-- Show HOW you solved problems, not just what you did
-- Demonstrate ownership and measurable impact
+    # v3.0.0: JD tech stack for keyword echo
+    tech_stack = intel.get("tech_stack", [])
+    tech_echo_str = ", ".join(tech_stack[:6]) if tech_stack else ""
 
-PARAGRAPH 3 - FORWARD VALUE + CLOSE (3-4 sentences):
-- Preview specific contributions in first 30-60-90 days
-- Reference their specific challenges/goals
-- Show cultural fit through actions, not words
-- End with confident ask for conversation
+    # Build banned phrases string
+    banned_str = ", ".join(sorted(list(_BANNED_PHRASES)[:25]))
 
-⛔ ABSOLUTE RULES - NEVER VIOLATE:
-1. NO ACADEMIC CONTENT: No GPA, graduation year, coursework, degree dates, university names (unless for research work)
-2. NO CLICHÉS: "passionate", "excited", "team player", "fast-paced", "perfect fit", "dream job"
-3. NO BEGGING: "grateful for opportunity", "hope you'll consider", "humbly", "honored"
-4. NO GENERIC STATEMENTS: Everything must be specific to {company}
-5. PROFESSIONAL EXPERIENCE ONLY: All proof must come from work/projects, not academics
-6. {length_hint}
-7. First-person singular, confident but not arrogant
-8. Use "and" not "&", no em-dashes
-9. Every sentence must provide value - no filler
+    system = f"""You are an Indian engineer from Hyderabad/Bangalore writing a cover letter in English.
 
-OUTPUT: Just the body paragraphs, no salutation or signature.
-"""
+YOUR ENGLISH STYLE:
+- Simple spoken Indian English. IELTS band 6.5 level.
+- Short sentences. 10-18 words per sentence maximum.
+- Use simple words: "built", "worked on", "handled", "fixed", "wrote", "tested", "set up"
+- Do NOT use: "spearheaded", "orchestrated", "leveraged", "utilized", "pioneered", "harnessed"
+- Do NOT use complex subordinate clauses or nested sentences
+- Write like you are explaining your work to a senior engineer over chai, not writing a formal essay
+- Slight Indian English patterns are OK: "I was working on..." "We had to handle..." "The team used to..."
+- Use "and" not "&". No em-dashes. No semicolons.
+- Contractions OK: "didn't", "wasn't", "couldn't"
 
-    user_prompt = f"""Write the KILLER cover letter body for:
+{company_tone}
 
-ROLE: {role}
+STRICT RULES:
+1. NEVER use these phrases: {banned_str}
+2. NEVER mention GPA, graduation date, coursework, university name, or academic grades
+3. First-person singular only
+4. {lo}-{hi} words total across all 3 paragraphs
+5. Exactly 3 paragraphs separated by blank lines
+6. No salutation, no signature — body paragraphs ONLY
+7. No exclamation marks
+8. Each paragraph must have a clear topic, not repeat the others
+9. At least 2 specific technologies from the JD must appear naturally in the letter
+10. Do NOT start any sentence with "I am writing to" or "I am excited to" or "I am confident that"
+11. Do NOT end with "I look forward to hearing from you" — find a more natural close"""
+
+    user = f"""Write a cover letter body for:
+
 COMPANY: {company}
+ROLE: {role}
+COMPANY TYPE: {company_type}
+{team_ctx}
+{product_ctx}
+{biz_ctx}
 
-JOB DESCRIPTION:
-{jd_text[:4000]}
+COMPANY RESEARCH:
+{research_str if research_str else 'No specific research available — use JD context only'}
 
-RESUME (for PROFESSIONAL experience reference only):
-{resume_text[:4000] if has_resume else 'Focus on JD requirements and general professional capability.'}
+MY STRONGEST WORK ACHIEVEMENTS (ranked by relevance to this JD):
+{achievements_str}
 
-Remember: 
-- The opening must ASTONISH the recruiter with your knowledge of {company}
-- NO academic content (GPA, graduation, coursework)
-- Only reference WORK experience and projects
-"""
+REQUIREMENT-TO-EXPERIENCE MAP:
+{mapping_str if mapping_str else 'Use achievements above to demonstrate JD fit'}
 
-    # Generate the draft
-    draft = await chat_text(sys_prompt, user_prompt, model=_DRAFT_MODEL)
-    
-    # Clean and validate
-    body = _clean_text_local(draft)
-    
-    # Validate and repair
-    body = await _validate_and_repair_killer(
-        body, company, role, jd_text, resume_text,
-        company_intel, resume_highlights, length, tone
-    )
-    
-    # Final shaping
-    body = _shape_paragraphs(body, length)
-    body = _enforce_word_band_local(body, length)
-    
-    return _postprocess_body(body)
+MY SKILLS: {skills_str}
+{f'MY DEGREE: {degree}' if degree else ''}
+{f'STRONGEST RELEVANT COMPANY: {strongest_company}' if strongest_company else ''}
+
+JD TECHNOLOGIES TO MENTION NATURALLY: {tech_echo_str if tech_echo_str else 'Use technologies from achievements'}
+
+{culture_instruction}
+
+JOB DESCRIPTION (for context):
+{jd_text[:2500]}
+
+WRITE 3 PARAGRAPHS:
+
+First paragraph ({para_targets[0][0]}-{para_targets[0][1]} words):
+Start with something specific about {company} — their product, their technical challenge, or what their team works on. Connect it to your background in 1-2 sentences. Do not say "I am writing to express my interest." Instead, jump straight into why their work connects to yours.
+
+GOOD EXAMPLE: "I have been following {company}'s work on [specific product]. My experience building [specific thing] at [company] gave me a good understanding of the kind of problems your {intel.get('team_name', 'team')} handles."
+BAD EXAMPLE: "I am excited to apply for the {role} position at {company}. I believe my experience makes me a perfect fit."
+
+Second paragraph ({para_targets[1][0]}-{para_targets[1][1]} words):
+Pick your 1-2 strongest achievements that directly map to their requirements. Be specific — name the tool, the problem, the result. Use numbers if you have them. Show you already did similar work.
+
+GOOD EXAMPLE: "At [company], I built a [specific thing] using [JD technology]. It [specific result]. This is similar to what your team needs for [JD requirement]."
+BAD EXAMPLE: "Throughout my career, I have developed a proven track record of delivering innovative solutions that drive impactful results across cross-functional teams."
+
+Third paragraph ({para_targets[2][0]}-{para_targets[2][1]} words):
+{f'Based on the JD, the day-to-day work involves: {daily_str}. ' if daily_str else ''}Say what you would work on in the first few months. Be specific to the role. End with a simple, natural close.
+
+GOOD EXAMPLE: "In the first few months, I would focus on [specific JD task]. Happy to discuss this further whenever works for you."
+BAD EXAMPLE: "I am confident that my unique combination of skills positions me to make a meaningful impact. I look forward to hearing from you at your earliest convenience."
+
+Write naturally. Short sentences. Simple words. Like a real person."""
+
+    body = await _chat_text(system, user, temperature=0.75)
+
+    # Light cleanup — NO LaTeX escaping here (done later)
+    body = re.sub(r"^\s*(?:dear\s|sincerely|regards|best|yours|warmly|respectfully).*$",
+                  "", body, flags=re.IGNORECASE | re.MULTILINE)
+    body = re.sub(r"^\s*[#*>\-•]\s+", "", body, flags=re.MULTILINE)
+    body = re.sub(r"!+", ".", body)  # No exclamation marks
+
+    # Strip banned phrases that slipped through
+    for phrase in _BANNED_PHRASES:
+        body = re.sub(rf"\b{re.escape(phrase)}\b", "", body, flags=re.IGNORECASE)
+
+    body = _strip_academic(body, keep_degree_name=bool(degree))
+    body = re.sub(r"\s{2,}", " ", body)
+    body = re.sub(r"\n{3,}", "\n\n", body)
+    return body.strip()
 
 
-async def _validate_and_repair_killer(
+# ============================================================
+# ✅ STEP 4: 6-axis quality rubric — v3.0.0 REWRITTEN
+# ============================================================
+
+async def _score_and_repair(
     body: str,
-    company: str,
-    role: str,
-    jd_text: str,
-    resume_text: str,
-    company_intel: Dict[str, Any],
-    resume_highlights: Dict[str, Any],
+    intel: Dict[str, Any],
+    highlights: Dict[str, Any],
+    requirement_map: List[Dict[str, str]],
+    company_type: str,
     length: str,
-    tone: str,
-    max_repairs: int = 2
+    jd_text: str,
 ) -> str:
-    """Validate and repair the cover letter for quality."""
-    
-    issues = []
-    body_lower = body.lower()
-    
-    # Check for banned clichés
-    for cliche in _BUZZ_BANNED:
-        if cliche.lower() in body_lower:
-            issues.append(f"Contains banned cliché: '{cliche}'")
-    
-    # Check for academic content
-    for academic in _ACADEMIC_BANNED:
-        if academic.lower() in body_lower:
-            issues.append(f"Contains academic content: '{academic}'")
-    
-    # Check company name is mentioned
-    if company.lower() not in body_lower:
-        issues.append("Company name not mentioned")
-    
-    # Check for specific product/feature reference
-    products = company_intel.get("products_to_reference", [])
-    product_mentioned = any(p.lower() in body_lower for p in products if p)
-    if products and not product_mentioned:
-        issues.append(f"No specific product reference (mention: {', '.join(products[:3])})")
-    
-    # Check for technical specificity
-    tech_terms = company_intel.get("jd_tech_stack", []) + company_intel.get("tech_focus", [])
-    tech_mentioned = sum(1 for t in tech_terms if t.lower() in body_lower)
-    if tech_mentioned < 2:
-        issues.append("Insufficient technical specificity")
-    
-    # Check opening is company-specific (not generic)
-    first_sentence = body.split('.')[0] if body else ""
-    if company.lower() not in first_sentence.lower():
-        issues.append("Opening sentence doesn't mention company - needs company-specific hook")
-    
-    # Check for forward-looking content
-    if not re.search(r"\b(first|initial|early|would|will|contribute|drive|bring)\b", body_lower):
-        issues.append("Missing forward-looking value statement")
-    
-    # Repair if needed
-    if issues and max_repairs > 0:
-        repair_prompt = f"""Rewrite this cover letter to fix these issues:
-{chr(10).join(f'- {i}' for i in issues)}
+    """Score on 6 axes, repair specific weak areas."""
+    company = intel["company"]
+    role = intel["role"]
+    lo, hi = _WORD_TARGETS.get(length, (200, 280))
+    word_count = len(body.split())
+    paras = [p.strip() for p in body.split("\n\n") if p.strip()]
+    tech_stack = intel.get("tech_stack", [])
 
-Current draft:
+    # ── Scoring prompt ──────────────────────────────────────────
+    prompt = f"""Score this cover letter on 6 axes (0-3 each). Be strict.
+
+COVER LETTER:
 {body}
 
-CRITICAL REQUIREMENTS:
-- Company: {company}
-- Role: {role}
-- Opening sentence MUST mention {company} with a specific insight
-- Mention specific products/features: {', '.join(products[:3]) if products else company + ' products'}
-- Include specific technologies: {', '.join(tech_terms[:5])}
-- NO academic content (GPA, graduation, coursework, university)
-- NO clichés (passionate, excited, dream job, etc.)
-- Add forward-looking contribution preview
-- Keep it {length} length
+TARGET: {role} at {company}
+JD TECH STACK: {', '.join(tech_stack[:6])}
+COMPANY TYPE: {company_type}
 
-Return only the improved body paragraphs.
-"""
-        try:
-            repaired = await chat_text(
-                "You are fixing a cover letter to make it more compelling and specific.",
-                repair_prompt,
-                model=_DRAFT_MODEL
+AXES:
+1. company_specificity (0-3): Does paragraph 1 reference something SPECIFIC about {company}? (product name, team, technical challenge — not just "your company")
+   3 = names specific product/team/challenge
+   2 = references industry/domain correctly
+   1 = generic company praise
+   0 = no company reference
+
+2. achievement_concreteness (0-3): Does paragraph 2 have a SPECIFIC quantified achievement?
+   3 = specific project + tool + number
+   2 = specific project + tool, no number
+   1 = vague "improved performance"
+   0 = no concrete achievement
+
+3. jd_keyword_echo (0-3): How many JD technologies appear naturally?
+   3 = 3+ JD technologies mentioned
+   2 = 2 JD technologies
+   1 = 1 JD technology
+   0 = no JD technologies
+
+4. human_voice (0-3): Does it sound like a real Indian engineer, not ChatGPT?
+   3 = natural, simple sentences, sounds human
+   2 = mostly natural, one formulaic phrase
+   1 = template-like, predictable structure
+   0 = obvious ChatGPT — banned phrases, complex subordinate clauses, "proven track record" type language
+
+5. forward_close (0-3): Does paragraph 3 mention specific work they would do?
+   3 = names specific JD task they would tackle
+   2 = general area of contribution
+   1 = generic "contribute to your team"
+   0 = no forward-looking content
+
+6. word_count_fit (0-3): Is it {lo}-{hi} words with 3 paragraphs?
+   3 = within range, exactly 3 paragraphs
+   2 = slightly off range (within 20 words), 3 paragraphs
+   1 = off range or wrong paragraph count
+   0 = way off
+
+Return STRICT JSON:
+{{
+    "scores": {{
+        "company_specificity": 2,
+        "achievement_concreteness": 2,
+        "jd_keyword_echo": 1,
+        "human_voice": 2,
+        "forward_close": 2,
+        "word_count_fit": 3
+    }},
+    "total": 12,
+    "weakest_axis": "jd_keyword_echo",
+    "issues": ["specific issue 1", "specific issue 2"],
+    "banned_phrases_found": ["any banned phrases still present"]
+}}"""
+
+    try:
+        score_data = await _chat_json(prompt)
+        scores = score_data.get("scores", {})
+        total = score_data.get("total", 18)
+        weakest = score_data.get("weakest_axis", "")
+        issues = score_data.get("issues", [])
+        banned_found = score_data.get("banned_phrases_found", [])
+    except Exception:
+        log_event("cl_scoring_fail")
+        # Do basic checks only
+        scores = {}
+        total = 18
+        weakest = ""
+        issues = []
+        banned_found = []
+
+    # ── Additional deterministic checks ─────────────────────────
+    body_lower = body.lower()
+
+    # Check company mention
+    if company.lower() not in body_lower:
+        issues.append(f"Company name '{company}' not mentioned anywhere")
+        if not weakest:
+            weakest = "company_specificity"
+
+    # Check word count hard limits
+    if word_count < lo - 20:
+        issues.append(f"Too short: {word_count} words (need {lo}-{hi})")
+    elif word_count > hi + 30:
+        issues.append(f"Too long: {word_count} words (need {lo}-{hi})")
+
+    # Check paragraph count
+    if len(paras) < 2:
+        issues.append("Fewer than 2 paragraphs")
+    elif len(paras) > 5:
+        issues.append("More than 5 paragraphs")
+
+    # Check JD keyword echo
+    tech_found = [t for t in tech_stack if t.lower() in body_lower]
+    if len(tech_found) < 2 and tech_stack:
+        missing_tech = [t for t in tech_stack[:4] if t.lower() not in body_lower]
+        issues.append(f"Missing JD technologies: {', '.join(missing_tech[:3])}")
+        if not weakest:
+            weakest = "jd_keyword_echo"
+
+    # Check banned phrases (deterministic)
+    for phrase in _BANNED_PHRASES:
+        if phrase in body_lower:
+            banned_found.append(phrase)
+
+    # Check academic content
+    for academic in ["gpa", "cgpa", "coursework", "graduation", "dean's list"]:
+        if academic in body_lower:
+            issues.append(f"Contains academic content: '{academic}'")
+            break
+
+    # ── Decision: repair or pass ────────────────────────────────
+    if not issues and total >= 14:
+        log_event("cl_quality_passed", {"total": total, "word_count": word_count})
+        return body
+
+    log_event("cl_quality_issues", {"total": total, "issues": issues[:5], "weakest": weakest})
+
+    # ── Targeted repair ─────────────────────────────────────────
+    # Build repair instructions based on weakest axis
+    repair_instructions = []
+
+    if weakest == "company_specificity" or company.lower() not in body_lower:
+        what_they_build = ""
+        if intel.get("company_product"):
+            what_they_build = intel["company_product"]
+        elif intel.get("business_problem"):
+            what_they_build = intel["business_problem"]
+        repair_instructions.append(
+            f"Paragraph 1 must reference {company} specifically. "
+            f"Mention their product/challenge: '{what_they_build}'"
+        )
+
+    if weakest == "jd_keyword_echo":
+        missing_tech = [t for t in tech_stack[:4] if t.lower() not in body_lower]
+        if missing_tech:
+            repair_instructions.append(
+                f"Naturally mention these technologies: {', '.join(missing_tech[:3])}"
             )
-            return await _validate_and_repair_killer(
-                _clean_text_local(repaired),
-                company, role, jd_text, resume_text,
-                company_intel, resume_highlights, length, tone,
-                max_repairs - 1
+
+    if weakest == "human_voice" or banned_found:
+        repair_instructions.append(
+            "Rewrite in simpler Indian English. Short sentences. "
+            "Remove any phrase that sounds like ChatGPT wrote it. "
+            f"Remove these specific phrases: {', '.join(banned_found[:3])}"
+        )
+
+    if weakest == "achievement_concreteness":
+        top_achievement = (highlights.get("achievements", []) or [""])[0]
+        repair_instructions.append(
+            f"Paragraph 2 needs a specific achievement with a number. Use: '{top_achievement}'"
+        )
+
+    if weakest == "forward_close":
+        daily_work = intel.get("day_to_day_work", [])
+        if daily_work:
+            repair_instructions.append(
+                f"Paragraph 3 must mention specific work: '{daily_work[0]}'"
             )
-        except Exception:
-            pass
-    
+
+    if word_count < lo - 20:
+        repair_instructions.append(f"Expand to at least {lo} words. Add more detail to paragraph 2.")
+    elif word_count > hi + 30:
+        repair_instructions.append(f"Cut to under {hi} words. Remove redundant sentences.")
+
+    if not repair_instructions:
+        repair_instructions.append("Fix the general quality. Keep simple Indian English voice.")
+
+    repair_prompt = f"""Fix these specific issues in this cover letter body.
+Keep the same simple Indian English voice. Short sentences. No ChatGPT language.
+
+ISSUES TO FIX:
+{chr(10).join(f'- {r}' for r in repair_instructions)}
+
+CURRENT DRAFT:
+{body}
+
+REQUIREMENTS:
+- Company: {company}, Role: {role}
+- {lo}-{hi} words, exactly 3 paragraphs
+- NO academic content
+- Simple Indian English — IELTS band 6.5
+- Must mention {company} by name in paragraph 1
+- At least 2 JD technologies: {', '.join(tech_stack[:4])}
+- Body paragraphs ONLY — no salutation/signature
+- No exclamation marks
+
+Return ONLY the improved body text. Nothing else."""
+
+    try:
+        repaired = await _chat_text(
+            "You are fixing specific issues in a cover letter. Keep the simple Indian English voice. "
+            "Short sentences. No ChatGPT patterns. Fix only what is listed.",
+            repair_prompt,
+            temperature=0.6,
+        )
+        repaired = _strip_academic(repaired, keep_degree_name=bool(highlights.get("degree_name")))
+        repaired = re.sub(r"^\s*(?:dear\s|sincerely|regards).*$", "", repaired,
+                          flags=re.IGNORECASE | re.MULTILINE)
+        repaired = re.sub(r"!+", ".", repaired)
+        repaired = re.sub(r"\s{2,}", " ", repaired)
+        repaired = re.sub(r"\n{3,}", "\n\n", repaired).strip()
+
+        repaired_wc = len(repaired.split())
+        if repaired and repaired_wc >= lo - 20 and repaired_wc <= hi + 30:
+            return repaired
+        log_event("cl_repair_word_count_off", {"repaired_wc": repaired_wc, "target": f"{lo}-{hi}"})
+    except Exception as e:
+        log_event("cl_repair_fail", {"error": str(e)})
+
     return body
 
 
 # ============================================================
-# ✨ Humanize via internal service
+# 🔍 STEP 4b: Fact-checking — v3.0.0 NEW
 # ============================================================
 
-async def humanize_text(body_text: str, tone: str) -> str:
-    api_base = (getattr(config, "API_BASE_URL", "") or "").rstrip("/") or "http://127.0.0.1:8000"
-    url = f"{api_base}/api/superhuman/rewrite"
-    payload = {"text": body_text, "mode": "coverletter", "tone": tone, "latex_safe": True}
+async def _fact_check(
+    body: str,
+    resume_text: str,
+    intel: Dict[str, Any],
+) -> str:
+    """Verify all claims in the cover letter exist in the resume."""
+    if not resume_text:
+        return body
+
+    prompt = f"""Check if every factual claim in this cover letter is supported by the resume.
+
+COVER LETTER:
+{body}
+
+RESUME:
+{resume_text[:5000]}
+
+Check for:
+1. Companies mentioned — are they in the resume?
+2. Technologies claimed — are they in the resume?
+3. Metrics/numbers — are they in the resume or reasonable?
+4. Projects described — do they match resume content?
+5. Claims of leading/owning/building — are they exaggerated vs resume?
+
+Return STRICT JSON:
+{{
+    "all_facts_verified": true,
+    "issues": [
+        {{
+            "claim": "the problematic claim",
+            "issue": "not in resume / exaggerated / invented",
+            "suggested_fix": "how to fix it"
+        }}
+    ]
+}}"""
+
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            r = await client.post(url, json=payload)
-        r.raise_for_status()
-        data = r.json()
-        result = data.get("rewritten") or data.get("text") or body_text
-        # Strip academic content after humanization too
-        return _strip_academic_content(result)
+        data = await _chat_json(prompt)
+        if data.get("all_facts_verified", True):
+            log_event("cl_factcheck_passed")
+            return body
+
+        issues = data.get("issues", [])
+        if not issues:
+            return body
+
+        log_event("cl_factcheck_issues", {"count": len(issues)})
+
+        # Build targeted fix
+        fixes = []
+        for issue in issues[:3]:
+            if isinstance(issue, dict):
+                fixes.append(f"- Claim: '{issue.get('claim', '')}' → {issue.get('suggested_fix', 'remove or correct')}")
+
+        if not fixes:
+            return body
+
+        fix_prompt = f"""Fix these factual errors in the cover letter. Do NOT invent new facts.
+Only use information from the resume.
+
+ERRORS:
+{chr(10).join(fixes)}
+
+CURRENT:
+{body}
+
+RESUME (for reference):
+{resume_text[:3000]}
+
+Keep the same simple Indian English voice. Same structure. Fix only the errors listed.
+Return ONLY the corrected body text."""
+
+        fixed = await _chat_text(
+            "Fix factual errors in this cover letter. Keep the voice and structure identical. "
+            "Only change the specific claims listed.",
+            fix_prompt,
+            temperature=0.3,
+        )
+        if fixed and len(fixed.split()) >= len(body.split()) * 0.7:
+            return fixed.strip()
     except Exception as e:
-        log_event("superhuman_handoff_fail", {"error": str(e)})
-        return body_text
+        log_event("cl_factcheck_fail", {"error": str(e)})
+
+    return body
 
 
 # ============================================================
-# 📄 Header & Template Injection
+# ✨ STEP 5: Humanize (optional, failure-safe) + tone guard
 # ============================================================
 
-def _fill_header_fields(
+async def _humanize(body: str, tone: str) -> str:
+    """Mandatory direct SuperHuman pass using the approved Indian-English prompt."""
+    from backend.api.superhuman import rewrite_single
+
+    result = await rewrite_single(
+        body, "coverletter", tone,
+        {"no_fabrication": True, "keep_metrics": True},
+        False, 12000,
+    )
+    if not result or len(result) < len(body) * 0.5:
+        raise HTTPException(status_code=502, detail="SuperHuman returned an incomplete cover letter.")
+    return _strip_academic(result)
+
+
+def _desktop_coverletter_path(company: str, role: str, payload: bytes) -> Path:
+    """Persist a compiled letter in the user-facing Desktop library."""
+    def clean(value: str) -> str:
+        return re.sub(r"\s+", " ", re.sub(r'[/\\:*?"<>|]', "-", value)).strip(" .-")
+
+    folder = Path.home() / "Desktop" / "ASTRA Cover Letters"
+    folder.mkdir(parents=True, exist_ok=True)
+    stem = f"Sri Akash Kadali - {clean(company) or 'Company'} - {clean(role) or 'Role'} - Cover Letter"[:220].rstrip(" .-")
+    candidate = folder / f"{stem}.pdf"
+    digest = hashlib.sha256(payload).digest()
+    if candidate.is_file():
+        try:
+            if hashlib.sha256(candidate.read_bytes()).digest() == digest:
+                return candidate
+        except OSError:
+            pass
+        version = 2
+        while True:
+            versioned = folder / f"{stem} - v{version}.pdf"
+            if not versioned.exists():
+                candidate = versioned
+                break
+            try:
+                if hashlib.sha256(versioned.read_bytes()).digest() == digest:
+                    return versioned
+            except OSError:
+                pass
+            version += 1
+    pending = candidate.with_suffix(".tmp")
+    pending.write_bytes(payload)
+    os.replace(pending, candidate)
+    return candidate
+
+
+async def _post_humanize_tone_guard(body: str) -> str:
+    """v3.0.0: After humanize, verify the tone is still simple Indian English.
+    If humanize converted it to polished American English, fix it back."""
+    # Check for AI-tell phrases that humanize might have introduced
+    body_lower = body.lower()
+    ai_tells_found = []
+    for phrase in _BANNED_PHRASES:
+        if phrase in body_lower:
+            ai_tells_found.append(phrase)
+
+    # Check sentence complexity — if average sentence length > 22 words, it got too polished
+    sentences = re.split(r'[.!?]+', body)
+    sentences = [s.strip() for s in sentences if s.strip()]
+    avg_words = sum(len(s.split()) for s in sentences) / max(1, len(sentences))
+
+    if not ai_tells_found and avg_words <= 22:
+        return body
+
+    log_event("cl_tone_guard_triggered", {
+        "ai_tells": ai_tells_found[:3],
+        "avg_sentence_words": round(avg_words, 1),
+    })
+
+    try:
+        fixed = await _chat_text(
+            "You are simplifying English text for an Indian engineer (IELTS 6.5 level). "
+            "Break long sentences into shorter ones. Replace fancy words with simple ones. "
+            "Keep all factual content the same.",
+            f"""Simplify this text. Short sentences (10-18 words each). Simple vocabulary.
+Remove these phrases: {', '.join(ai_tells_found[:5])}
+
+TEXT:
+{body}
+
+Return ONLY the simplified text. Same 3 paragraphs. Same facts.""",
+            temperature=0.5,
+        )
+        if fixed and len(fixed.split()) >= len(body.split()) * 0.7:
+            return fixed.strip()
+    except Exception:
+        pass
+
+    # Fallback: just strip banned phrases
+    for phrase in ai_tells_found:
+        body = re.sub(rf"\b{re.escape(phrase)}\b", "", body, flags=re.IGNORECASE)
+    return re.sub(r"\s{2,}", " ", body).strip()
+
+
+# ============================================================
+# 📄 STEP 6: Template injection — v3.0.0 UPDATED salutation
+# ============================================================
+
+def _build_salutation(intel: Dict[str, Any], company_type: str) -> str:
+    """v3.0.0: Cultural awareness — formal for Indian companies, first-name for US startups."""
+    name = intel.get("hiring_manager_name", "").strip()
+    title = intel.get("hiring_manager_title", "").strip()
+
+    if not name:
+        return "Dear Hiring Manager,"
+
+    parts = name.split()
+    if len(parts) < 2:
+        # Single name — use as-is
+        if company_type == "indian":
+            return f"Dear {_latex_escape(name)},"
+        return f"Dear {_latex_escape(name)},"
+
+    first = parts[0]
+    last = parts[-1]
+
+    # For Indian companies or enterprise: use Mr./Ms./Dr. Last
+    if company_type in ("indian", "enterprise"):
+        # Check for Dr.
+        if "dr" in title.lower() or "phd" in title.lower() or "doctor" in title.lower():
+            return f"Dear Dr. {_latex_escape(last)},"
+        return f"Dear Mr./Ms. {_latex_escape(last)},"
+
+    # For US tech / startups: first name is fine
+    return f"Dear {_latex_escape(first)},"
+
+
+def _fill_template(
     tex: str,
-    *,
     company: str,
     role: str,
     candidate: str,
     date_str: str,
-    email: str = "",
-    phone: str = "",
-    citystate: str = "",
+    email: str,
+    phone: str,
+    citystate: str,
+    salutation: str,
 ) -> str:
-    def esc(v: str) -> str:
-        return _latex_escape_light(secure_tex_input(v or ""))
-
-    subst = {
-        "COMPANY": company, "ROLE": role, "CANDIDATE_NAME": candidate,
-        "NAME": candidate, "DATE": date_str, "EMAIL": email,
-        "PHONE": phone, "CITYSTATE": citystate,
+    """Replace all template placeholders with escaped values."""
+    replacements = {
+        "{{DATE}}":           _latex_escape(date_str),
+        "{{COMPANY}}":        _latex_escape(company),
+        "{{ROLE}}":           _latex_escape(role),
+        "{{CANDIDATE_NAME}}": _latex_escape(candidate),
+        "{{NAME}}":           _latex_escape(candidate),
+        "{{EMAIL}}":          _latex_escape(email),
+        "{{PHONE}}":          _latex_escape(phone),
+        "{{CITYSTATE}}":      _latex_escape(citystate) if citystate else "",
+        "{{SALUTATION}}":     salutation,
     }
-    for k, v in subst.items():
-        tex = tex.replace(f"{{{{{k}}}}}", esc(v))
-        tex = tex.replace(f"%<<{k}>>%", esc(v))
 
-    patterns = {
-        r"(\\def\\Company\{)(.*?)(\})": company,
-        r"(\\def\\Role\{)(.*?)(\})": role,
-        r"(\\def\\CandidateName\{)(.*?)(\})": candidate,
-        r"(\\def\\Date\{)(.*?)(\})": date_str,
-    }
-    for pat, val in patterns.items():
-        tex = re.sub(pat, lambda m: f"{m.group(1)}{esc(val)}{m.group(3)}", tex, flags=re.I)
+    for placeholder, value in replacements.items():
+        tex = tex.replace(placeholder, value)
+
+    for placeholder, value in replacements.items():
+        alt = placeholder.replace("{{", "%<<").replace("}}", ">>%")
+        tex = tex.replace(alt, value)
+
+    for p in ("{{EMPLOYER_ADDRESS}}", "%<<EMPLOYER_ADDRESS>>%"):
+        tex = re.sub(r"[^\n]*" + re.escape(p) + r"[^\n]*\n?", "", tex)
+
+    if not citystate:
+        tex = re.sub(r"^[^\S\n]*\\\\[^\S\n]*\n", "", tex, flags=re.MULTILINE)
 
     return tex
 
 
-def _inject_between_salutation_and_signoff(base_tex: str, body_tex: str) -> Optional[str]:
-    pat = r"(Dear[^\n]*?,\s*\n)([\s\S]*?)(\n\s*Sincerely,\s*\\\\[\s\S]*?$)"
-    if re.search(pat, base_tex, flags=re.I):
-        return re.sub(pat, lambda m: f"{m.group(1)}{body_tex}\n{m.group(3)}", base_tex, flags=re.I)
-    return None
+def _inject_body(template_tex: str, body_tex: str) -> str:
+    """Inject body text between salutation and signoff, or at anchor."""
+    pat = r"(Dear[^\n]*?,\s*\n)([\s\S]*?)(\n\s*(?:Sincerely|Best regards|Regards),)"
+    m = re.search(pat, template_tex, flags=re.IGNORECASE)
+    if m:
+        return template_tex[:m.start(1)] + m.group(1) + "\n" + body_tex + "\n" + template_tex[m.start(3):]
 
+    anchor = r"(%-+\s*BODY[- ]START\s*-+%)([\s\S]*?)(%-+\s*BODY[- ]END\s*-+%)"
+    m2 = re.search(anchor, template_tex, flags=re.IGNORECASE)
+    if m2:
+        return template_tex[:m2.start()] + m2.group(1) + "\n" + body_tex + "\n" + m2.group(3) + template_tex[m2.end():]
 
-def inject_body_into_template(base_tex: str, body_tex: str) -> str:
-    swapped = _inject_between_salutation_and_signoff(base_tex, body_tex)
-    if swapped is not None:
-        return swapped
+    end_doc = template_tex.rfind(r"\end{document}")
+    if end_doc >= 0:
+        return template_tex[:end_doc] + "\n" + body_tex + "\n\n" + template_tex[end_doc:]
 
-    safe_body = re.sub(r"\\documentclass[\s\S]*?\\begin\{document\}", "", body_tex or "", flags=re.I)
-    safe_body = re.sub(r"\\end\{document\}\s*$", "", safe_body, flags=re.I).strip()
-
-    anchor_pat = r"(%-+BODY-START-+%)(.*?)(%-+BODY-END-+%)"
-    if re.search(anchor_pat, base_tex, flags=re.S):
-        return re.sub(anchor_pat, lambda m: f"{m.group(1)}\n{safe_body}\n{m.group(3)}", base_tex, flags=re.S)
-
-    if re.search(r"\\end\{document\}\s*$", base_tex, flags=re.I):
-        return re.sub(
-            r"\\end\{document\}\s*$",
-            lambda m: f"\n{safe_body}\n\\end{{document}}\n",
-            base_tex, flags=re.I,
-        )
-
-    return base_tex.rstrip() + f"\n\n{safe_body}\n\\end{{document}}\n"
+    return template_tex + "\n\n" + body_tex + "\n\\end{document}\n"
 
 
 # ============================================================
-# 🚀 MAIN ENDPOINT - KILLER VERSION
+# 🚀 MAIN ENDPOINT — v3.0.0
 # ============================================================
 
 @router.post("")
 async def generate_coverletter(
-    jd_text: str = Form(...),
-    resume_tex: str = Form(""),
-    use_humanize: bool = Form(True),
-    tone: str = Form("balanced"),
-    length: str = Form("standard"),
+    jd_text:       str  = Form(...),
+    resume_tex:    str  = Form(""),
+    use_humanize:  bool = Form(True),
+    tone:          str  = Form("balanced"),
+    length:        str  = Form("standard"),
 ):
-    """
-    Generate a KILLER cover letter that astonishes recruiters.
-    
-    Features:
-    - ASTONISHING company-specific opening hooks
-    - NO academic content (GPA, graduation, coursework)
-    - Deep product/technical knowledge signals
-    - Insider terminology that impresses
-    - Company-specific insights in first sentence
-    - Professional experience only
-    """
-    
+    """Generate an authentic cover letter in simple Indian English. v3.0.0."""
     if not (config.OPENAI_API_KEY or "").strip():
         raise HTTPException(status_code=400, detail="OPENAI_API_KEY missing.")
     if not (jd_text or "").strip():
         raise HTTPException(status_code=400, detail="jd_text is required.")
 
-    # Step 1: Extract company and role
-    company, role = await extract_company_role(jd_text)
-    log_event("coverletter_start", {"company": company, "role": role})
+    tone = (tone or "balanced").strip().lower()
+    length = (length or "standard").strip().lower()
+    if length not in _WORD_TARGETS:
+        length = "standard"
 
-    # Step 2: Extract deep company intelligence
-    company_intel = await extract_deep_company_intel(jd_text, company, role)
-    log_event("company_intel_extracted", {
-        "company": company,
-        "killer_hooks_available": bool(get_killer_hook(company)),
-        "insider_terms_count": len(company_intel.get("insider_terminology", []))
-    })
+    # ── 1. Extract JD intelligence ──────────────────────────────
+    intel = await _extract_jd_intelligence(jd_text)
+    company = intel["company"]
+    role = intel["role"]
+    log_event("cl_start", {"company": company, "role": role, "tone": tone,
+                           "length": length, "version": "v3.0.0"})
 
-    # Step 3: Extract resume highlights (professional only)
-    resume_highlights = await extract_resume_highlights(resume_tex)
+    # ── 1b. Company research ────────────────────────────────────
+    company_research = await _research_company(company, role, jd_text)
 
-    # Step 4: Generate KILLER cover letter body
-    body_text = await draft_killer_cover_body(
-        jd_text=jd_text,
-        resume_text=resume_tex,
-        company=company,
-        role=role,
-        tone=tone,
-        length=length,
-        company_intel=company_intel,
-        resume_highlights=resume_highlights,
+    # ── 1c. Detect company type ─────────────────────────────────
+    company_type = _detect_company_type(jd_text, company)
+    log_event("cl_company_type", {"company": company, "type": company_type})
+
+    # ── 2. Extract resume highlights (JD-prioritized) ───────────
+    highlights = await _extract_resume_highlights(resume_tex, intel, jd_text)
+
+    # ── 2b. Map requirements to experience ──────────────────────
+    requirement_map = await _map_requirements_to_experience(intel, highlights)
+    log_event("cl_requirement_map", {"mappings": len(requirement_map)})
+
+    # ── 3. Draft body ───────────────────────────────────────────
+    body = await _draft_body(
+        jd_text, intel, highlights, requirement_map,
+        company_research, company_type, tone, length,
     )
 
-    # Step 5: Humanize if requested
-    if use_humanize:
-        body_text = await humanize_text(body_text, tone)
-        body_text = _postprocess_body(body_text)
+    # ── 4. Score and repair ─────────────────────────────────────
+    body = await _score_and_repair(
+        body, intel, highlights, requirement_map,
+        company_type, length, jd_text,
+    )
 
-    # Step 6: Inject into LaTeX template
+    # ── 4b. Fact-check against resume ───────────────────────────
+    body = await _fact_check(body, resume_tex, intel)
+
+    # ── 5. Mandatory SuperHuman pass ────────────────────────────
+    # Cover letters always use the approved Indian-English rewrite prompt.
+    body = await _humanize(body, tone)
+
+    # ── 5b. Final banned phrase cleanup (deterministic) ─────────
+    body_lower = body.lower()
+    for phrase in _BANNED_PHRASES:
+        if phrase in body_lower:
+            body = re.sub(rf"\b{re.escape(phrase)}\b", "", body, flags=re.IGNORECASE)
+            body_lower = body.lower()  # refresh
+    body = re.sub(r"\s{2,}", " ", body)
+    body = re.sub(r"\n{3,}", "\n\n", body).strip()
+
+    # ── 5c. Word count hard enforcement ─────────────────────────
+    lo, hi = _WORD_TARGETS.get(length, (200, 280))
+    word_count = len(body.split())
+    if word_count > hi + 20:
+        # Trim from the longest paragraph
+        paras = [p.strip() for p in body.split("\n\n") if p.strip()]
+        if len(paras) >= 3:
+            longest_idx = max(range(len(paras)), key=lambda i: len(paras[i].split()))
+            sentences = re.split(r'(?<=[.!?])\s+', paras[longest_idx])
+            if len(sentences) > 2:
+                # Remove the least specific sentence (shortest)
+                shortest_idx = min(range(len(sentences)), key=lambda i: len(sentences[i].split()))
+                sentences.pop(shortest_idx)
+                paras[longest_idx] = " ".join(sentences)
+                body = "\n\n".join(paras)
+                log_event("cl_word_trim", {"before": word_count, "after": len(body.split())})
+
+    # ── 6. LaTeX-escape the body ONCE ───────────────────────────
+    body_tex = _latex_escape(body)
+
+    # Convert paragraph breaks to LaTeX paragraph breaks
+    body_tex = re.sub(r"\n\n+", "\n\n\\vspace{0.5em}\n\n", body_tex)
+
+    # ── 7. Load template ────────────────────────────────────────
     base_path = config.BASE_COVERLETTER_PATH
     try:
         with open(base_path, encoding="utf-8") as f:
-            base_tex = f.read()
+            template = f.read()
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Template not found: {base_path}")
 
+    # ── 8. Fill template ────────────────────────────────────────
     today_str = datetime.now().strftime("%B %d, %Y")
     candidate = getattr(config, "CANDIDATE_NAME", "Sri Akash Kadali")
-    applicant_email = getattr(config, "APPLICANT_EMAIL", "kadali18@umd.edu")
-    applicant_phone = getattr(config, "APPLICANT_PHONE", "+1 240-726-9356")
-    applicant_city = getattr(config, "APPLICANT_CITYSTATE", "College Park, Maryland")
+    email = getattr(config, "APPLICANT_EMAIL", "kadali18@umd.edu")
+    phone = getattr(config, "APPLICANT_PHONE", "+1 240-726-9356")
+    citystate = getattr(config, "APPLICANT_CITYSTATE", "")
+    salutation = _build_salutation(intel, company_type)
 
-    base_tex = _fill_header_fields(
-        base_tex,
-        company=company,
-        role=role,
-        candidate=candidate,
-        date_str=today_str,
-        email=applicant_email,
-        phone=applicant_phone,
-        citystate=applicant_city,
+    filled = _fill_template(
+        template, company, role, candidate, today_str,
+        email, phone, citystate, salutation,
     )
 
-    try:
-        injected = inject_body_into_template(base_tex, body_text)
-    except re.error as e:
-        log_event("inject_error", {"error": str(e)})
-        injected = f"{base_tex}\n\n{body_text}\n"
-        if not injected.strip().endswith("\\end{document}"):
-            injected += "\n\\end{document}\n"
+    # ── 9. Inject body ──────────────────────────────────────────
+    final_tex = _inject_body(filled, body_tex)
+    final_tex = render_final_tex(final_tex)
 
-    final_tex = render_final_tex(injected)
+    # ── 10. Compile ─────────────────────────────────────────────
     pdf_bytes = compile_latex_safely(final_tex) or b""
     pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
-    # Save files
+    # ── 11. Save outputs ────────────────────────────────────────
+    if not pdf_bytes:
+        raise HTTPException(status_code=500, detail="The cover letter could not be compiled.")
+    try:
+        out_pdf_path = _desktop_coverletter_path(company, role, pdf_bytes)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Cover letter could not be saved to Desktop: {exc}") from exc
+
     company_slug = safe_filename(company)
     role_slug = safe_filename(role)
     context_key = f"{company_slug}__{role_slug}"
 
-    out_pdf_path = config.get_sample_coverletter_pdf_path(company, role)
-    ensure_dir(out_pdf_path.parent)
-    if pdf_bytes:
-        out_pdf_path.write_bytes(pdf_bytes)
-
-    # Save context
     ctx_dir = config.get_contexts_dir()
     ensure_dir(ctx_dir)
     ctx_path = ctx_dir / f"{context_key}.json"
@@ -1357,56 +1341,120 @@ async def generate_coverletter(
         except Exception:
             existing = {}
 
+    # Final word count
+    final_word_count = len(body.split())
+
+    # JD keyword echo stats
+    tech_stack = intel.get("tech_stack", [])
+    tech_found = [t for t in tech_stack if t.lower() in body.lower()]
+
     context_payload = {
         **existing,
         "key": context_key,
         "company": company,
         "role": role,
         "jd_text": jd_text,
-        "company_intel": {
-            "culture_keywords": company_intel.get("culture_keywords", []),
-            "tech_focus": company_intel.get("tech_focus", []),
-            "insider_terms": company_intel.get("insider_terminology", [])[:5],
-            "killer_hook_used": bool(get_killer_hook(company)),
-        },
         "cover_letter": {
             "tex": final_tex,
             "pdf_path": str(out_pdf_path),
             "pdf_b64": pdf_b64,
             "tone": tone,
             "length": length,
-            "humanized": bool(use_humanize),
+            "humanized": True,
+            "superhuman": True,
+            "body_text": body,
+            "word_count": final_word_count,
+            "company_type": company_type,
+            "jd_tech_echoed": tech_found,
+            "requirement_mappings": len(requirement_map),
         },
         "updated_at": datetime.utcnow().isoformat() + "Z",
     }
     ctx_path.write_text(json.dumps(context_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    log_event("coverletter_generated", {
-        "company": company,
-        "role": role,
-        "tone": tone,
-        "length": length,
-        "humanized": use_humanize,
-        "killer_hook_used": bool(get_killer_hook(company)),
-        "chars": len(body_text),
+    log_event("cl_generated", {
+        "company": company, "role": role, "tone": tone,
+        "length": length, "humanized": True,
+        "words": final_word_count, "pdf_bytes": len(pdf_bytes),
+        "company_type": company_type,
+        "tech_echoed": len(tech_found),
+        "requirement_mappings": len(requirement_map),
+        "version": "v3.0.0",
     })
 
     return JSONResponse({
         "company": company,
         "role": role,
         "tone": tone,
-        "use_humanize": use_humanize,
+        "use_humanize": True,
+        "superhuman": True,
         "tex_string": final_tex,
+        "body_text": body,
         "pdf_base64": pdf_b64,
         "pdf_path": str(out_pdf_path),
         "context_key": context_key,
         "context_path": str(ctx_path),
-        "company_intel_used": {
-            "culture_keywords": company_intel.get("culture_keywords", [])[:3],
-            "tech_focus": company_intel.get("tech_focus", [])[:3],
-            "insider_terms": company_intel.get("insider_terminology", [])[:3],
-            "killer_hook_available": bool(get_killer_hook(company)),
-        },
+        "word_count": final_word_count,
+        "salutation_used": salutation,
+        "company_type": company_type,
+        "jd_tech_echoed": tech_found,
+        "jd_tech_total": len(tech_stack),
+        "requirement_mappings": len(requirement_map),
         "id": context_key,
         "memory_id": context_key,
+        "version": "v3.0.0",
+    })
+
+
+@router.post("/compile")
+async def compile_edited_coverletter(
+    tex_string: str = Form(...),
+    body_text: str = Form(...),
+    company: str = Form("Company"),
+    role: str = Form("Role"),
+    tone: str = Form("balanced"),
+    context_key: str = Form(""),
+):
+    """SuperHuman-rewrite, recompile, and persist an edited cover letter."""
+    if not tex_string.strip() or not body_text.strip():
+        raise HTTPException(status_code=400, detail="tex_string and body_text are required.")
+    final_body = await _humanize(body_text.strip(), tone)
+    body_tex = _latex_escape(final_body)
+    body_tex = re.sub(r"\n\n+", "\n\n\\vspace{0.5em}\n\n", body_tex)
+    updated_tex = render_final_tex(_inject_body(tex_string, body_tex))
+    pdf_bytes = compile_latex_safely(updated_tex) or b""
+    if not pdf_bytes:
+        raise HTTPException(status_code=500, detail="The edited cover letter could not be compiled.")
+    try:
+        out_pdf_path = _desktop_coverletter_path(company, role, pdf_bytes)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Cover letter could not be saved to Desktop: {exc}") from exc
+    key = context_key.strip() or f"{safe_filename(company)}__{safe_filename(role)}"
+    ctx_path = config.get_contexts_dir() / f"{key}.json"
+    if ctx_path.exists():
+        try:
+            context = json.loads(ctx_path.read_text(encoding="utf-8"))
+            cover = dict(context.get("cover_letter") or {})
+            cover.update({
+                "tex": updated_tex,
+                "pdf_path": str(out_pdf_path),
+                "pdf_b64": base64.b64encode(pdf_bytes).decode("utf-8"),
+                "body_text": final_body,
+                "tone": tone,
+                "humanized": True,
+                "superhuman": True,
+                "word_count": len(final_body.split()),
+            })
+            context["cover_letter"] = cover
+            context["updated_at"] = datetime.utcnow().isoformat() + "Z"
+            ctx_path.write_text(json.dumps(context, ensure_ascii=False, indent=2), encoding="utf-8")
+        except (OSError, ValueError, TypeError) as exc:
+            log_event("coverletter_context_update_fail", {"error": str(exc), "key": key})
+    return JSONResponse({
+        "tex_string": updated_tex,
+        "body_text": final_body,
+        "pdf_base64": base64.b64encode(pdf_bytes).decode("utf-8"),
+        "pdf_path": str(out_pdf_path),
+        "superhuman": True,
+        "word_count": len(final_body.split()),
     })

@@ -1,6 +1,6 @@
 """
 ============================================================
- HIREX v2.1.2 — superhuman.py
+ HIREX v1.0.0 — superhuman.py
  ------------------------------------------------------------
  SuperHuman Humanizer API
   • Rewrites text for clarity, flow, and tone
@@ -55,6 +55,51 @@ _CONCURRENCY = 6  # limit concurrent outbound calls
 _HUMANIZE_DEFAULT_ON = getattr(config, "HUMANIZE_DEFAULT_ON", True)
 _HUMANIZE_MODE_DEFAULT = str(getattr(config, "HUMANIZE_MODE_DEFAULT", "balance")).lower()
 _AIH_MODE_ID = getattr(config, "AIHUMANIZE_MODE_ID", {"quality": "0", "balance": "1", "enhanced": "2"})
+
+SUPERHUMAN_REWRITE_PROMPT = """Natural Indian English Rewriting Prompt
+
+Rewrite the given text in natural, slightly imperfect Indian English, similar to how an Indian engineering graduate with IELTS Band 6–6.5 proficiency would normally write.
+
+The writing should sound like someone expressing their thoughts directly without spending too much time editing.
+
+## Rules
+
+1. **Inconsistent English:** Allow natural variation in grammar, fluency, vocabulary, and sentence structure. Some sentences can be well-written, others basic or slightly awkward. Do not deliberately insert random mistakes.
+2. **Simple vocabulary:** Use common everyday English. Avoid sophisticated, academic, corporate, or unnecessarily technical words unless the subject requires them.
+3. **Uneven sentences:** Mix very short, medium, and occasionally longer sentences. Do not follow any fixed pattern or maintain perfect rhythm.
+4. **Natural Indian English:** Follow the writing habits of an educated Indian professional. Slightly unusual sentence construction is acceptable if the meaning is clear. Avoid forced slang or exaggerated regional expressions.
+5. **Unpolished writing:** Do not correct every awkward phrase or make every sentence grammatically elegant. Keep understandable imperfections that occur naturally.
+6. **Rewrite from understanding:** Read the complete text, understand its meaning, and explain it from scratch. Do not paraphrase sentence by sentence or retain the original structure unnecessarily.
+7. **Avoid AI vocabulary:** Do not use generic expressions such as "leverage", "robust", "seamless", "transformative", "foster", "delve", "crucial", "enhance", "cutting-edge", "furthermore", "moreover", or "in today's rapidly evolving landscape" unless essential.
+8. **Direct communication:** Write like someone explaining something to a colleague rather than preparing a polished article, LinkedIn post, marketing document, or academic essay.
+9. **Imperfect flow:** Sentences do not always need smooth transitions. Move between related points naturally without forcing connectors or elaborate explanations.
+10. **Authentic phrasing:** Prefer normal expressions such as "we can check", "I think this will work", "there is one issue", or "for this we need" when appropriate. Do not insert them artificially.
+11. **Irregular paragraph structure:** Let the content determine paragraph length and organization. Avoid formulaic introductions, three-part explanations, and predictable conclusions.
+12. **Minimal editing:** Keep the first natural phrasing when it communicates the point clearly. Do not refine sentences simply to make them more impressive.
+13. **Technical accuracy:** Preserve all facts, numerical values, technical terminology, uncertainty, and important details. Do not invent experiences, opinions, examples, or additional information.
+14. **Context awareness:** Adjust the tone to the original purpose. Slack messages should be casual, emails polite, technical explanations straightforward, and research writing appropriately precise.
+15. **Natural repetition:** Occasional repeated words or simple expressions are acceptable when they reflect normal communication. Remove repetition only when it becomes distracting or unnecessary.
+16. **Grammar boundaries:** Slight awkwardness is fine, but avoid spelling mistakes, incorrect tenses that confuse meaning, missing essential words, or deliberately broken English.
+17. **Formatting:** Use standard punctuation. Avoid em dashes, semicolons, decorative formatting, unnecessary headings, and bullet points unless they are needed.
+18. **No artificial humanisation:** Do not add filler expressions, fake hesitation, personal stories, emotional language, or random grammatical errors to imitate a human.
+19. **Meaning over style:** If a direct explanation requires fewer words, shorten it. If technical clarity requires more detail, retain it. Do not sacrifice information to make the text sound casual.
+20. **Final quality check:** Ensure the result is understandable, technically sound, naturally uneven, and free from unnecessarily polished language. Do not perform additional stylistic polishing.
+
+## Core Principle
+
+**Imperfect is the new perfect.**
+
+Write like a technically capable person who knows what they want to say but is not trying to demonstrate perfect English.
+
+The final text should feel natural because of its ordinary word choices and genuine variation, not because mistakes have been artificially introduced.
+
+## Output Requirement
+
+Return only the rewritten text. No introductions, explanations, quotation marks, or additional commentary.
+
+## Text to Rewrite
+
+{text}"""
 
 
 # ============================================================
@@ -152,15 +197,21 @@ def _require_api_creds() -> None:
     """
     if not _HUMANIZE_DEFAULT_ON:
         raise HTTPException(status_code=503, detail="Humanize disabled by configuration.")
-    if not HUMANIZE_API_KEY or not HUMANIZE_MAIL:
-        if _LOCAL_ENABLED:
-            log_event("⚠️ superhuman_local_fallback", {"reason": "missing_credentials"})
-            return
-        raise HTTPException(
-            status_code=503,
-            detail="Humanize API credentials missing. "
-                   "Set HUMANIZE_API_KEY and HUMANIZE_MAIL in your .env.",
-        )
+    if not (getattr(config, "OPENAI_API_KEY", "") or "").strip():
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is required for SuperHuman.")
+
+
+async def _call_prompted_rewrite(text: str) -> str:
+    """Apply the user-approved Indian-English prompt through ASTRA's OpenAI client."""
+    from backend.api.talk import ANSWER_MODEL, _call_openai
+
+    return await _call_openai(
+        "Follow the rewriting instructions exactly. Return only the rewritten text.",
+        SUPERHUMAN_REWRITE_PROMPT.format(text=text),
+        model=ANSWER_MODEL,
+        temperature=0.35,
+        max_completion_tokens=2000,
+    )
 
 
 def _header_variants(key: str) -> List[Dict[str, str]]:
@@ -268,22 +319,12 @@ async def rewrite_single(
     if not t_in:
         return ""
 
-    # Prefer API if creds present; otherwise use optional fallback
-    if HUMANIZE_API_KEY and HUMANIZE_MAIL:
-        try:
-            rewritten_raw = await _call_humanize(t_in, tone, mode)
-            return _clean_text(rewritten_raw, latex_safe, mode)
-        except HTTPException as e:
-            log_event("⚠️ superhuman_rewrite_error", {"error": str(e)})
-            if _LOCAL_ENABLED:
-                log_event("⚙️ using_local_rewrite_fallback", {"text_len": len(t_in)})
-                return _clean_text(_local_rewrite_stub(t_in, tone, mode), latex_safe, mode)
-            raise
-    else:
-        if _LOCAL_ENABLED:
-            log_event("⚙️ using_local_rewrite_fallback", {"reason": "missing_credentials", "text_len": len(t_in)})
-            return _clean_text(_local_rewrite_stub(t_in, tone, mode), latex_safe, mode)
-        raise HTTPException(status_code=503, detail="Humanize credentials missing and local fallback disabled.")
+    try:
+        rewritten_raw = await _call_prompted_rewrite(t_in)
+        return _clean_text(rewritten_raw, latex_safe, mode)
+    except HTTPException as e:
+        log_event("⚠️ superhuman_rewrite_error", {"error": str(e)})
+        raise
 
 
 # ============================================================
@@ -325,8 +366,8 @@ async def rewrite_text(req: RewriteRequest):
             "mode": req.mode,
             "tone": req.tone,
             "latex_safe": req.latex_safe,
-            "creds_present": bool(HUMANIZE_API_KEY and HUMANIZE_MAIL),
-            "local_enabled": _LOCAL_ENABLED,
+            "creds_present": bool((getattr(config, "OPENAI_API_KEY", "") or "").strip()),
+            "prompt": "indian_english_ielts_6_5",
         },
     )
 

@@ -1,0 +1,4 @@
+# Development and regression-test dependencies.
+-r requirements-core.txt
+pytest>=8.0,<10
+

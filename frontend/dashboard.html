@@ -1,267 +1,41 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<!doctype html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="color-scheme" content="dark light" />
-  <meta name="theme-color" content="#0a1020" />
-
-  <title>Dashboard | ASTRA — AI Career Analytics v2.1.2</title>
-  <meta name="description" content="Interactive analytics dashboard tracking optimizations, cover letters, SuperHuman activity, MasterMind chats, and Talk sessions across the ASTRA suite." />
-  <meta name="author" content="Sri Akash Kadali" />
-
-  <!-- CSP: CDN Chart.js, blob: previews, workers, localhost websockets -->
-  <meta http-equiv="Content-Security-Policy"
-        content="
-          default-src 'self' blob: data:;
-          img-src 'self' data: blob:;
-          style-src 'self' 'unsafe-inline';
-          script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval';
-          connect-src 'self' blob: data: https: http://127.0.0.1:8000 ws://127.0.0.1:8000 http://0.0.0.0:8000 ws://0.0.0.0:8000 https://cdn.jsdelivr.net;
-          frame-src 'self' blob: data: about:;
-          child-src 'self' blob:;
-          worker-src 'self' blob:;
-          media-src 'self' blob: data:;
-          font-src 'self' data:;
-          object-src 'none';
-          base-uri 'self';
-          frame-ancestors 'self';
-        " />
-
-  <link rel="icon" type="image/png" href="/static/assets/favicon.png" />
-  <link rel="stylesheet" href="/static/css/base.css?v=2.1.2" />
-  <link rel="stylesheet" href="/static/css/animations.css?v=2.1.2" />
-  <link rel="stylesheet" href="/static/css/app.css?v=2.1.2" />
-
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#07111f"><title>Applications · ASTRA</title>
+  <link rel="icon" href="/static/assets/favicon.png">
   <style>
-    :root{
-      --bg:#0a1020;--panel:rgba(255,255,255,0.05);--muted:rgba(255,255,255,0.7);
-      --accent:#5bd0ff;--accent2:#a678ff;--radius:14px;--glow:0 0 25px rgba(91,208,255,0.25);
-    }
-
-    /* Futuristic background */
-    body{
-      background: radial-gradient(circle at 25% 20%, #0a1020 0%, #03060f 80%);
-      color:#e4ecff;font-family:"Inter","Segoe UI",Roboto,sans-serif;overflow-x:hidden;
-      line-height:1.6;position:relative;min-height:100vh;margin:0;
-    }
-    ::selection{ background:var(--accent); color:#000; }
-    .visually-hidden{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-
-    body::before{
-      content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
-      background:
-        repeating-linear-gradient(to right, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px),
-        repeating-linear-gradient(to bottom, rgba(255,255,255,0.03) 0 1px, transparent 1px 80px);
-    }
-    body::after{
-      content:"";position:fixed;width:500px;height:500px;top:30%;right:10%;z-index:0;pointer-events:none;
-      background: radial-gradient(circle, rgba(91,208,255,0.15), transparent 70%);filter: blur(70px);
-      animation: floatGlow 10s ease-in-out infinite alternate;
-    }
-    @keyframes floatGlow{ from{transform:translateY(0) scale(1);opacity:.9;} to{transform:translateY(-40px) scale(1.05);opacity:.7;} }
-
-    .menu-toggle,.theme-toggle{display:none!important;}
-
-    /* Sidebar */
-    .sidebar{display:flex;flex-direction:column;padding-top:.25rem;}
-    @media (min-width:880px){
-      .sidebar{position:fixed;top:0;left:0;width:260px;height:100vh;background:rgba(10,16,32,0.65);
-        border-right:1px solid rgba(255,255,255,0.05);backdrop-filter: blur(18px);z-index:5;}
-      main.console,footer{margin-left:260px;}
-    }
-    @media (max-width:879px){
-      .sidebar{position:fixed;left:-100%;top:0;width:70%;height:100vh;background:rgba(10,16,32,0.95);
-        transition:transform .3s ease;z-index:20;}
-      body.nav-open .sidebar{transform:translateX(100%);}
-    }
-
-    .brand{display:flex;align-items:center;gap:.75rem;padding:.6rem 1rem .05rem;}
-    .brand img{width:72px;height:auto;aspect-ratio:1/1;object-fit:contain;
-      filter: drop-shadow(0 0 6px rgba(91,208,255,0.6));transition:transform .25s, filter .25s;}
-    .brand img:hover{transform:scale(1.05);filter: drop-shadow(0 0 12px rgba(91,208,255,0.9));}
-    .logo-text{font-weight:700;font-size:1.35rem;background:linear-gradient(90deg,var(--accent),var(--accent2));
-      -webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:.5px;}
-    .vnav{list-style:none;padding:0;margin:.05rem 1rem 1rem;}
-    .vnav li{margin-bottom:.42rem;}
-    .vnav a{color:#cfd9ff;text-decoration:none;display:block;padding:.6rem 1rem;border-radius:10px;transition:background .2s,color .2s;}
-    .vnav a:hover,.vnav a.active-link{background: rgba(91,208,255,0.15); color: var(--accent);}
-
-    /* Main */
-    main.console{position:relative;z-index:2;padding:3rem 3rem 5rem;animation:fadeRise 1s ease;}
-    h1.page-title{font-size:2.3rem;font-weight:700;text-align:center;margin-bottom:.6rem;
-      background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:1px;}
-    .muted{color:var(--muted);text-align:center;margin:0 auto 2rem;max-width:700px;}
-
-    .toolbar{display:flex;align-items:center;justify-content:flex-end;gap:.6rem;margin:-.5rem 0 1.25rem;}
-    .btn{border:1px solid rgba(255,255,255,0.14);background:rgba(10,16,32,0.85);color:#fff;padding:8px 12px;border-radius:10px;cursor:pointer;font-size:14px;transition:background .2s, transform .15s;}
-    .btn:hover{background:rgba(255,255,255,0.08);transform:translateY(-1px);}
-    #dashboard-status{color:var(--muted);font-size:.9rem;}
-
-    /* Metric cards */
-    .cards-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:18px;margin-bottom:2.5rem;}
-    .metric{background:var(--panel);border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius);padding:18px;text-align:center;transition:transform .25s, box-shadow .25s;position:relative;overflow:hidden;}
-    .metric:hover{transform:translateY(-4px);box-shadow:0 0 35px rgba(91,208,255,0.25);}
-    .metric::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,transparent,rgba(91,208,255,0.15));opacity:0;transition:opacity .3s;}
-    .metric:hover::before{opacity:1;}
-    .metric .num{font-size:2rem;color:var(--accent);font-weight:600;}
-    .metric .label{color:var(--muted);font-size:.9rem;}
-
-    /* Charts */
-    .chart-section{background:var(--panel);border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius);padding:1.5rem;margin-bottom:2.5rem;
-      box-shadow:0 0 20px rgba(91,208,255,0.08);backdrop-filter:blur(10px);transition:transform .3s, box-shadow .3s;}
-    .chart-section:hover{transform:translateY(-4px);box-shadow:0 0 30px rgba(91,208,255,0.25);}
-    .chart-section h2{text-align:center;font-size:1.1rem;margin-bottom:.8rem;background:linear-gradient(90deg,var(--accent),var(--accent2));
-      -webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:.5px;}
-    .chart-section canvas{display:block;margin:0 auto;width:100%;max-width:900px;height:320px!important;border-radius:12px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.02);}
-
-    /* Footer */
-    footer{text-align:center;padding:2rem 1rem;font-size:.9rem;color:#9aa7cc;border-top:1px solid rgba(255,255,255,0.05);backdrop-filter:blur(10px);z-index:2;position:relative;}
-    footer a{color:var(--accent);text-decoration:none;} footer a:hover{text-decoration:underline;}
-
-    @keyframes fadeRise{ from{opacity:0; transform:translateY(25px);} to{opacity:1; transform:translateY(0);} }
-
-    @media (max-width:880px){
-      .brand{padding:.5rem 1rem .04rem}.brand img{width:60px}.logo-text{font-size:1.2rem}.vnav{margin:.02rem 1rem 1rem}
-    }
+    :root{--bg:#07111f;--panel:#0d1a2b;--panel2:#111f32;--line:#203149;--text:#f4f7fb;--muted:#8fa1b8;--blue:#6ea8fe;--cyan:#48d6c6;--green:#54d690;--amber:#f5c15d;--red:#fb7b88;--radius:16px;--shadow:0 18px 45px rgba(0,0,0,.22)}
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(135deg,#07111f,#091522 52%,#07111f);color:var(--text);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}button,input,select,textarea{font:inherit}.shell{display:grid;grid-template-columns:240px 1fr;min-height:100vh}.side{position:sticky;top:0;height:100vh;padding:22px 16px;border-right:1px solid var(--line);background:rgba(7,17,31,.86);backdrop-filter:blur(18px)}.brand{display:flex;gap:12px;align-items:center;padding:4px 8px 25px}.brand img{width:42px;height:42px;border-radius:12px}.brand strong{font-size:17px;letter-spacing:.08em}.brand small{display:block;color:var(--muted);margin-top:2px}.nav-label{font-size:10px;color:#61758f;text-transform:uppercase;letter-spacing:.14em;margin:20px 10px 8px}.nav a{display:flex;align-items:center;gap:11px;color:#9db0c7;text-decoration:none;padding:11px 12px;border-radius:10px;margin:3px 0;font-size:14px}.nav a:hover{background:#101f32;color:white}.nav a.active{color:white;background:linear-gradient(90deg,rgba(110,168,254,.2),rgba(72,214,198,.08));border:1px solid rgba(110,168,254,.2)}.main{padding:30px 34px 60px;min-width:0}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}.eyebrow{font-size:11px;color:var(--cyan);font-weight:700;letter-spacing:.14em;text-transform:uppercase}.top h1{font-size:32px;margin:6px 0 7px;letter-spacing:-.04em}.top p{margin:0;color:var(--muted);max-width:700px}.actions{display:flex;gap:10px}.btn{border:1px solid var(--line);background:#102035;color:white;padding:10px 14px;border-radius:10px;cursor:pointer;font-weight:650}.btn:hover{border-color:#476384}.btn.primary{background:linear-gradient(135deg,#397cea,#3776d6);border-color:#4d8cf2}.stats{display:grid;grid-template-columns:repeat(5,minmax(130px,1fr));gap:12px;margin-bottom:20px}.stat{background:linear-gradient(145deg,rgba(17,31,50,.96),rgba(11,25,42,.96));border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)}.stat .label{font-size:12px;color:var(--muted)}.stat .value{font-size:28px;font-weight:750;margin-top:7px;letter-spacing:-.04em}.stat .hint{font-size:11px;color:#657b95;margin-top:6px}.layout{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:16px}.card{background:rgba(13,26,43,.94);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}.toolbar{display:flex;gap:10px;padding:15px;border-bottom:1px solid var(--line);align-items:center}.search{flex:1;position:relative}.search input{width:100%;background:#081522;border:1px solid var(--line);color:white;border-radius:10px;padding:11px 12px 11px 38px;outline:none}.search:before{content:"⌕";position:absolute;left:13px;top:7px;font-size:22px;color:#7287a1}.toolbar select{background:#081522;color:#b7c7d9;border:1px solid var(--line);border-radius:10px;padding:10px 12px}.table-wrap{overflow:auto;max-height:calc(100vh - 315px)}table{width:100%;border-collapse:collapse;min-width:850px}th{text-align:left;position:sticky;top:0;background:#0d1a2b;color:#7288a3;font-size:10px;text-transform:uppercase;letter-spacing:.1em;padding:12px 14px;border-bottom:1px solid var(--line);z-index:2}td{padding:13px 14px;border-bottom:1px solid rgba(32,49,73,.72);font-size:13px;vertical-align:middle}tr:hover td{background:rgba(110,168,254,.035)}.company{font-weight:700;color:#f7f9fc}.role{color:#9eb0c5;margin-top:3px;font-size:12px;max-width:330px}.date{color:#a6b7ca;white-space:nowrap}.source{color:#6e829a;font-size:11px}.pill{display:inline-flex;align-items:center;padding:5px 9px;border-radius:99px;font-size:11px;font-weight:700;text-transform:capitalize;background:#14263c;color:#9fb4cd;border:1px solid #243b56}.pill.recruiter_call,.pill.interview{color:#8de7dc;border-color:#28635f;background:#0d3535}.pill.offer{color:#8de5ac;border-color:#2a6944;background:#103423}.pill.rejected,.pill.withdrawn{color:#ff9ca6;border-color:#63333b;background:#35171e}.row-actions{display:flex;gap:7px}.icon-btn{background:transparent;border:1px solid #293d57;color:#a9bdd4;border-radius:8px;padding:6px 9px;cursor:pointer}.icon-btn:hover{color:white;border-color:#577699}.pager{display:flex;justify-content:space-between;align-items:center;padding:13px 15px;color:var(--muted);font-size:12px}.pipeline{padding:18px}.pipeline h2{font-size:15px;margin:0 0 4px}.pipeline>p{font-size:12px;color:var(--muted);margin:0 0 18px}.stage{margin:15px 0}.stage-head{display:flex;justify-content:space-between;font-size:12px;margin-bottom:7px}.bar{height:7px;border-radius:9px;background:#091522;overflow:hidden}.fill{height:100%;border-radius:9px;background:linear-gradient(90deg,var(--blue),var(--cyan));width:0}.insight{margin-top:22px;padding:14px;border-radius:12px;background:#0a1727;border:1px solid #1d3048}.insight strong{font-size:12px}.insight p{color:var(--muted);font-size:12px;line-height:1.55;margin:7px 0 0}.empty{padding:50px;text-align:center;color:var(--muted)}dialog{border:1px solid #314962;border-radius:18px;background:#0d1b2d;color:white;padding:0;width:min(620px,calc(100vw - 30px));box-shadow:0 35px 90px rgba(0,0,0,.55)}dialog::backdrop{background:rgba(2,8,15,.76);backdrop-filter:blur(4px)}.modal-head{padding:20px 22px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}.modal-head h2{font-size:18px;margin:0}.close{background:none;border:0;color:#8fa1b8;font-size:24px;cursor:pointer}.form{padding:20px 22px;display:grid;grid-template-columns:1fr 1fr;gap:14px}.field{display:flex;flex-direction:column;gap:6px}.field.full{grid-column:1/-1}.field label{font-size:11px;color:#8195ae;text-transform:uppercase;letter-spacing:.08em}.field input,.field select,.field textarea{background:#071421;border:1px solid #273d56;color:white;border-radius:9px;padding:10px;outline:none}.field textarea{min-height:100px;resize:vertical}.modal-foot{padding:15px 22px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px}.toast{position:fixed;right:25px;bottom:25px;background:#13263b;border:1px solid #34506f;padding:12px 16px;border-radius:11px;opacity:0;transform:translateY(12px);transition:.2s;pointer-events:none;z-index:20}.toast.show{opacity:1;transform:none}@media(max-width:1050px){.stats{grid-template-columns:repeat(3,1fr)}.layout{grid-template-columns:1fr}.pipeline{display:none}}@media(max-width:760px){.shell{grid-template-columns:1fr}.side{display:none}.main{padding:22px 14px}.top{display:block}.actions{margin-top:16px}.stats{grid-template-columns:1fr 1fr}.stat:last-child{grid-column:1/-1}.toolbar{flex-wrap:wrap}.search{flex-basis:100%}}
   </style>
+  <link rel="stylesheet" href="/static/css/astra-design-system.css?v=3.2.0">
+  <script src="/static/js/astra-shell.js?v=3.2.0" defer></script>
 </head>
-
-<body class="page-enter" data-app="astra">
-  <!-- Sidebar -->
-  <aside class="sidebar" id="sidebar" role="navigation" aria-label="Primary">
-    <div class="brand">
-      <img src="/static/assets/logo.png" alt="ASTRA Logo" loading="lazy" />
-      <span class="logo-text">ASTRA</span>
-    </div>
-    <ul class="vnav">
-      <li><a href="/index.html">🏠 HIREX</a></li>
-      <li><a href="/preview.html">📄 HIREX Preview</a></li>
-      <li><a href="/coverletter.html">✉️ HIREX Letter</a></li>
-      <li><a href="/talk.html">💬 Talk to HIREX</a></li>
-      <li><a href="/mastermind.html">🧠 MasterMind</a></li>
-      <li><a href="/superhuman.html">✨ SuperHuman</a></li>
-      <li><a href="/dashboard.html" class="active-link" aria-current="page">📊 Dashboard</a></li>
-      <li><a href="/genie.html">🧞 Genie</a></li>
-    </ul>
-  </aside>
-
-  <!-- Main -->
-  <main id="content" class="console" role="main">
-    <div class="main-inner">
-      <h1 class="page-title anim rise">📊 Dashboard Analytics</h1>
-      <p class="muted">AI-powered insights across <strong>Optimizations</strong>, <strong>Cover Letters</strong>, <strong>SuperHuman</strong>, <strong>MasterMind</strong>, and <strong>Talk Sessions</strong>.</p>
-
-      <div class="toolbar" aria-label="Dashboard controls">
-        <button class="btn" id="dashboard-refresh" type="button">↻ Refresh</button>
-        <span id="dashboard-status" aria-live="polite">Idle</span>
-      </div>
-
-      <!-- Metrics -->
-      <section class="cards-row anim fade" aria-label="High-level metrics">
-        <div class="metric"><div class="num" id="opt_count">0</div><div class="label">Optimizations</div></div>
-        <div class="metric"><div class="num" id="cl_count">0</div><div class="label">Cover Letters</div></div>
-        <div class="metric"><div class="num" id="hm_count">0</div><div class="label">SuperHuman Calls</div></div>
-        <div class="metric"><div class="num" id="mm_count">0</div><div class="label">MasterMind Chats</div></div>
-        <div class="metric"><div class="num" id="talk_count">0</div><div class="label">Talk Queries</div></div>
-      </section>
-
-      <!-- Charts -->
-      <section class="chart-section" aria-labelledby="h_opt"><h2 id="h_opt">📄 Resume Optimizations</h2><canvas id="chart_optimizations"></canvas></section>
-      <section class="chart-section" aria-labelledby="h_cl"><h2 id="h_cl">✉️ Cover Letter Generation</h2><canvas id="chart_coverletters"></canvas></section>
-      <section class="chart-section" aria-labelledby="h_sh"><h2 id="h_sh">✨ SuperHuman Refinements</h2><canvas id="chart_superhuman"></canvas></section>
-      <section class="chart-section" aria-labelledby="h_mm"><h2 id="h_mm">🧠 MasterMind Insights</h2><canvas id="chart_mastermind"></canvas></section>
-      <section class="chart-section" aria-labelledby="h_talk"><h2 id="h_talk">💬 Talk Queries</h2><canvas id="chart_talk"></canvas></section>
-    </div>
+<body>
+<div class="shell">
+  <aside class="side"><div class="brand"><img src="/static/assets/logo.png" alt=""><div><strong>ASTRA</strong><small>Career operating system</small></div></div><nav class="nav"><div class="nav-label">Workspace</div><a href="/index.html">⌁ Resume Studio</a><a href="/dashboard.html" class="active">▦ Applications</a><a href="/genie.html">✦ Genie</a><a href="/talk.html">◎ Talk to HIREX</a><div class="nav-label">Documents</div><a href="/preview.html">▤ Preview</a><a href="/coverletter.html">◇ Cover Letters</a><a href="/mastermind.html">◉ MasterMind</a></nav></aside>
+  <main class="main">
+    <header class="top"><div><div class="eyebrow">Application intelligence</div><h1>Your job search, clearly organised.</h1><p>Every ASTRA résumé becomes one trackable application. Dates inferred from files are labelled and can be corrected manually.</p></div><div class="actions"><button class="btn" id="refresh">Refresh</button><button class="btn primary" id="scan">Scan ASTRA archive</button></div></header>
+    <section class="stats"><div class="stat"><div class="label">Applications</div><div class="value" id="s-total">—</div><div class="hint">Deduplicated company + role</div></div><div class="stat"><div class="label">Companies</div><div class="value" id="s-companies">—</div><div class="hint">Unique employers</div></div><div class="stat"><div class="label">Recruiter calls</div><div class="value" id="s-calls">—</div><div class="hint" id="s-response">— response rate</div></div><div class="stat"><div class="label">Interviews</div><div class="value" id="s-interviews">—</div><div class="hint" id="s-interview-rate">— conversion</div></div><div class="stat"><div class="label">Offers</div><div class="value" id="s-offers">—</div><div class="hint">Recorded outcomes</div></div></section>
+    <div class="layout"><section class="card"><div class="toolbar"><div class="search"><input id="search" placeholder="Search company, role or notes"></div><select id="status"><option value="all">All stages</option><option value="applied">Applied</option><option value="recruiter_call">Recruiter call</option><option value="interview">Interview</option><option value="offer">Offer</option><option value="rejected">Rejected</option><option value="withdrawn">Withdrawn</option></select></div><div class="table-wrap"><table><thead><tr><th>Company and role</th><th>Stage</th><th>Applied</th><th>Recruiter call</th><th>Files</th><th></th></tr></thead><tbody id="rows"></tbody></table><div class="empty" id="empty" hidden>No matching applications.</div></div><div class="pager"><span id="range">—</span><div><button class="icon-btn" id="prev">←</button> <button class="icon-btn" id="next">→</button></div></div></section>
+      <aside class="card pipeline"><h2>Application funnel</h2><p>Based on dates and stages you record.</p><div id="pipeline"></div><div class="insight"><strong>Make the data reliable</strong><p>File dates are a useful starting point, not proof of submission. Open an application and confirm the applied date when you know it. Recruiter calls can be recorded in one click.</p></div></aside></div>
   </main>
-
-  <footer>
-    &copy; 2025 <strong>ASTRA</strong> — Developed by <strong>Sri Akash Kadali</strong> |
-    Powered by <strong>FastAPI</strong> + <strong>Chart.js</strong> + <strong>OpenAI</strong>
-  </footer>
-
-  <!-- Toast -->
-  <div id="toast" role="status" aria-live="polite"></div>
-
-  <!-- Scripts: Chart.js first, then util/ui, then dashboard logic -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
-  <script src="/static/js/util.js?v=2.1.2" defer></script>
-  <script src="/static/js/ui.js?v=2.1.2" defer></script>
-  <script src="/static/js/dashboard.js?v=2.1.2" defer></script>
-
-  <!-- Fallback inline charts (only if dashboard.js didn't render / no backend).
-       Guards against double-render by checking Chart.getChart(...) -->
-  <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      if (!window.Chart) return;
-
-      const maybeInit = (id, init) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        const existing = (Chart.getChart ? Chart.getChart(el) : null);
-        if (existing) return; // already rendered by dashboard.js
-        const ctx = el.getContext("2d");
-        init(ctx);
-      };
-
-      const gradient = (ctx, a, b) => { const g = ctx.createLinearGradient(0,0,0,300); g.addColorStop(0,a); g.addColorStop(1,b); return g; };
-      const baseOptions = {
-        plugins:{ legend:{ display:false } },
-        scales:{
-          x:{ ticks:{ color:"#bbb" }, grid:{ color:"rgba(255,255,255,0.06)" } },
-          y:{ ticks:{ color:"#888" }, grid:{ color:"rgba(255,255,255,0.06)" } }
-        }
-      };
-      const labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-
-      maybeInit("chart_optimizations", (ctx) => new Chart(ctx, {
-        type:"line",
-        data:{ labels, datasets:[{
-          label:"Optimizations", data:[5,9,6,4,7,3,8],
-          borderColor:"rgba(91,208,255,0.8)", backgroundColor:gradient(ctx,"rgba(91,208,255,0.8)","rgba(159,120,255,0.3)"),
-          fill:true, tension:0.4
-        }]},
-        options: baseOptions
-      }));
-
-      maybeInit("chart_coverletters", (ctx) => new Chart(ctx, {
-        type:"bar",
-        data:{ labels, datasets:[{
-          label:"Cover Letters", data:[3,6,5,7,4,8,5],
-          borderColor:"rgba(255,184,77,0.8)", backgroundColor:gradient(ctx,"rgba(255,184,77,0.8)","rgba(255,107,107,0.3)")
-        }]},
-        options: baseOptions
-      }));
-
-      maybeInit("chart_superhuman", (ctx) => new Chart(ctx, {
-        type:"line",
-        data:{ labels, datasets:[{
-          label:"SuperHuman", data:[8,5,6,7,9,4,5],
-          borderColor:"rgba(121,255,207,0.8)", backgroundColor:gradient(ctx,"rgba(121,255,207,0.8)","rgba(91,208,255,0.3)"),
-          fill:true, tension:0.4
-        }]},
-        options: baseOptions
-      }));
-
-      maybeInit("chart_mastermind", (ctx) => new Chart(ctx, {
-        type:"bar",
-        data:{ labels, datasets:[{
-          label:"MasterMind", data:[2,4,3,5,6,4,7],
-          borderColor:"rgba(173,91,255,0.8)", backgroundColor:gradient(ctx,"rgba(173,91,255,0.8)","rgba(91,208,255,0.3)")
-        }]},
-        options: baseOptions
-      }));
-
-      maybeInit("chart_talk", (ctx) => new Chart(ctx, {
-        type:"line",
-        data:{ labels, datasets:[{
-          label:"Talk", data:[7,9,5,6,8,4,7],
-          borderColor:"rgba(255,107,107,0.8)", backgroundColor:gradient(ctx,"rgba(255,107,107,0.8)","rgba(255,184,77,0.3)"),
-          fill:true, tension:0.4
-        }]},
-        options: baseOptions
-      }));
-    });
-  </script>
-</body>
-</html>
+</div>
+<dialog id="editor"><div class="modal-head"><div><div class="eyebrow">Application record</div><h2 id="edit-title">Edit application</h2></div><button class="close" id="close">×</button></div><form id="form"><div class="form"><div class="field"><label>Status</label><select name="status"><option value="saved">Saved</option><option value="applied">Applied</option><option value="recruiter_call">Recruiter call</option><option value="interview">Interview</option><option value="offer">Offer</option><option value="rejected">Rejected</option><option value="withdrawn">Withdrawn</option></select></div><div class="field"><label>Source</label><input name="source"></div><div class="field"><label>Applied date</label><input type="datetime-local" name="applied_at"></div><div class="field"><label>Recruiter call</label><input type="datetime-local" name="call_at"></div><div class="field"><label>Interview date</label><input type="datetime-local" name="interview_at"></div><div class="field"><label>Follow-up date</label><input type="datetime-local" name="follow_up_at"></div><div class="field full"><label>Job URL</label><input type="url" name="job_url" placeholder="https://"></div><div class="field full"><label>Notes</label><textarea name="notes" placeholder="Recruiter name, interview details, next action…"></textarea></div></div><div class="modal-foot"><button type="button" class="btn" id="resume">Open résumé</button><button type="button" class="btn" id="call">Record call now</button><button class="btn primary">Save changes</button></div></form></dialog>
+<div class="toast" id="toast"></div>
+<script>
+const $=s=>document.querySelector(s), state={page:1,limit:50,q:"",status:"all",total:0,items:[],current:null};
+const toast=m=>{const e=$("#toast");e.textContent=m;e.classList.add("show");setTimeout(()=>e.classList.remove("show"),2600)};
+const fmt=v=>v?new Intl.DateTimeFormat(undefined,{month:"short",day:"numeric",year:"numeric"}).format(new Date(v)):"Not recorded";
+const local=v=>v?new Date(v).toISOString().slice(0,16):"";
+async function api(path,opt){const r=await fetch(path,opt);if(!r.ok)throw new Error((await r.text())||r.statusText);return r.json()}
+function stats(s){$("#s-total").textContent=s.total.toLocaleString();$("#s-companies").textContent=s.companies.toLocaleString();$("#s-calls").textContent=s.calls.toLocaleString();$("#s-interviews").textContent=s.interviews.toLocaleString();$("#s-offers").textContent=s.offers.toLocaleString();$("#s-response").textContent=`${s.response_rate}% response rate`;$("#s-interview-rate").textContent=`${s.interview_rate}% conversion`;const stages=[["Applied",s.status_counts.applied||0],["Recruiter call",s.calls],["Interview",s.interviews],["Offer",s.offers]];$("#pipeline").innerHTML=stages.map(([n,v])=>`<div class="stage"><div class="stage-head"><span>${n}</span><b>${v.toLocaleString()}</b></div><div class="bar"><div class="fill" style="width:${s.total?Math.max(2,v/s.total*100):0}%"></div></div></div>`).join("")}
+function render(data){state.items=data.items;state.total=data.total;stats(data.stats);$("#empty").hidden=!!data.items.length;$("#rows").innerHTML=data.items.map((a,i)=>`<tr><td><div class="company">${esc(a.company)}</div><div class="role">${esc(a.role)}</div></td><td><span class="pill ${a.status}">${a.status.replace("_"," ")}</span></td><td><div class="date">${fmt(a.applied_at)}</div><div class="source">${esc(a.applied_date_source||"")}</div></td><td class="date">${fmt(a.call_at)}</td><td>${(a.files||[]).length}</td><td><div class="row-actions"><button class="icon-btn" onclick="edit(${i})">Edit</button><a class="icon-btn" href="/api/applications/${a.id}/resume" target="_blank">View</a></div></td></tr>`).join("");const from=state.total?(state.page-1)*state.limit+1:0,to=Math.min(state.page*state.limit,state.total);$("#range").textContent=`${from.toLocaleString()}–${to.toLocaleString()} of ${state.total.toLocaleString()}`;$("#prev").disabled=state.page===1;$("#next").disabled=to>=state.total}
+function esc(v){const d=document.createElement("div");d.textContent=v||"";return d.innerHTML}
+async function load(){const p=new URLSearchParams({q:state.q,status:state.status,page:state.page,limit:state.limit});try{render(await api(`/api/applications?${p}`))}catch(e){toast(`Could not load applications: ${e.message}`)}}
+window.edit=i=>{const a=state.items[i];state.current=a;$("#edit-title").textContent=`${a.company} · ${a.role}`;for(const n of ["status","source","job_url","notes"])$("#form").elements[n].value=a[n]||"";for(const n of ["applied_at","call_at","interview_at","follow_up_at"])$("#form").elements[n].value=local(a[n]);$("#editor").showModal()};
+$("#form").onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target),body={};for(const [k,v] of fd)body[k]=v?(k.endsWith("_at")?new Date(v).toISOString():v):null;await api(`/api/applications/${state.current.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});$("#editor").close();toast("Application updated");load()};
+$("#call").onclick=async()=>{await api(`/api/applications/${state.current.id}/call`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});$("#editor").close();toast("Recruiter call recorded");load()};$("#resume").onclick=()=>open(`/api/applications/${state.current.id}/resume`,`_blank`);$("#close").onclick=()=>$("#editor").close();
+let timer;$("#search").oninput=e=>{clearTimeout(timer);timer=setTimeout(()=>{state.q=e.target.value;state.page=1;load()},250)};$("#status").onchange=e=>{state.status=e.target.value;state.page=1;load()};$("#prev").onclick=()=>{if(state.page>1){state.page--;load()}};$("#next").onclick=()=>{if(state.page*state.limit<state.total){state.page++;load()}};$("#refresh").onclick=load;$("#scan").onclick=async()=>{const b=$("#scan");b.disabled=true;b.textContent="Scanning…";try{const x=await api("/api/applications/scan",{method:"POST"});toast(`${x.total_applications.toLocaleString()} applications indexed`);state.page=1;await load()}catch(e){toast(e.message)}finally{b.disabled=false;b.textContent="Scan ASTRA archive"}};load();
+</script>
+</body></html>

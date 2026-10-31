@@ -1,5 +1,5 @@
 # ============================================================
-#  HIREX v2.1.0 — context_store.py (FINAL, stable-key + dedupe)
+#  HIREX v1.0.0 — context_store.py (FINAL, stable-key + dedupe)
 #  Store & retrieve JD + (optimized/humanized) resume + cover-letter.
 #  File-per-(Company,Role) using key:  {safe_company}__{safe_role}.json
 #  "title_for_memory" keeps a timestamped title for UI memory only.
@@ -12,11 +12,13 @@
 from __future__ import annotations
 
 import json
+import base64
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 
 from fastapi import APIRouter, HTTPException, Form, Query
+from fastapi.responses import Response
 
 from backend.core import config
 from backend.core.utils import safe_filename, log_event, ensure_dir
@@ -100,6 +102,12 @@ def _compact_meta(d: Dict[str, Any], key: str) -> Dict[str, Any]:
     title = d.get("title_for_memory") or d.get("title") or f"{d.get('company','')} — {d.get('role','')}"
     has_opt = bool(((d.get("optimized") or {}).get("tex")) or d.get("resume_tex"))
     has_hum = bool(((d.get("humanized") or {}).get("tex")) or d.get("humanized_tex"))
+    has_pdf = bool(
+        ((d.get("optimized") or {}).get("pdf_b64"))
+        or ((d.get("humanized") or {}).get("pdf_b64"))
+        or d.get("pdf_base64")
+        or d.get("pdf_base64_humanized")
+    )
     cl = d.get("cover_letter") or {}
     has_cl = bool(cl.get("tex") or cl.get("pdf_b64") or d.get("cover_letter_tex") or d.get("cover_letter_pdf_b64"))
     return {
@@ -111,6 +119,7 @@ def _compact_meta(d: Dict[str, Any], key: str) -> Dict[str, Any]:
         "updated_at": d.get("updated_at") or d.get("saved_at"),
         "has_optimized": has_opt,
         "has_humanized": has_hum,
+        "has_pdf": has_pdf,
         "has_cover_letter": has_cl,
         "model": d.get("model"),
         "fit_score": d.get("fit_score"),
@@ -205,6 +214,9 @@ def _flatten_for_frontend(d: Dict[str, Any]) -> Dict[str, Any]:
     # Humanized
     out["humanized_tex"] = out.get("humanized_tex") or hum.get("tex") or ""
     out["pdf_base64_humanized"] = out.get("pdf_base64_humanized") or hum.get("pdf_b64") or ""
+    out["has_optimized_pdf"] = bool(out["pdf_base64"] or opt.get("pdf_path"))
+    out["has_humanized_pdf"] = bool(out["pdf_base64_humanized"] or hum.get("pdf_path"))
+    out["has_pdf"] = bool(out["has_optimized_pdf"] or out["has_humanized_pdf"])
 
     # Cover letter
     out["cover_letter_tex"] = out.get("cover_letter_tex") or cl.get("tex") or ""
@@ -260,7 +272,7 @@ async def save_context(
         "company": company,
         "role": role,
         "jd_text": jd_text,
-        "model": model or getattr(config, "DEFAULT_MODEL", "gpt-4o-mini"),
+        "model": model or getattr(config, "DEFAULT_MODEL", "gpt-5.4-nano"),
         "fit_score": fit_score,
         "title_for_memory": f"{safe_filename(company)}_{safe_filename(role)}_{_nowstamp()}",
     }
@@ -289,7 +301,7 @@ async def save_context(
 
 @router.get("/list")
 async def list_contexts(
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(50, ge=1, le=5000),
     dedupe: bool = Query(True),
 ):
     """
@@ -309,9 +321,91 @@ async def list_contexts(
             by_key[idx_key] = (p, d, ts)
 
     # Sort newest first and compact
-    rows = sorted(by_key.items(), key=lambda kv: kv[1][2], reverse=True)[:limit]
+    rows = sorted(by_key.items(), key=lambda kv: kv[1][2], reverse=True)
     items = [_compact_meta(d, _coerce_key(d, p)) for (_k, (p, d, _)) in rows]
+
+    # Historical PDFs are first-class contexts too. Previously only JSON contexts
+    # appeared here, hiding almost the entire resume library from Talk and Cover Letter.
+    try:
+        from backend.api import applications
+        store = applications._load()
+        existing = {f"{str(x.get('company','')).casefold()}__{str(x.get('role','')).casefold()}" for x in items}
+        archived = []
+        for app in store.get("applications", {}).values():
+            pdfs = [f for f in app.get("files", []) if str(f.get("path", "")).lower().endswith(".pdf")]
+            identity = f"{str(app.get('company','')).casefold()}__{str(app.get('role','')).casefold()}"
+            if not pdfs or identity in existing:
+                continue
+            archived.append({
+                "key": f"app:{app['id']}", "id": f"app:{app['id']}",
+                "title": f"{app.get('company','')} — {app.get('role','')}",
+                "company": app.get("company", ""), "role": app.get("role", ""),
+                "updated_at": app.get("applied_at") or app.get("updated_at"),
+                "has_optimized": True, "has_humanized": False, "has_pdf": True,
+                "has_cover_letter": False, "source": "application_archive",
+            })
+        archived.sort(key=lambda x: x.get("updated_at") or "", reverse=True)
+        items.extend(archived)
+    except Exception:
+        pass
+    items.sort(key=lambda x: str(x.get("updated_at") or ""), reverse=True)
+    items = items[:limit]
     return {"items": items}
+
+
+@router.get("/pdf")
+async def get_context_pdf(
+    key: str = Query(...),
+    variant: str = Query("optimized"),
+    document: str = Query("resume"),
+):
+    """Stream saved PDFs directly; avoids unreliable blob iframe rendering."""
+    if key.startswith("app:"):
+        from backend.api import applications
+        app = applications._load().get("applications", {}).get(key[4:])
+        if not app:
+            raise HTTPException(404, "Application not found")
+        pdf = next((Path(f.get("path", "")) for f in app.get("files", [])
+                    if str(f.get("path", "")).lower().endswith(".pdf") and Path(f.get("path", "")).is_file()), None)
+        if not pdf:
+            raise HTTPException(404, "Resume PDF is no longer available")
+        try:
+            return Response(applications._read_pdf_bytes(pdf), media_type="application/pdf", headers={"Cache-Control": "no-store", "Content-Disposition": "inline"})
+        except OSError as exc:
+            raise HTTPException(500, f"Resume PDF could not be read: {exc}") from exc
+
+    path = _path_for_key(key)
+    if not path.exists():
+        raise HTTPException(404, "Context not found")
+    data = _flatten_for_frontend(_read(path))
+    raw_data = _read(path)
+    opt = raw_data.get("optimized") or {}
+    hum = raw_data.get("humanized") or {}
+    cover = raw_data.get("cover_letter") or {}
+    if document == "cover_letter":
+        encoded = data.get("cover_letter_pdf_b64") or ""
+        stored_path = cover.get("pdf_path") or raw_data.get("cover_letter_pdf_path")
+    elif variant == "humanized":
+        encoded = data.get("pdf_base64_humanized") or data.get("pdf_base64") or ""
+        stored_path = hum.get("pdf_path") or opt.get("pdf_path")
+    else:
+        encoded = data.get("pdf_base64") or data.get("pdf_base64_humanized") or ""
+        stored_path = opt.get("pdf_path") or hum.get("pdf_path")
+    if not encoded and stored_path:
+        pdf_path = Path(str(stored_path)).expanduser()
+        if pdf_path.is_file():
+            try:
+                return Response(pdf_path.read_bytes(), media_type="application/pdf", headers={"Cache-Control": "no-store", "Content-Disposition": "inline"})
+            except OSError as exc:
+                raise HTTPException(500, f"Saved PDF could not be read: {exc}") from exc
+    if not encoded:
+        raise HTTPException(404, "PDF is not available")
+    try:
+        raw = encoded.split("base64,", 1)[-1]
+        payload = base64.b64decode(raw)
+    except Exception as exc:
+        raise HTTPException(422, "Saved PDF is invalid") from exc
+    return Response(payload, media_type="application/pdf", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/get")
@@ -345,6 +439,26 @@ async def get_context(
 
     # Case 2: explicit stable key
     if key.strip():
+        if key.startswith("app:"):
+            from backend.api import applications
+            application_id = key[4:]
+            app = applications._load().get("applications", {}).get(application_id)
+            if not app:
+                raise HTTPException(status_code=404, detail="Application context not found")
+            pdfs = [Path(item.get("path", "")) for item in app.get("files", [])
+                    if Path(item.get("path", "")).suffix.casefold() == ".pdf"]
+            path = next((p for p in pdfs if p.is_file()), None)
+            if not path:
+                raise HTTPException(status_code=404, detail="Resume file is no longer available")
+            resume_text = applications._extract_pdf_text(path)
+            if not resume_text:
+                raise HTTPException(status_code=422, detail="Text could not be extracted from this PDF")
+            return {
+                "key": key, "company": app.get("company", ""), "role": app.get("role", ""),
+                "updated_at": app.get("updated_at"), "jd_text": applications.resolve_job_description(app),
+                "resume_tex": resume_text, "humanized_tex": "", "pdf_base64": "",
+                "source": "application_archive", "job_url": app.get("job_url", ""),
+            }
         path = _path_for_key(key)
         if not path.exists():
             raise HTTPException(status_code=404, detail="Context not found")

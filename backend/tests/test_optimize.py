@@ -6,9 +6,11 @@ Author: Sri Akash Kadali
 """
 
 from io import BytesIO
+import os
 from pathlib import Path
+import pytest
 from fastapi.testclient import TestClient
-from backend.main import app
+from main import app
 
 client = TestClient(app)
 
@@ -51,7 +53,7 @@ def test_health_endpoint():
     r = client.get("/health")
     assert r.status_code == 200, f"Health failed: {r.text}"
     data = r.json()
-    assert data.get("status") == "ok"
+    assert data.get("ok") is True
     assert "version" in data
 
 
@@ -66,6 +68,10 @@ def test_frontend_index_served():
 # 🚀 /api/optimize End-to-End Tests
 # ============================================================
 
+@pytest.mark.skipif(
+    os.getenv("ASTRA_RUN_LIVE_TESTS") != "1",
+    reason="Set ASTRA_RUN_LIVE_TESTS=1 to run the paid OpenAI end-to-end test.",
+)
 def test_optimize_endpoint_happy_path(tmp_path: Path):
     """
     Verify that /api/optimize processes a sample resume and JD text
@@ -75,7 +81,7 @@ def test_optimize_endpoint_happy_path(tmp_path: Path):
     files = {"base_resume_tex": ("resume.tex", BytesIO(tex_bytes), "text/plain")}
     data = {"jd_text": "We need Python, AWS, FastAPI. Seniority: SWE I or Senior."}
 
-    r = client.post("/api/optimize", files=files, data=data)
+    r = client.post("/api/optimize/", files=files, data=data)
     assert r.status_code == 200, f"Unexpected response: {r.text}"
     payload = r.json()
 
@@ -103,12 +109,12 @@ def test_optimize_endpoint_missing_fields():
     """Missing JD text should result in a validation or bad request error."""
     tex_bytes = _sample_tex().encode("utf-8")
     files = {"base_resume_tex": ("resume.tex", BytesIO(tex_bytes), "text/plain")}
-    r = client.post("/api/optimize", files=files, data={})
+    r = client.post("/api/optimize/", files=files, data={})
     assert r.status_code in (400, 422), f"Expected validation failure, got {r.status_code}"
 
 
 def test_optimize_endpoint_invalid_file():
     """Invalid extension or empty content should not crash the API."""
-    files = {"base_resume_tex": ("resume.txt", BytesIO(b""), "text/plain")}
-    r = client.post("/api/optimize", files=files, data={"jd_text": "Python"})
+    files = {"base_resume_tex": ("resume.pdf", BytesIO(b"invalid"), "application/pdf")}
+    r = client.post("/api/optimize/", files=files, data={"jd_text": "Python"})
     assert r.status_code in (400, 500), f"Unexpected status: {r.status_code}"

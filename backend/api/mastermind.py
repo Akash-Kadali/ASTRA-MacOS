@@ -1,6 +1,6 @@
 """
 ============================================================
- HIREX v2.1.0 — mastermind.py
+ HIREX v1.0.0 — mastermind.py
  ------------------------------------------------------------
  MasterMind AI Assistant API
  • Context-aware reasoning and Q&A engine
@@ -37,7 +37,7 @@ openai_client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
 # ---------------------------------------------
 # Defaults
 # ---------------------------------------------
-DEFAULT_MODEL = getattr(config, "MASTERMINDS_MODEL", getattr(config, "DEFAULT_MODEL", "gpt-4o-mini"))
+DEFAULT_MODEL = getattr(config, "MASTERMINDS_MODEL", getattr(config, "DEFAULT_MODEL", "gpt-5.4-nano"))
 STORE_DIR: Path = Path(getattr(config, "MASTERMINDS_PATH", (Path("data") / "mastermind_sessions")))
 STORE_DIR.mkdir(parents=True, exist_ok=True)
 

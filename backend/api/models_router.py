@@ -1,5 +1,5 @@
 # ============================================================
-#  ASTRA v2.1.2 — models_router.py
+#  ASTRA v1.0.0 — models_router.py
 #  Exposes model catalogs + pricing for the frontend picker.
 #  Reads from backend.core.config (AVAILABLE_MODELS, MODEL_PRICING, etc.)
 # ============================================================

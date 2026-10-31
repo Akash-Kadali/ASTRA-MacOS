@@ -8,9 +8,11 @@ Author: Sri Akash Kadali
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
+import unicodedata
 from pathlib import Path
 
 from backend.core import config
@@ -33,7 +35,44 @@ except Exception:  # pragma: no cover
 # ============================================================
 # 🧩 Safe PDF Compilation Utility
 # ============================================================
-def compile_latex_safely(tex_string: str) -> bytes | None:
+_PDFLATEX_UNICODE = {
+    "↔": r"$\leftrightarrow$", "→": r"$\rightarrow$", "←": r"$\leftarrow$",
+    "⇒": r"$\Rightarrow$", "⇐": r"$\Leftarrow$", "⇔": r"$\Leftrightarrow$",
+    "≤": r"$\leq$", "≥": r"$\geq$", "≠": r"$\neq$", "≈": r"$\approx$",
+    "×": r"$\times$", "÷": r"$\div$", "±": r"$\pm$", "∞": r"$\infty$",
+    "∑": r"$\sum$", "∏": r"$\prod$", "√": r"$\sqrt{}$", "∈": r"$\in$",
+    "∉": r"$\notin$", "∂": r"$\partial$", "∇": r"$\nabla$", "°": r"$^\circ$",
+    "•": r"$\bullet$", "·": r"$\cdot$", "…": r"\ldots{}",
+    "–": "--", "—": "--", "−": "-", "‐": "-", "‑": "-",
+    "’": "'", "‘": "'", "“": "``", "”": "''", " ": " ",
+    "©": r"\textcopyright{}", "®": r"\textregistered{}", "™": "TM",
+}
+
+
+def _pdflatex_safe_unicode(source: str) -> str:
+    """Convert model/user Unicode into deterministic pdflatex-safe text."""
+    for symbol, replacement in _PDFLATEX_UNICODE.items():
+        source = source.replace(symbol, replacement)
+    output: list[str] = []
+    for char in source:
+        if ord(char) < 128 or char in "\n\r\t":
+            output.append(char)
+            continue
+        # inputenc handles ordinary Latin text, but decomposing it removes a
+        # common source of font/engine variance in packaged builds.
+        transliterated = unicodedata.normalize("NFKD", char).encode("ascii", "ignore").decode()
+        if transliterated:
+            output.append(transliterated)
+        elif unicodedata.category(char).startswith(("C", "S")):
+            # Drop emoji, variation selectors, and invisible controls. They do
+            # not belong in an ATS resume and often stop pdflatex completely.
+            continue
+        else:
+            output.append(" ")
+    return "".join(output)
+
+
+def compile_latex_safely(tex_string: str, passes: int = 2) -> bytes | None:
     """
     Compiles LaTeX source code into PDF bytes securely.
     Returns PDF bytes (on success) or None (on failure).
@@ -45,6 +84,7 @@ def compile_latex_safely(tex_string: str) -> bytes | None:
     - Cleans up temporary files automatically
     - Compatible with TeX Live / MiKTeX on all OS
     """
+    passes = max(1, min(2, int(passes)))
     pdflatex_path = shutil.which("pdflatex")
     if pdflatex_path is None:
         _elog("latex_pdflatex_missing", {"detail": "pdflatex not found in PATH"})
@@ -75,8 +115,10 @@ def compile_latex_safely(tex_string: str) -> bytes | None:
             pdf_path = tmp / "main.pdf"
             log_path = tmp / "compile.log"
 
-            # Write LaTeX source
-            tex_path.write_text(tex_string, encoding="utf-8")
+            # Write LaTeX source after a compiler-level safety pass. This is a
+            # final guard shared by resumes, cover letters, and edited source.
+            safe_tex = _pdflatex_safe_unicode(tex_string)
+            tex_path.write_text(safe_tex, encoding="utf-8")
             _elog("latex_compile_start", {"workdir": str(tmp)})
 
             # Safe compile command (explicitly disable shell-escape)
@@ -93,7 +135,7 @@ def compile_latex_safely(tex_string: str) -> bytes | None:
             ]
 
             # Run pdflatex twice for cross-refs
-            for i in range(2):
+            for i in range(passes):
                 proc = subprocess.run(
                     cmd,
                     cwd=tmp,
@@ -114,6 +156,30 @@ def compile_latex_safely(tex_string: str) -> bytes | None:
                     pass
 
                 _elog("latex_pdflatex_pass", {"pass": i + 1, "returncode": proc.returncode})
+                if proc.returncode != 0:
+                    # A package can surface a Unicode character only after macro
+                    # expansion. Repair every reported code point and retry once.
+                    codes = re.findall(r"Unicode character .*?\(U\+([0-9A-Fa-f]{4,6})\)", proc.stdout or "")
+                    repaired = False
+                    for code in codes:
+                        char = chr(int(code, 16))
+                        replacement = _PDFLATEX_UNICODE.get(char, "")
+                        if char in safe_tex:
+                            safe_tex = safe_tex.replace(char, replacement)
+                            repaired = True
+                    if repaired:
+                        tex_path.write_text(safe_tex, encoding="utf-8")
+                        retry = subprocess.run(
+                            cmd, cwd=tmp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            timeout=90, encoding="utf-8", errors="ignore", check=False, env=env,
+                        )
+                        with open(log_path, "a", encoding="utf-8") as lf:
+                            lf.write("\n--- ASTRA automatic Unicode repair retry ---\n")
+                            lf.write(retry.stdout or "")
+                        _elog("latex_unicode_repair_retry", {"returncode": retry.returncode, "codepoints": codes})
+                        proc = retry
+                    if proc.returncode != 0:
+                        break
 
             # Check PDF output
             if pdf_path.exists():
@@ -127,6 +193,11 @@ def compile_latex_safely(tex_string: str) -> bytes | None:
                 lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
                 tail = "\n".join(lines[-20:])
                 _elog("latex_no_pdf", {"tail": tail})
+                try:
+                    persistent_log = Path(config.CACHE_DIR) / "last_latex_compile.log"
+                    persistent_log.write_text("\n".join(lines), encoding="utf-8")
+                except Exception:
+                    pass
             else:
                 _elog("latex_no_log", {"detail": "Compilation failed — no log file created"})
             return None

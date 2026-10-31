@@ -1,6 +1,8 @@
 /* ============================================================
-   HIREX • components.css (v1.1.0 — Unified Neon Component System)
+   HIREX • components.css (v1.0.0 — Unified Neon Component System)
    ------------------------------------------------------------
+   • All element-level selectors scoped to body.glass-page
+   • Terminal pages (index, preview) are never affected
    • Sidebar-ready neon components
    • Gradient text + glass surfaces
    • Responsive + accessibility safe
@@ -8,7 +10,7 @@
    ============================================================ */
 
 /* ========================= SIDEBAR ========================= */
-nav {
+body.glass-page nav {
   position: fixed;
   top: 0;
   left: 0;
@@ -27,14 +29,14 @@ nav {
 }
 
 /* --- Brand --- */
-.nav-left {
+body.glass-page .nav-left {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: .6rem;
   margin-bottom: 2rem;
 }
-.nav-left img {
+body.glass-page .nav-left img {
   height: 70px;
   width: 70px;
   border-radius: 50%;
@@ -42,7 +44,7 @@ nav {
   padding: .5rem;
   box-shadow: 0 0 24px rgba(110,168,254,.3);
 }
-.nav-title {
+body.glass-page .nav-title {
   font: 800 1.35rem/1 "Poppins", sans-serif;
   text-transform: uppercase;
   letter-spacing: .05em;
@@ -56,7 +58,7 @@ nav {
 }
 
 /* --- Navigation Links --- */
-nav ul {
+body.glass-page nav ul {
   list-style: none;
   padding: 0;
   display: flex;
@@ -64,7 +66,7 @@ nav ul {
   gap: .9rem;
   width: 100%;
 }
-nav ul a {
+body.glass-page nav ul a {
   display: flex;
   align-items: center;
   gap: .75rem;
@@ -78,14 +80,14 @@ nav ul a {
               color .25s var(--ease-out),
               box-shadow .25s var(--ease-out);
 }
-nav ul a:hover {
+body.glass-page nav ul a:hover {
   background: rgba(110,168,254,0.15);
   color: #fff;
   transform: translateX(5px);
   box-shadow: 0 0 12px rgba(110,168,254,.2);
 }
-nav ul a[aria-current="page"],
-nav ul a.active-link {
+body.glass-page nav ul a[aria-current="page"],
+body.glass-page nav ul a.active-link {
   background: linear-gradient(90deg, rgba(110,168,254,0.25), rgba(110,168,254,0.08));
   border-left: 3px solid var(--accent);
   color: #fff;
@@ -93,7 +95,7 @@ nav ul a.active-link {
 }
 
 /* --- Sidebar CTA --- */
-.cta-nav-button {
+body.glass-page .cta-nav-button {
   margin-top: auto;
   margin-bottom: 1.25rem;
   border: none;
@@ -105,14 +107,14 @@ nav ul a.active-link {
   cursor: pointer;
   transition: transform .25s var(--ease-out), box-shadow .3s var(--ease-out);
 }
-.cta-nav-button:hover {
+body.glass-page .cta-nav-button:hover {
   transform: scale(1.06);
   box-shadow: 0 0 24px rgba(110,168,254,.55);
 }
 
 /* --- Responsive Sidebar Collapse --- */
 @media (max-width: 860px) {
-  nav {
+  body.glass-page nav {
     position: fixed;
     transform: translateX(-100%);
     width: 220px;
@@ -121,16 +123,16 @@ nav ul a.active-link {
     transition: transform .35s var(--ease-out);
     z-index: 999;
   }
-  body.nav-open nav {
+  body.glass-page.nav-open nav {
     transform: translateX(0);
     box-shadow: 0 0 40px rgba(0,0,0,0.6);
   }
-  nav ul { gap: 1rem; }
-  .cta-nav-button { display: none; }
+  body.glass-page nav ul { gap: 1rem; }
+  body.glass-page .cta-nav-button { display: none; }
 }
 
 /* ========================= HEADINGS ========================= */
-h1.page-title {
+body.glass-page h1.page-title {
   font: 800 clamp(1.9rem, 4vw, 2.6rem)/1.1 "Outfit", sans-serif;
   text-align: center;
   margin-block: 1.25rem .75rem;
@@ -142,26 +144,29 @@ h1.page-title {
   -webkit-text-fill-color: transparent;
   text-shadow: 0 0 22px rgba(110,168,254,.25);
 }
-h2 {
+body.glass-page h2 {
   font: 700 clamp(1.1rem,2.2vw,1.5rem)/1.25 "Outfit", sans-serif;
   color: var(--text-100);
   margin-block: .35rem .85rem;
 }
 
 /* ========================= SECTIONS / CARDS ========================= */
-section, .card {
+/* SCOPED — never applies to terminal pages */
+body.glass-page section,
+body.glass-page .card {
   background: var(--surface-1);
   border: 1px solid var(--surface-2);
   border-radius: var(--radius);
   padding: clamp(1rem,2.5vw,2rem);
-  color: var(--text-200);
+  color: var(--text-400);
   box-shadow: var(--shadow);
   transition: transform .25s var(--ease-out),
               box-shadow .25s var(--ease-out),
               border-color .25s var(--ease-out);
   will-change: transform, box-shadow;
 }
-.card:hover, section:hover {
+body.glass-page .card:hover,
+body.glass-page section:hover {
   transform: translateY(-3px);
   box-shadow: 0 20px 50px rgba(0,0,0,.55), 0 0 18px rgba(110,168,254,.25);
   border-color: rgba(255,255,255,.22);
@@ -177,7 +182,9 @@ section, .card {
   margin-block: 1.25rem 2rem;
 }
 
-.cta-primary, .cta-secondary, .cta-accent {
+.cta-primary,
+.cta-secondary,
+.cta-accent {
   font: 700 1rem/1 "Outfit", sans-serif;
   min-inline-size: clamp(200px,28vw,240px);
   text-align: center;
@@ -224,7 +231,7 @@ section, .card {
 }
 
 /* ========================= FOOTER ========================= */
-footer {
+body.glass-page footer {
   font: 500 .95rem/1.5 "Outfit", sans-serif;
   color: var(--text-600);
   text-align: center;
@@ -234,13 +241,14 @@ footer {
   backdrop-filter: blur(6px);
   transition: background .4s var(--ease-out);
 }
-footer a {
+body.glass-page footer a {
   color: var(--accent);
   transition: opacity .25s var(--ease-out);
 }
-footer a:hover { opacity: .85; }
+body.glass-page footer a:hover { opacity: .85; }
 
 /* ========================= TOAST ========================= */
+/* Unscoped — both terminal and glass pages share the same toast */
 #toast {
   font: 700 .95rem/1 "Outfit", sans-serif;
   position: fixed;
@@ -256,6 +264,7 @@ footer a:hover { opacity: .85; }
   box-shadow: var(--shadow);
   opacity: 0;
   z-index: 9999;
+  pointer-events: none;
   transition: opacity .45s var(--ease-out),
               bottom .45s var(--ease-out),
               transform .45s var(--ease-out);
@@ -275,8 +284,10 @@ footer a:hover { opacity: .85; }
 
 /* ========================= SMALL SCREENS ========================= */
 @media (max-width: 560px) {
-  h1.page-title { margin-block-start: .5rem; font-size: 1.8rem; }
-  section { padding: 1rem; }
-  .cta-primary, .cta-secondary, .cta-accent { min-inline-size: 100%; }
-  footer { font-size: .85rem; }
+  body.glass-page h1.page-title  { margin-block-start: .5rem; font-size: 1.8rem; }
+  body.glass-page section        { padding: 1rem; }
+  .cta-primary,
+  .cta-secondary,
+  .cta-accent                    { min-inline-size: 100%; }
+  body.glass-page footer         { font-size: .85rem; }
 }

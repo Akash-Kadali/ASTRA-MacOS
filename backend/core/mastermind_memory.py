@@ -1,5 +1,5 @@
 # ============================================================
-#  HIREX v2.0.0 — backend/data/mastermind_sessions.py
+#  HIREX v1.0.0 — backend/data/mastermind_sessions.py
 #  ------------------------------------------------------------
 #  Lightweight filesystem store for MasterMind chat sessions.
 #  Compatible with /api/mastermind endpoints.

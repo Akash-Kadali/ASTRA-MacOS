@@ -22,7 +22,7 @@ if [ ! -f "main.py" ]; then
     exit 1
 fi
 
-# Check for icon file
+# Check for icon file (make flag optional)
 if [ ! -f "icon.icns" ]; then
     echo "⚠️  Warning: icon.icns not found!"
     echo "   The app will be built without a custom icon."
@@ -31,7 +31,7 @@ if [ ! -f "icon.icns" ]; then
     ICON_FLAG=""
 else
     echo "✅ Found icon.icns"
-    ICON_FLAG='--icon "icon.icns"'
+    ICON_FLAG="--icon icon.icns"
 fi
 
 # Check for pyinstaller
@@ -54,7 +54,7 @@ pyinstaller \
   --onedir \
   --windowed \
   --name "ASTRA" \
-  --icon "icon.icns" \
+  $ICON_FLAG \
   --osx-bundle-identifier "com.astra.app" \
   "main.py" \
   --exclude-module nltk \
@@ -66,6 +66,7 @@ pyinstaller \
   --add-data "backend/api/base_coverletter.tex:backend/api" \
   --add-data "backend/api/base_resume.tex:backend/api" \
   --collect-submodules backend \
+  --collect-all playwright \
   --hidden-import backend.api.optimize \
   --hidden-import backend.api.coverletter \
   --hidden-import backend.api.talk \
@@ -73,6 +74,9 @@ pyinstaller \
   --hidden-import backend.api.humanize \
   --hidden-import backend.api.mastermind \
   --hidden-import backend.api.dashboard \
+  --hidden-import backend.api.jobright \
+  --hidden-import backend.api.jobright_agent \
+  --hidden-import backend.api.decision_center \
   --hidden-import backend.api.models_router \
   --hidden-import backend.api.context_store \
   --hidden-import backend.api.utils_router \
@@ -97,6 +101,7 @@ pyinstaller \
   --hidden-import starlette \
   --hidden-import dotenv \
   --hidden-import pydantic \
+  --hidden-import pypdf \
   --hidden-import httptools \
   --hidden-import websockets \
   --hidden-import anyio
@@ -110,17 +115,28 @@ if [ ! -d "dist/ASTRA.app" ]; then
     exit 1
 fi
 
-# Copy icon if not present in Resources
-if [ -f "icon.icns" ] && [ ! -f "dist/ASTRA.app/Contents/Resources/icon.icns" ]; then
-    echo "   Copying icon to Resources..."
-    cp icon.icns "dist/ASTRA.app/Contents/Resources/icon.icns"
+# Keep Finder, Dock, and crash reports aligned with the shipped UI release.
+if [ -f "dist/ASTRA.app/Contents/Info.plist" ]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 3.0.0" "dist/ASTRA.app/Contents/Info.plist" 2>/dev/null || \
+    /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 3.0.0" "dist/ASTRA.app/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 3.0.0" "dist/ASTRA.app/Contents/Info.plist" 2>/dev/null || \
+    /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 3.0.0" "dist/ASTRA.app/Contents/Info.plist"
 fi
 
-# Update Info.plist to ensure icon is referenced
-if [ -f "dist/ASTRA.app/Contents/Info.plist" ]; then
-    echo "   Updating Info.plist..."
-    /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile icon" "dist/ASTRA.app/Contents/Info.plist" 2>/dev/null || \
-    /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string icon" "dist/ASTRA.app/Contents/Info.plist" 2>/dev/null || true
+# If icon exists, copy it into Resources and ensure Info.plist references it
+if [ -f "icon.icns" ]; then
+    mkdir -p "dist/ASTRA.app/Contents/Resources"
+
+    if [ ! -f "dist/ASTRA.app/Contents/Resources/icon.icns" ]; then
+        echo "   Copying icon to Resources..."
+        cp "icon.icns" "dist/ASTRA.app/Contents/Resources/icon.icns"
+    fi
+
+    if [ -f "dist/ASTRA.app/Contents/Info.plist" ]; then
+        echo "   Updating Info.plist..."
+        /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile icon" "dist/ASTRA.app/Contents/Info.plist" 2>/dev/null || \
+        /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string icon" "dist/ASTRA.app/Contents/Info.plist" 2>/dev/null || true
+    fi
 fi
 
 echo "🔄 Refreshing app timestamp..."

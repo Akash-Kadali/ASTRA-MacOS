@@ -1,0 +1,11 @@
+# Libraries retained by the existing full requirements.txt but not imported by
+# ASTRA's core web/resume runtime. Install this profile for legacy experiments.
+anthropic==0.77.0
+lxml==6.0.2
+networkx==3.6.1
+numpy==2.4.1
+pandas==3.0.0
+PyMuPDF==1.26.7
+pypdf==6.6.2
+scipy==1.17.0
+

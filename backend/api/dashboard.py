@@ -1,5 +1,5 @@
 # ============================================================
-#  ASTRA v2.1.2 — Dashboard Analytics & History Endpoint (FINAL)
+#  HIREX v1.0.0 — Dashboard Analytics & History Endpoint
 #  ------------------------------------------------------------
 #  Provides:
 #   • Aggregated event summaries (counts, not clones)
@@ -8,6 +8,7 @@
 #   • Recent history listing (deduped per Company__Role)
 #   • Event type registry
 #   • Robust log reading & safe JSONL parsing
+#   • Total resumes count for dashboard stats
 #  Author: Sri Akash Kadali
 # ============================================================
 
@@ -31,6 +32,12 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 # ============================================================
 LOG_PATH = Path(config.LOG_PATH)
 HISTORY_PATH = Path(config.HISTORY_PATH)
+
+# Output directories for counting files
+OPTIMIZED_DIR = Path(config.OPTIMIZED_DIR)
+HUMANIZED_DIR = Path(config.HUMANIZED_DIR)
+COVER_LETTERS_DIR = Path(config.COVER_LETTERS_DIR)
+CONTEXTS_DIR = Path(config.CONTEXTS_DIR)
 
 for p in (LOG_PATH.parent, HISTORY_PATH.parent):
     p.mkdir(parents=True, exist_ok=True)
@@ -125,6 +132,28 @@ def _dedupe_company_role(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
+def _count_files_in_dir(directory: Path, extensions: List[str] = None) -> int:
+    """Count files in a directory, optionally filtering by extension."""
+    if not directory.exists():
+        return 0
+    try:
+        if extensions:
+            return sum(1 for f in directory.iterdir() if f.is_file() and f.suffix.lower() in extensions)
+        return sum(1 for f in directory.iterdir() if f.is_file())
+    except Exception:
+        return 0
+
+
+def _count_context_files() -> int:
+    """Count the number of context JSON files (represents unique job applications)."""
+    if not CONTEXTS_DIR.exists():
+        return 0
+    try:
+        return sum(1 for f in CONTEXTS_DIR.glob("*.json") if f.is_file())
+    except Exception:
+        return 0
+
+
 # ============================================================
 # 📊 Aggregations
 # ============================================================
@@ -141,6 +170,12 @@ def summarize_events(events: List[Dict[str, Any]]) -> Dict[str, Any]:
         "modes": Counter(),
         "avg_resume_length": 0.0,
         "distinct_company_roles": 0,
+        # NEW: File-based counts for accurate totals
+        "total_resumes": 0,
+        "total_optimized": 0,
+        "total_humanized": 0,
+        "total_coverletters_files": 0,
+        "total_contexts": 0,
     }
 
     # Distinct (company, role) counter for high-level dedup metric
@@ -186,6 +221,21 @@ def summarize_events(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     denom = max(len_count, 1)
     summary["avg_resume_length"] = round(total_len / denom, 2)
     summary["distinct_company_roles"] = len(distinct_pairs)
+
+    # Count actual files in output directories for accurate totals
+    summary["total_optimized"] = _count_files_in_dir(OPTIMIZED_DIR, [".pdf"])
+    summary["total_humanized"] = _count_files_in_dir(HUMANIZED_DIR, [".pdf"])
+    summary["total_coverletters_files"] = _count_files_in_dir(COVER_LETTERS_DIR, [".pdf"])
+    summary["total_contexts"] = _count_context_files()
+    
+    # Total resumes = optimized + humanized (unique by counting optimized as base)
+    # Or use contexts as the authoritative count of job applications
+    summary["total_resumes"] = max(
+        summary["total_optimized"],
+        summary["total_humanized"],
+        summary["total_contexts"],
+        summary["distinct_company_roles"]
+    )
 
     # Convert counters to plain dicts for JSON
     summary["tones"] = dict(summary["tones"])
@@ -262,6 +312,10 @@ async def dashboard_root(
     limit: int = Query(300, ge=1, le=2000),
     dedupe: bool = Query(True, description="Collapse multiple actions per (Company,Role) to the newest one"),
 ):
+    """
+    Main dashboard endpoint returning all data needed for the frontend.
+    Returns summary stats, weekly trends, and recent history.
+    """
     events = _read_jsonl(LOG_PATH, limit)
     history = _read_jsonl(HISTORY_PATH, limit)
     records = history or events
@@ -269,14 +323,58 @@ async def dashboard_root(
     if dedupe:
         records = _dedupe_company_role(records)
 
-    if not records:
-        return {"summary": {}, "trend": {}, "history": [], "updated": _now_iso()}
-
+    # Even if no records, still return file-based counts
+    summary = summarize_events(records) if records else _get_file_based_summary()
+    
     return {
-        "summary": summarize_events(records),
-        "trend": weekly_trend(records),
-        "history": summarize_history(records)[:100],
+        "summary": summary,
+        "trend": weekly_trend(records) if records else _empty_trend(),
+        "history": summarize_history(records)[:100] if records else [],
         "updated": _now_iso(),
+        # Additional fields for frontend compatibility
+        "total_resumes": summary.get("total_resumes", 0),
+        "optimize_runs": summary.get("optimize_runs", 0),
+        "coverletters": summary.get("coverletters", 0),
+        "superhuman_calls": summary.get("superhuman_calls", 0),
+        "talk_queries": summary.get("talk_queries", 0),
+        "mastermind_chats": summary.get("mastermind_chats", 0),
+    }
+
+
+def _get_file_based_summary() -> Dict[str, Any]:
+    """Get summary based purely on file counts when no events exist."""
+    total_optimized = _count_files_in_dir(OPTIMIZED_DIR, [".pdf"])
+    total_humanized = _count_files_in_dir(HUMANIZED_DIR, [".pdf"])
+    total_coverletters = _count_files_in_dir(COVER_LETTERS_DIR, [".pdf"])
+    total_contexts = _count_context_files()
+    
+    return {
+        "total_events": 0,
+        "optimize_runs": total_optimized,
+        "coverletters": total_coverletters,
+        "superhuman_calls": total_humanized,
+        "talk_queries": 0,
+        "mastermind_chats": 0,
+        "tones": {},
+        "modes": {},
+        "avg_resume_length": 0.0,
+        "distinct_company_roles": total_contexts,
+        "total_resumes": max(total_optimized, total_humanized, total_contexts),
+        "total_optimized": total_optimized,
+        "total_humanized": total_humanized,
+        "total_coverletters_files": total_coverletters,
+        "total_contexts": total_contexts,
+    }
+
+
+def _empty_trend() -> Dict[str, List[int]]:
+    """Return empty trend data structure."""
+    return {
+        "optimizations": [0] * 7,
+        "coverletters": [0] * 7,
+        "superhuman": [0] * 7,
+        "mastermind": [0] * 7,
+        "talk": [0] * 7,
     }
 
 
@@ -291,22 +389,49 @@ async def get_summary(
     """
     Aggregated dashboard summary used for top metrics and charts.
     Combines analytics from events.jsonl and history.jsonl.
+    Also includes file-based counts for accurate totals.
     """
     events = _read_jsonl(LOG_PATH, limit)
     history = _read_jsonl(HISTORY_PATH, limit)
 
-    if not events and not history:
-        return JSONResponse({"message": "No analytics available.", "summary": {}, "recent": []})
-
-    # Prefer history when present
+    # Prefer history when present, but combine both for complete picture
     records = history or events
+    
+    if not events and not history:
+        # Return file-based summary even when no events logged
+        summary = _get_file_based_summary()
+        return JSONResponse({
+            "message": "No event logs available. Showing file-based counts.",
+            "summary": summary,
+            "recent": [],
+            "updated": _now_iso(),
+            # Top-level fields for easy frontend access
+            "total_resumes": summary.get("total_resumes", 0),
+            "optimize_runs": summary.get("optimize_runs", 0),
+            "coverletters": summary.get("coverletters", 0),
+            "superhuman_calls": summary.get("superhuman_calls", 0),
+            "talk_queries": summary.get("talk_queries", 0),
+            "mastermind_chats": summary.get("mastermind_chats", 0),
+        })
+
     if dedupe:
         records = _dedupe_company_role(records)
 
     summary = summarize_events(records)
     hist_data = summarize_history(records)
 
-    return {"summary": summary, "recent": hist_data[:100], "updated": _now_iso()}
+    return {
+        "summary": summary,
+        "recent": hist_data[:100],
+        "updated": _now_iso(),
+        # Top-level fields for easy frontend access
+        "total_resumes": summary.get("total_resumes", 0),
+        "optimize_runs": summary.get("optimize_runs", 0),
+        "coverletters": summary.get("coverletters", 0),
+        "superhuman_calls": summary.get("superhuman_calls", 0),
+        "talk_queries": summary.get("talk_queries", 0),
+        "mastermind_chats": summary.get("mastermind_chats", 0),
+    }
 
 
 # ============================================================
@@ -336,7 +461,7 @@ async def get_recent(
     history = _read_jsonl(HISTORY_PATH, limit) or _read_jsonl(LOG_PATH, limit)
     if dedupe:
         history = _dedupe_company_role(history)
-    return {"events": summarize_history(history)}
+    return {"events": summarize_history(history), "updated": _now_iso()}
 
 
 # ============================================================
@@ -354,7 +479,7 @@ async def list_event_types():
             if (e.get("event") or e.get("type"))
         }
     )
-    return {"types": types}
+    return {"types": types, "updated": _now_iso()}
 
 
 # ============================================================
@@ -365,28 +490,49 @@ async def metrics_summary(
     limit: int = Query(500, ge=1, le=3000),
     dedupe: bool = Query(True),
 ):
-    """Returns lightweight numeric insights (for quick dashboard cards)."""
+    """
+    Returns lightweight numeric insights (for quick dashboard cards).
+    This is the primary endpoint for dashboard stat cards.
+    """
     events = _read_jsonl(LOG_PATH, limit)
+    
+    # Always include file-based counts for accuracy
+    total_optimized = _count_files_in_dir(OPTIMIZED_DIR, [".pdf"])
+    total_humanized = _count_files_in_dir(HUMANIZED_DIR, [".pdf"])
+    total_coverletters_files = _count_files_in_dir(COVER_LETTERS_DIR, [".pdf"])
+    total_contexts = _count_context_files()
+    
     if not events:
         return {
-            "optimize": 0,
-            "coverletters": 0,
-            "superhuman": 0,
+            "optimize": total_optimized,
+            "coverletters": total_coverletters_files,
+            "superhuman": total_humanized,
             "talk": 0,
             "mastermind": 0,
-            "distinct_company_roles": 0,
+            "distinct_company_roles": total_contexts,
+            "total_resumes": max(total_optimized, total_humanized, total_contexts),
+            "total_optimized": total_optimized,
+            "total_humanized": total_humanized,
+            "total_coverletters_files": total_coverletters_files,
+            "total_contexts": total_contexts,
             "updated": _now_iso(),
         }
 
     records = _dedupe_company_role(events) if dedupe else events
     summary = summarize_events(records)
+    
     return {
-        "optimize": summary["optimize_runs"],
-        "coverletters": summary["coverletters"],
-        "superhuman": summary["superhuman_calls"],
+        "optimize": max(summary["optimize_runs"], total_optimized),
+        "coverletters": max(summary["coverletters"], total_coverletters_files),
+        "superhuman": max(summary["superhuman_calls"], total_humanized),
         "talk": summary["talk_queries"],
         "mastermind": summary["mastermind_chats"],
-        "distinct_company_roles": summary["distinct_company_roles"],
+        "distinct_company_roles": max(summary["distinct_company_roles"], total_contexts),
+        "total_resumes": summary["total_resumes"],
+        "total_optimized": total_optimized,
+        "total_humanized": total_humanized,
+        "total_coverletters_files": total_coverletters_files,
+        "total_contexts": total_contexts,
         "updated": _now_iso(),
     }
 
@@ -401,4 +547,120 @@ async def raw_dump(limit: int = Query(100, ge=1, le=2000)):
     Use for backend debugging or analytics export.
     """
     events = _read_jsonl(LOG_PATH, limit)
-    return {"count": len(events), "events": events}
+    return {"count": len(events), "events": events, "updated": _now_iso()}
+
+
+# ============================================================
+# 📊 Endpoint: /stats (NEW - simplified stats for dashboard cards)
+# ============================================================
+@router.get("/stats")
+async def get_stats():
+    """
+    Simplified stats endpoint specifically for dashboard stat cards.
+    Returns only the key metrics needed for the main dashboard view.
+    """
+    # File-based counts (most accurate)
+    total_optimized = _count_files_in_dir(OPTIMIZED_DIR, [".pdf"])
+    total_humanized = _count_files_in_dir(HUMANIZED_DIR, [".pdf"])
+    total_coverletters = _count_files_in_dir(COVER_LETTERS_DIR, [".pdf"])
+    total_contexts = _count_context_files()
+    
+    # Event-based counts
+    events = _read_jsonl(LOG_PATH, 500)
+    talk_count = sum(1 for e in events if "talk" in _event_name(e))
+    mastermind_count = sum(1 for e in events if "mastermind" in _event_name(e))
+    
+    return {
+        "total_resumes": max(total_optimized, total_humanized, total_contexts),
+        "total_optimized": total_optimized,
+        "total_humanized": total_humanized,
+        "total_coverletters": total_coverletters,
+        "total_contexts": total_contexts,
+        "talk_queries": talk_count,
+        "mastermind_chats": mastermind_count,
+        "updated": _now_iso(),
+    }
+
+
+# ============================================================
+# 🔍 Endpoint: /health (NEW - health check)
+# ============================================================
+@router.get("/health")
+@router.get("/ping")
+async def health_check():
+    """Health check endpoint for the dashboard service."""
+    return {
+        "ok": True,
+        "service": "dashboard",
+        "version": "v1.0.0",
+        "updated": _now_iso(),
+        "paths": {
+            "log_exists": LOG_PATH.exists(),
+            "history_exists": HISTORY_PATH.exists(),
+            "optimized_dir_exists": OPTIMIZED_DIR.exists(),
+            "humanized_dir_exists": HUMANIZED_DIR.exists(),
+            "coverletters_dir_exists": COVER_LETTERS_DIR.exists(),
+            "contexts_dir_exists": CONTEXTS_DIR.exists(),
+        }
+    }
+
+
+# ============================================================
+# 📁 Endpoint: /files (NEW - list generated files)
+# ============================================================
+@router.get("/files")
+async def list_generated_files(
+    file_type: str = Query("all", description="Filter by type: optimized, humanized, coverletters, contexts, all"),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """
+    List generated files for the dashboard file browser.
+    Returns file metadata for display in the UI.
+    """
+    files = []
+    
+    def _get_file_info(path: Path, category: str) -> Dict[str, Any]:
+        try:
+            stat = path.stat()
+            return {
+                "name": path.name,
+                "category": category,
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                "path": str(path),
+            }
+        except Exception:
+            return None
+    
+    if file_type in ("all", "optimized") and OPTIMIZED_DIR.exists():
+        for f in sorted(OPTIMIZED_DIR.glob("*.pdf"), key=lambda x: x.stat().st_mtime, reverse=True)[:limit]:
+            info = _get_file_info(f, "optimized")
+            if info:
+                files.append(info)
+    
+    if file_type in ("all", "humanized") and HUMANIZED_DIR.exists():
+        for f in sorted(HUMANIZED_DIR.glob("*.pdf"), key=lambda x: x.stat().st_mtime, reverse=True)[:limit]:
+            info = _get_file_info(f, "humanized")
+            if info:
+                files.append(info)
+    
+    if file_type in ("all", "coverletters") and COVER_LETTERS_DIR.exists():
+        for f in sorted(COVER_LETTERS_DIR.glob("*.pdf"), key=lambda x: x.stat().st_mtime, reverse=True)[:limit]:
+            info = _get_file_info(f, "coverletter")
+            if info:
+                files.append(info)
+    
+    if file_type in ("all", "contexts") and CONTEXTS_DIR.exists():
+        for f in sorted(CONTEXTS_DIR.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)[:limit]:
+            info = _get_file_info(f, "context")
+            if info:
+                files.append(info)
+    
+    # Sort by modified date (newest first)
+    files.sort(key=lambda x: x.get("modified", ""), reverse=True)
+    
+    return {
+        "files": files[:limit],
+        "total": len(files),
+        "updated": _now_iso(),
+    }

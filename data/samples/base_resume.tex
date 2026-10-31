@@ -5,7 +5,7 @@
 % License : MIT
 %------------------------
 
-\documentclass[letterpaper,10pt]{article}
+\documentclass[letterpaper,11pt]{article}
 
 \usepackage{latexsym}
 \usepackage[empty]{fullpage}
@@ -19,7 +19,7 @@
 \usepackage[english]{babel}
 \usepackage{tabularx}
 \usepackage[utf8]{inputenc}
-\usepackage{fontawesome} % Add this to your preamble
+\usepackage{fontawesome}
 
 \input{glyphtounicode}
 
@@ -110,8 +110,8 @@
 
 \begin{center}
     \textbf{\Huge \scshape Sri Akash Kadali} \\ \vspace{1pt}
-    8417 48th Ave, College Park, MD, 20740 \\ \vspace{1pt}
-    \small 240-726-9356 $|$ \href{mailto:kadali18@umd.edu}{\underline{kadali18@umd.edu}} $|$ 
+    663 Newell Rd, Palo Alto, CA 94303 \\ \vspace{1pt}
+    \small 240-726-9356 $|$ \href{mailto:srikadaliakash@gmail.com}{\underline{srikadaliakash@gmail.com}} $|$ 
     \href{https://www.linkedin.com/in/sri-akash-kadali/}{\underline{https://www.linkedin.com/in/sri-akash-kadali/}} $|$
     \href{https://github.com/Akash-Kadali}{\underline{https://github.com/Akash-Kadali}}
 \end{center}
@@ -128,21 +128,19 @@
 
       \resumeSubheading
       {Indian Institute of Information Technology, Vadodara, India \scriptsize{} }{CGPA: 8.78/10}
-      {Bachelor of Technology in Computer Science and Engineering}{December 2020- June 2024}
+      {Bachelor of Technology in Computer Science and Engineering}{December 2020 - June 2024}
       \resumeItemListStart
       \item \textbf{Relevant Coursework:}
-\resumeItemListEnd
+      \resumeItemListEnd
   \resumeSubHeadingListEnd
 
 %-----------TECHNICAL SKILLS-----------
 \section{Skills}
  \begin{itemize}[leftmargin=0.15in, label={}]
     \small{\item{
-\textbf{Skill1:} a,b,c\\
-\textbf{Skill2:}  d,e,f\\
-\textbf{Skill3:} xx\\
-\textbf{Skill4:}  xrs\\
-\textbf{Skill5:} xxx\\
+\textbf{Languages:} Python, C++, Java, SQL, Bash \\
+\textbf{ML/AI:} PyTorch, TensorFlow, scikit-learn, OpenCV, YOLO, Transformers \\
+\textbf{Tools:} Docker, Git, FastAPI, Flask, AWS, GCP, Linux \\
     }}
  \end{itemize}
 
@@ -151,79 +149,66 @@
   \resumeSubHeadingListStart
 
 \resumeSubheading
-  {Machine Learning Engineer}{May 2025 -- August 2025}
-  {Ayar Labs}{Santa Clara, CA}
+  {Machine Learning Engineer}{June 2026 -- Present}
+  {Parspec Inc.}{San Mateo, CA}
   \resumeItemListStart
-    \resumeItem{Shipped \textbf{VISDOM – Pixels to Reports}, an end-to-end visual inspection platform for photonic laser-die components that takes raw images to validated CSV/Excel reports with operator review.}
-    \resumeItem{Designed a multi-stage pipeline: \textbf{YOLOv8} for die/laser/ID cropping \(\rightarrow\) region slicing (\textit{Critical, Body, Laser}) \(\rightarrow\) \textbf{Transformer ensembles} (MaxViT/Swin/CoaT) for defect classification \(\rightarrow\) OCR verification \(\rightarrow\) reporting.}
-    \resumeItem{Built dual OCR pathways: \textbf{YOLO-OCR} (detection+decoding) and a \textbf{CRNN+CTC} recognizer (32\(\times\)128 grayscale, greedy decode, charset \texttt{0123456789ABCDEFG}); reconciled predictions and flagged mismatches for human review.}
-    \resumeItem{Achieved strong production accuracy on \textit{Critical} region: \(\ge\) \textbf{99\% overall accuracy} with \textbf{96\% recall} on minority classes; on a 3{,}500-image imbalanced test (3{,}200 good/300 bad) baseline misclassifications were \(\approx\)5; after rebalancing to stress recall, maintained \(\ge\)96\% accuracy.}
-    \resumeItem{Tackled severe imbalance (\textit{e.g., Laser: 568 bad vs 33.2k good}) using \textbf{class weighting}, \textbf{Focal+CrossEntropy} hybrid, calibrated thresholds, and targeted augmentation; improved minority precision/recall while containing false positives.}
-    \resumeItem{Showed why 3-class (\textit{Critical: Good, Facet Damage, Foreign Material}) dropped to \(\sim\)92\%; recovered to \(\sim\)\textbf{96\%} via focal loss, weighted loss, and defect-aware augmentation.}
-    \resumeItem{Observed 70–80\% of errors repeat across runs; created \textbf{image-specific augmentation} (illumination, hue/brightness, micro-defect synthesis) to fix stubborn edge cases.}
-    \resumeItem{Authored \textbf{laser-defect synthesis} tools: binary/normalized mask annotation, alpha-blending copy-paste, and experiments with \textbf{DFMGAN/CutPaste++} to boost scarce defect modes.}
-    \resumeItem{Labeled/curated \textbf{100k+} region crops; enforced \textbf{no leakage} by shuffling and renaming across splits; evaluated multiple splits (80/10/10, 70/15/15, 60/20/20) and \textbf{K-Fold} for robustness.}
-    \resumeItem{Standardized training across models (e.g., \textbf{MaxViT-512/CoaT/Swin}): label smoothing, freeze-then-unfreeze schedules, tuned LR, early stopping, and \textbf{confidence gating} at inference.}
-    \resumeItem{Engineered \textbf{Modal} serverless GPU deployment (\textbf{T4}) with \textbf{volumes} for static weights, \textbf{FastAPI} endpoints for YOLO/CRNN/classifiers; optimized cold-start/concurrency and unit-tested health/readiness.}
-    \resumeItem{Containerized pipeline with \textbf{Docker}; standardized \texttt{coat\_infer\_laser.py} as the canonical inference template (volumes, normalization option, thresholding, consistent logging).}
-    \resumeItem{Built a \textbf{Flask} operator UI: folder selection (Body/Laser/Critical), paginated browsing, split-view for Laser halves, and \textbf{reclassification} workflow to correct human mislabels post-training.}
-    \resumeItem{Delivered a \textbf{mismatch verification} web app: shows image + both OCR predictions; operator inputs final code; emits consolidated CSV for auditability.}
-    \resumeItem{Automated \textbf{Drive-to-GPU-to-Drive} flow: OAuth to pull new images, run YOLO/OCR/classifiers, upload \textbf{final Excel/CSV} + thumbnails back to Google Drive; cleans temp files to control costs.}
-    \resumeItem{Authored \textbf{drive\_infer.py} jobs for both OCR systems; decoded YOLO boxes left-to-right into sequences; compared to filename ground truth; logged PASS/FAIL and confusion patterns.}
-    \resumeItem{Created \textbf{production config} hygiene: \texttt{.env} based secrets, route tokens, structured \textbf{logging}, pagination, and input validation; added simple \textbf{auth guards} on write endpoints.}
-    \resumeItem{Implemented \textbf{lighting-condition} awareness (3 dark / 4 light regimes): added condition-specific augmentation and considered per-condition heads to reduce domain shift.}
-    \resumeItem{Built \textbf{dataset tools}: extended \texttt{dataset\_tool.py} (mask co-transform, square/power-of-two packing, \texttt{.npy} mask saves) to prep GAN and classifier data consistently.}
-    \resumeItem{Packaged demo builds and \textbf{operator-friendly} UX (keyboard shortcuts, zoom, undo stack, session save/resume); shipped \textbf{PWA-style} UI polish and Ayar-aligned theming.}
-    \resumeItem{Led weekly \textbf{stakeholder demos} (hardware, operations, IT); translated failure modes into data or model fixes; proposed a \textbf{6-week} plan (extendable to 10) and executed milestones on time.}
-    \resumeItem{Produced \textbf{board-ready slides} (metrics, pain\(\rightarrow\)solution narrative, risk \& cost controls) and documented the pipeline, metrics, and SOPs for handoff.}
-    \resumeItem{Instituted \textbf{QA guardrails}: dataset versioning, seed control (\texttt{random\_state=42}), input checksuming, and reproducible eval scripts; wrote \textbf{ablation} notebooks for design decisions.}
-    \resumeItem{Planned a daily \textbf{8:00 AM} orchestrator: detect new uploads \(\rightarrow\) crop \(\rightarrow\) tri-classify \(\rightarrow\) dual-OCR \(\rightarrow\) mismatch UI \(\rightarrow\) publish report; skip compute when no deltas.}
+    \resumeItem{Working on document extraction and search/recommendation systems for construction procurement documents, including RFQs, quotes, schedules, product datasheets, and tabular PDFs.}
+    \resumeItem{Building evaluation datasets and pipelines for datasheet search using ground-truth PDFs, structured queries, family-level retrieval, and precision/NDCG-style ranking metrics.}
+    \resumeItem{Experimenting with table extraction, document parsing, YOLO-based table detection, OCR, and multimodal classification approaches to improve extraction accuracy on complex PDF layouts.}
   \resumeItemListEnd
 
 \resumeSubheading
-  {Machine Learning Intern}{July 2024 -- December 2024}
-  {Indian Institute of Technology, Indore}{Remote, USA}
-
-
-      \resumeItemListStart
-        \resumeItem{Designed and deployed MaxViT-based models for histopathological image classification, achieving a 92\% classification accuracy on large-scale medical datasets.}
-        \resumeItem{Engineered Cascaded Deformable Transformer Layers (CDTL) to improve feature dependency modeling by 20\%, optimizing AI workflows in medical imaging.}
-        \resumeItem{Implemented Cascaded Deformable Self-Attention (CDSA) to enhance category-specific feature extraction by 18\% across 10,000+ annotated medical images.}
-        \resumeItem{Reduced model convergence time by 25\% through integration of skip connections and deformable convolutions, enhancing computational efficiency for real-time applications.}
-        \resumeItem{Developed classification pipelines for breast tumor analysis, achieving a 15\% reduction in misclassification rates and an F1-score of 0.91, supporting accurate clinical decision-making.}
-    \resumeItemListEnd
-\resumeSubheading
-  {Machine Learning Intern}{January 2024 -- June 2024}
-  {National Institute of Technology, Jaipur} {Jaipur, India}
-
-
-      \resumeItemListStart
-        \resumeItem{Designed and deployed MaxViT-based models for histopathological image classification, achieving a 92\% classification accuracy on large-scale medical datasets.}
-        \resumeItem{Engineered Cascaded Deformable Transformer Layers (CDTL) to improve feature dependency modeling by 20\%, optimizing AI workflows in medical imaging.}
-        \resumeItem{Implemented Cascaded Deformable Self-Attention (CDSA) to enhance category-specific feature extraction by 18\% across 10,000+ annotated medical images.}
-        \resumeItem{Reduced model convergence time by 25\% through integration of skip connections and deformable convolutions, enhancing computational efficiency for real-time applications.}
-        \resumeItem{Developed classification pipelines for breast tumor analysis, achieving a 15\% reduction in misclassification rates and an F1-score of 0.91, supporting accurate clinical decision-making.}
-    \resumeItemListEnd
+  {Computer Vision Intern}{June 2026}
+  {SnugFit Solutions / Xyken LLC}{McLean, VA}
+  \resumeItemListStart
+    \resumeItem{Developed RGB-D wound segmentation models using deep learning architectures, improving segmentation quality through threshold tuning, augmentation, and inference-time test-time augmentation.}
+    \resumeItem{Trained and evaluated DFormerv2-based RGB-D segmentation models, achieving strong Dice, mIoU, precision, and recall performance on validation datasets.}
+    \resumeItem{Worked on 3D ear-concha segmentation pipelines using point-cloud models such as PointNeXt and PointNet++, including preprocessing, normalization, denoising, and metric evaluation.}
+  \resumeItemListEnd
 
 \resumeSubheading
-  {Machine Learning Intern}{May 2023 -- December 2023}
-  {Indian Institute of Technology, Indore} {Indore, India}
+  {Machine Learning Engineer Intern}{May 2025 -- August 2025}
+  {Ayar Labs}{Santa Clara, CA}
+  \resumeItemListStart
+    \resumeItem{Shipped VISDOM, an end-to-end visual inspection platform for photonic laser-die components that processes raw images into validated CSV/Excel reports with operator review.}
+    \resumeItem{Designed a multi-stage pipeline using YOLOv8 for die/laser/ID cropping, region slicing, Transformer ensembles (MaxViT/Swin/CoaT) for defect classification, OCR verification, and reporting.}
+    \resumeItem{Achieved 99\% overall accuracy with 96\% recall on minority classes across a 3,500-image imbalanced test set using class weighting, Focal+CrossEntropy hybrid loss, and targeted augmentation.}
+  \resumeItemListEnd
 
-\resumeItemListStart
-    \resumeItem{Designed and implemented a DeBERTa-based architecture augmented with emotion embeddings and word-level attention mechanisms using Bi-LSTM for implicit hate speech detection, achieving a 5\% improvement in F1-score over baseline models.}
-    \resumeItem{Leveraged supervised contrastive learning to enhance feature representation, resulting in an 8\% increase in classification accuracy on the IHSate and IHC datasets.}
-    \resumeItem{Developed emotion synthesis pipelines incorporating sentiment features using the NRC Lexicon, contributing to a 6\% boost in model precision.}
-    \resumeItem{Applied extensive data augmentation techniques, including Replace Named Entities (RNE), Replace Scalar Adverbs (RSA), Back Translation (BT), and Generative Models (GM), leading to a 12\% reduction in data sparsity.}
-\resumeItemListEnd
+\resumeSubheading
+  {Machine Learning Research Intern}{July 2024 -- December 2024}
+  {Indian Institute of Technology, Indore}{Indore, India}
+  \resumeItemListStart
+    \resumeItem{Designed MaxViT-based models for histopathological image classification, achieving 92\% accuracy on large-scale medical datasets with Cascaded Deformable Transformer Layers.}
+    \resumeItem{Engineered Cascaded Deformable Self-Attention to enhance category-specific feature extraction by 18\% across 10,000+ annotated medical images.}
+    \resumeItem{Developed classification pipelines for breast tumor analysis, achieving a 15\% reduction in misclassification rates and an F1-score of 0.91.}
+  \resumeItemListEnd
+
+\resumeSubheading
+  {Machine Learning Research Intern}{January 2024 -- June 2024}
+  {National Institute of Technology, Jaipur}{Jaipur, India}
+  \resumeItemListStart
+    \resumeItem{Built and validated computer vision pipelines for medical image analysis, reducing model convergence time by 25\% through skip connections and deformable convolutions.}
+    \resumeItem{Implemented feature dependency modeling improvements of 20\% using cascaded deformable transformer architectures on histopathological datasets.}
+    \resumeItem{Optimized classification accuracy on imbalanced clinical datasets through targeted augmentation and ensemble calibration techniques.}
+  \resumeItemListEnd
+
+\resumeSubheading
+  {Machine Learning Research Intern}{May 2023 -- December 2023}
+  {Indian Institute of Technology, Indore}{Indore, India}
+  \resumeItemListStart
+    \resumeItem{Designed a DeBERTa-based architecture with emotion embeddings and Bi-LSTM attention for implicit hate speech detection, improving F1-score by 5\% over baselines.}
+    \resumeItem{Leveraged supervised contrastive learning for feature representation, achieving an 8\% increase in classification accuracy on the IHSate and IHC datasets.}
+    \resumeItem{Applied data augmentation (RNE, RSA, Back Translation, Generative Models) to reduce data sparsity by 12\% and improve model generalization.}
+  \resumeItemListEnd
+
 \resumeSubHeadingListEnd
-%-----------LEADERSHIP AND ACHIEVEMENTS-----------
-\section{Achievements and Leadership}
-\begin{itemize}[leftmargin=0.15in, label={}]
-    \item Solved 200+ LeetCode problems, focusing on Graphs, DP, and System Design.
-    \item Published \emph{"CaDT-Net: Cascaded Deformable Transformer for Breast Cancer"} at ICONIP 2024, achieving 99\% accuracy in image classification using \textbf{Neural Networks}.
-    \item Awarded \textbf{Gold Medal for Academic Excellence} as the top B.Tech graduate.
-    \item Represented IIIT Vadodara at the \textbf{G20 Summit, India}, managing logistics for 50+ delegates.
 
+%-----------ACHIEVEMENTS-----------
+\section{Achievements}
+\begin{itemize}[leftmargin=0.15in, label={}]
+    \item Published \emph{"CaDT-Net: Cascaded Deformable Transformer for Breast Cancer"} at ICONIP 2024, achieving 99\% accuracy in image classification.
+    \item Solved 200+ LeetCode problems, focusing on Graphs, DP, and System Design.
 \end{itemize}
 
 %------------------------------------------

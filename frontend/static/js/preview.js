@@ -1,36 +1,40 @@
 /* ============================================================
-   HIREX • preview.js (v2.1.2 — Memory-Enhanced Resume Viewer)
+   HIREX • preview.js (v1.0.0 — Memory-Enhanced Resume Viewer)
    ------------------------------------------------------------
    Fixes vs 2.1.0:
-   • Clicking a "Recent Job" now ALWAYS loads that job’s assets.
+   • Clicking a "Recent Job" now ALWAYS loads that job's assets.
    • Purges stale localStorage (PDF/TeX) before saving a new context.
    • Reads nested fields: humanized.tex/pdf_base64, optimized.tex/pdf_base64.
    • If a field is missing in a context, the old cache is cleared.
    • Auto-loads latest server context only when nothing local exists.
    • Properly revokes blob URLs on unload.
+   • Fixed fit score display to use correct element IDs (fitCircle, fitPct, fitTier)
    Author: Sri Akash Kadali
    ============================================================ */
 
 document.addEventListener("DOMContentLoaded", () => {
-  const APP_VERSION = "v2.1.2";
+  const APP_VERSION = "v1.0.0";
 
   /* ------------------------------------------------------------
-     🔧 DOM Elements
+     🔧 DOM Elements - Support both ID conventions for compatibility
   ------------------------------------------------------------ */
   const texOutput      = document.getElementById("tex-output");
   const pdfContainer   = document.getElementById("pdf-container");
   const btnDownloadTex = document.getElementById("download-tex");
   const btnCopyTex     = document.getElementById("copy-tex");
-  const fitCircle      = document.getElementById("fitCircle");
-  const fitTierEl      = document.getElementById("fit-tier");
+  
+  // Fit score elements - try both naming conventions
+  const fitCircle      = document.getElementById("fitCircle") || document.getElementById("fit-ring");
+  const fitPctEl       = document.getElementById("fitPct") || document.getElementById("fit-pct");
+  const fitTierEl      = document.getElementById("fitTier") || document.getElementById("fit-tier");
   const fitRoundsEl    = document.getElementById("fit-rounds");
   const historyList    = document.getElementById("history-list");
 
   /* ------------------------------------------------------------
      🧠 Runtime helpers
   ------------------------------------------------------------ */
-  const RT = (window.ASTRA ?? window.HIREX) || {};
-  const toast = (msg, t = 3000) => (RT.toast ? RT.toast(msg, t) : alert(msg));
+  const RT = (window.HIREX ?? window.ASTRA) || {};
+  const toast = (msg, t = 3000) => (RT.toast ? RT.toast(msg, t) : console.log(`[HIREX Toast] ${msg}`));
   const debug = (msg, data) => RT.debugLog?.(msg, data);
 
   const getApiBase = () => {
@@ -173,7 +177,7 @@ document.addEventListener("DOMContentLoaded", () => {
     window.location.reload();
   };
 
-  // --- Backend context API (aligned to /api/context v2.x) ---
+  // --- Backend context API (aligned to /api/context v1.0.0) ---
   const fetchContextList = async (limit = 50) => {
     try {
       const res = await fetch(`${apiBase}/api/context/list?limit=${limit}`, { credentials: "same-origin" });
@@ -339,7 +343,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   /* ------------------------------------------------------------
-     🎯 JD Fit Gauge (align with main.js keys)
+     🎯 JD Fit Gauge - FIXED to use correct element IDs
   ------------------------------------------------------------ */
   const computeFit = () => {
     let ratingScore = (() => {
@@ -365,31 +369,102 @@ document.addEventListener("DOMContentLoaded", () => {
     return { ratingScore, ratingRounds };
   };
 
+  /**
+   * Render the fit score gauge - supports both SVG ring and data-score approaches
+   */
   const renderFit = () => {
     const { ratingScore, ratingRounds } = computeFit();
-    if (!fitCircle) return;
-
+    
     const hasScore = Number.isFinite(ratingScore) && ratingScore >= 0;
-    const tier = hasScore
-      ? ratingScore >= 90 ? "Excellent"
-      : ratingScore >= 75 ? "Strong"
-      : ratingScore >= 60 ? "Moderate"
-      : "Low"
-      : "Awaiting Analysis…";
+    const pct = hasScore ? Math.max(0, Math.min(100, ratingScore)) : 0;
+    
+    // Determine tier and color
+    let tier, color, filterGlow;
+    if (!hasScore) {
+      tier = "Awaiting analysis";
+      color = "rgba(255,255,255,0.25)";
+      filterGlow = "none";
+    } else if (pct >= 70) {
+      tier = "Strong fit";
+      color = "var(--ok, #34D399)";
+      filterGlow = "drop-shadow(0 0 4px rgba(52,211,153,.45))";
+    } else if (pct >= 50) {
+      tier = "Good fit";
+      color = "var(--warn, #FBBF24)";
+      filterGlow = "drop-shadow(0 0 4px rgba(251,191,36,.45))";
+    } else {
+      tier = "Needs work";
+      color = "var(--danger, #FB7185)";
+      filterGlow = "drop-shadow(0 0 4px rgba(251,113,133,.45))";
+    }
 
-    fitCircle.dataset.score = hasScore ? String(ratingScore) : "--";
-    fitCircle.style.borderColor = hasScore
-      ? (ratingScore >= 90 ? "#6effa0"
-        : ratingScore >= 75 ? "#5bd0ff"
-        : ratingScore >= 60 ? "#ffc35b"
-        : "#ff6b6b")
-      : "rgba(255,255,255,0.25)";
+    // Update the SVG ring (if it's an SVG circle element)
+    if (fitCircle) {
+      // Check if it's an SVG circle (has stroke-dasharray capability)
+      if (fitCircle.tagName.toLowerCase() === 'circle') {
+        const radius = parseFloat(fitCircle.getAttribute('r')) || 42;
+        const circumference = 2 * Math.PI * radius;
+        
+        fitCircle.style.strokeDasharray = circumference;
+        fitCircle.style.strokeDashoffset = hasScore 
+          ? circumference - (pct / 100) * circumference 
+          : circumference;
+        fitCircle.style.stroke = color;
+        fitCircle.style.filter = filterGlow;
+      } else {
+        // Fallback for non-SVG elements (legacy support)
+        fitCircle.dataset.score = hasScore ? String(pct) : "--";
+        fitCircle.style.borderColor = color;
+      }
+    }
 
-    if (fitTierEl)   fitTierEl.textContent   = tier;
-    if (fitRoundsEl) fitRoundsEl.textContent = ratingRounds || "--";
+    // Update percentage text
+    if (fitPctEl) {
+      fitPctEl.textContent = hasScore ? String(pct) : "--";
+    }
+
+    // Update tier label
+    if (fitTierEl) {
+      fitTierEl.textContent = tier;
+      if (hasScore) {
+        fitTierEl.style.borderColor = color.replace('var(--ok, ', '').replace('var(--warn, ', '').replace('var(--danger, ', '').replace(')', '');
+        fitTierEl.style.color = color.replace('var(--ok, ', '').replace('var(--warn, ', '').replace('var(--danger, ', '').replace(')', '');
+      }
+    }
+
+    // Update rounds count
+    if (fitRoundsEl) {
+      fitRoundsEl.textContent = ratingRounds || "--";
+    }
+
+    debug("FIT_SCORE_RENDERED", { pct, tier, ratingRounds, hasScore });
   };
 
+  // Initial render
   renderFit();
+
+  // Also expose via HIREX_PREVIEW for HTML inline script compatibility
+  window.HIREX_PREVIEW = window.HIREX_PREVIEW || {};
+  window.HIREX_PREVIEW.setFitScore = (score, rounds = null) => {
+    // Store in localStorage for persistence
+    if (score !== undefined && score !== null) {
+      let pct = Number(score);
+      if (!isNaN(pct)) {
+        if (pct > 0 && pct <= 1) pct = pct * 100;
+        localStorage.setItem("hirex_fit_score", String(Math.round(pct)));
+      }
+    }
+    if (rounds !== null) {
+      localStorage.setItem("hirex_rating_history", JSON.stringify(new Array(rounds).fill({})));
+    }
+    renderFit();
+  };
+  window.HIREX_PREVIEW.renderFit = renderFit;
+
+  // Also expose on window.HIREX for backwards compatibility
+  window.HIREX = window.HIREX || {};
+  window.HIREX.setFitScore = window.HIREX_PREVIEW.setFitScore;
+  window.HIREX.renderFit = renderFit;
 
   /* ------------------------------------------------------------
      📜 Render LaTeX
@@ -439,15 +514,22 @@ document.addEventListener("DOMContentLoaded", () => {
     const url = makePdfUrl(b64);
     if (!url) return "";
     const filename = sanitize(`HIREX_Resume_${company}_${role}${suffix}_${getTS()}.pdf`);
+    const isHuman = /Humanized/i.test(title);
+    const badgeText = isHuman ? "HUMANIZED" : "OPTIMIZED";
+    const badgeClass = isHuman ? " amber" : "";
+
     return `
-      <div class="pdf-card anim fade">
-        <h3>${title}</h3>
+      <div class="pdf-card anim fade" data-mode="${isHuman ? "humanized" : "optimized"}">
+        <div class="pdf-card-head">
+          <span class="pdf-card-id">${title}</span>
+          <span class="pdf-card-badge${badgeClass}">${badgeText}</span>
+        </div>
         <div class="pdf-frame">
           <iframe src="${url}#view=FitH" loading="lazy" title="${title}"></iframe>
         </div>
-        <div class="pdf-download">
-          <button class="cta-primary" data-url="${url}" data-filename="${filename}">
-            ⬇️ Download PDF
+        <div style="padding:.85rem 1.05rem;border-top:1px solid rgba(255,255,255,.08);">
+          <button class="btn-primary" type="button" data-url="${url}" data-filename="${filename}">
+            <span>Download PDF</span>
           </button>
         </div>
       </div>`;
@@ -488,7 +570,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const cards = pdfContainer?.querySelectorAll(".pdf-card") || [];
     cards.forEach((c) => c.classList.remove("preferred"));
     cards.forEach((c) => {
-      const isHuman = /Humanized/i.test(c.querySelector("h3")?.textContent || "");
+      const label = c.querySelector("h3, .pdf-card-id")?.textContent || "";
+      const isHuman = /Humanized/i.test(label) || c.dataset.mode === "humanized";
       const prefer  = on ? isHuman : !isHuman;
       if (prefer) c.classList.add("preferred");
     });
