@@ -6,10 +6,6 @@
 
 ASTRA is a local career operating system for tailoring LaTeX résumés, creating cover letters, reviewing Jobright opportunities, tracking applications, and preparing job-application answers. It runs locally on macOS and serves its UI at `http://127.0.0.1:8000`.
 
-<p align="center">
-  <img src="frontend/static/assets/ASTRA.png" alt="ASTRA" width="800">
-</p>
-
 ## Current capabilities
 
 - Resume Studio with ATS-oriented LaTeX optimization and PDF compilation
