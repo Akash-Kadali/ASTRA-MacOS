@@ -49,7 +49,34 @@ DOMAIN_TITLE = re.compile(
 EXCLUDED_TITLE = re.compile(
     r"cyber|security engineer|frontend|front[- ]end|full[- ]stack|sales|marketing|"
     r"account executive|product manager|recruiter|attorney|counsel|designer|"
-    r"\bmanager\b|\barchitect\b|\bstrategist\b|\badvisory\b",
+    r"\bmanager\b|\barchitect\b|\bstrategist\b|\badvisory\b|"
+    r"\bsenior\b|\bsr\.?\b|\bstaff\b|\bprincipal\b|\blead\b|\bdirector\b|\bhead\b|distinguished|"
+    r"\bpolicy\b|\bgovernance\b|\boperations\b|\bpeople\b|\bfellow(?:ship)?\b|"
+    r"\bprogram\b|\bconsultant\b|\bcustomer\b|\bsolutions?\b",
+    re.I,
+)
+CURRENT_STUDENT_REQUIRED = re.compile(
+    r"currently (?:enrolled|pursuing|a student)|must be (?:enrolled|pursuing)|"
+    r"pursuing (?:a |an )?(?:bachelor|master|ph\.?d|doctoral|degree)|"
+    r"working toward (?:a |an )?(?:bachelor|master|ph\.?d|doctoral|degree)|"
+    r"graduat(?:e|ing) (?:between|in) (?:spring|summer|fall|winter|20\d{2})",
+    re.I,
+)
+CLEARANCE_REQUIRED = re.compile(
+    r"(?:active|current|required|must (?:have|hold|possess|maintain)|ability to obtain).{0,35}"
+    r"(?:security clearance|top secret|ts/sci|secret clearance|public trust)|"
+    r"(?:security clearance|top secret|ts/sci|secret clearance|public trust).{0,35}required",
+    re.I,
+)
+SPONSORSHIP_UNAVAILABLE = re.compile(
+    r"(?:no|not|unable to|cannot|can't|will not).{0,40}(?:sponsor|sponsorship|visa)|"
+    r"(?:sponsor|sponsorship|visa).{0,40}(?:not available|unavailable|not offered)",
+    re.I,
+)
+CITIZENSHIP_REQUIRED = re.compile(
+    r"(?:must (?:be|hold)|requires?).{0,35}(?:u\.?s\.? citizen|united states citizen|green card|permanent resident)|"
+    r"(?:u\.?s\.? citizenship|united states citizenship).{0,25}required|"
+    r"must (?:be|qualify as).{0,20}(?:u\.?s\.? person|united states person)",
     re.I,
 )
 US_HINT = re.compile(
@@ -91,14 +118,64 @@ def _region(location: str) -> tuple[str, int]:
     return "United States", 1
 
 
+def _required_lines(description: str) -> list[str]:
+    lines = [re.sub(r"\s+", " ", line).strip() for line in description.splitlines() if line.strip()]
+    preferred = re.compile(r"preferred|nice to have|bonus|plus|ideally|desirable", re.I)
+    return [line for line in lines if not preferred.search(line)]
+
+
+def _experience_minimum(description: str) -> int:
+    requirements = []
+    word_number = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+                   "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+    for line in _required_lines(description):
+        if not re.search(r"experience|worked|background", line, re.I):
+            continue
+        values = []
+        for match in re.finditer(r"\b(\d{1,2})\s*(?:\+|plus)?\s*(?:(?:-|to)\s*\d{1,2}\s*)?(?:years?|yrs?)\b", line, re.I):
+            values.append(int(match.group(1)))
+        for match in re.finditer(r"(?:minimum of|at least)\s+(\d{1,2})\s+(?:years?|yrs?)", line, re.I):
+            values.append(int(match.group(1)))
+        for match in re.finditer(r"(?:minimum of|at least)?\s*"
+                                 r"(one|two|three|four|five|six|seven|eight|nine|ten)"
+                                 r"(?:\s*\+|\s+plus)?\s+(?:years?|yrs?)", line, re.I):
+            values.append(word_number[match.group(1).casefold()])
+        if values:
+            # Degree-equivalency lines often offer a lower experience threshold
+            # for a completed master's degree; the saved profile has one.
+            requirements.append(min(values) if re.search(r"master'?s|m\.?s\.?\b", line, re.I) else max(values))
+    return max(requirements) if requirements else 0
+
+
 def _accept(title: str, location: str, description: str) -> bool:
     if not DOMAIN_TITLE.search(title) or EXCLUDED_TITLE.search(title):
         return False
     location_text = location or description[:800]
-    if location_text and not US_HINT.search(location_text) and not re.search(r"remote|multiple locations", location_text, re.I):
+    if not location_text or not US_HINT.search(location_text):
         return False
-    probe = {"title": title, "description": description, "description_sections": {"required": description}}
-    return not jobright._requires_phd(probe) and not jobright._requires_current_student(probe)
+    required_text = "\n".join(_required_lines(description))
+    probe = {"title": title, "description": required_text, "description_sections": {"required": required_text}}
+    from backend.api import jobright_agent
+    profile = jobright_agent.settings().get("profile", {})
+    years_match = re.search(r"\d+", str(profile.get("years_experience") or "2"))
+    max_experience = int(years_match.group(0)) if years_match else 2
+    currently_student = str(profile.get("currently_student") or "no").casefold() == "yes"
+    has_clearance = str(profile.get("security_clearance") or "no").casefold() == "yes"
+    needs_sponsorship = str(profile.get("requires_sponsorship") or "yes").casefold() == "yes"
+    citizenship = str(profile.get("citizenship") or "India").casefold()
+    if jobright._requires_phd(probe):
+        return False
+    if not currently_student and (jobright._requires_current_student(probe) or CURRENT_STUDENT_REQUIRED.search(required_text)):
+        return False
+    if _experience_minimum(required_text) > max_experience:
+        return False
+    if not has_clearance and CLEARANCE_REQUIRED.search(required_text):
+        return False
+    if needs_sponsorship and SPONSORSHIP_UNAVAILABLE.search(required_text):
+        return False
+    if citizenship not in {"us", "usa", "united states", "united states of america"} and CITIZENSHIP_REQUIRED.search(required_text):
+        return False
+    return True
 
 
 def _finish(item: dict[str, Any]) -> dict[str, Any] | None:
@@ -162,8 +239,11 @@ def _lever(company: str, site: str) -> list[dict[str, Any]]:
         title = str(raw.get("text") or "").strip()
         categories = raw.get("categories") or {}
         location = str(categories.get("location") or ", ".join(categories.get("allLocations") or [])).strip()
-        description = _clean_html(raw.get("descriptionPlain") or raw.get("description") or "\n".join(
-            _clean_html(x.get("content")) for x in raw.get("lists", [])))
+        description = "\n".join(filter(None, [
+            _clean_html(raw.get("descriptionPlain") or raw.get("description")),
+            *[f"{str(x.get('text') or '')}\n{_clean_html(x.get('content'))}" for x in raw.get("lists", [])],
+            _clean_html(raw.get("additionalPlain") or raw.get("additional")),
+        ]))
         item = _finish({"id": _id("Lever", raw.get("id"), company, title), "external_id": str(raw.get("id") or ""),
             "requisition_id": "", "title": title, "company": company, "location": location,
             "description": description, "url": str(raw.get("hostedUrl") or ""),
@@ -308,7 +388,8 @@ def start_refresh() -> dict[str, Any]:
 def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Query("all"),
               hide_applied: bool = Query(True), limit: int = Query(500, ge=1, le=5000)) -> dict[str, Any]:
     store = _read()
-    items = list(store.get("items", []))
+    items = [x for x in store.get("items", []) if _accept(
+        str(x.get("title") or ""), str(x.get("location") or ""), str(x.get("description") or ""))]
     if hide_applied:
         from backend.api.decision_center import _best_application_match
         items = [x for x in items if not _best_application_match(x)]
@@ -321,8 +402,16 @@ def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Qu
         items = [x for x in items if str(x.get("category")) == category]
     items.sort(key=_sort_key)
     counts = {name: sum(x.get("region") == name for x in items) for name in ("Bay Area", "California", "United States")}
+    from backend.api import jobright_agent
+    profile = jobright_agent.settings().get("profile", {})
     return {"items": items[:limit], "total": len(items), "counts": counts, "updated_at": store.get("updated_at"),
-            "sources": store.get("sources", []), "runtime": dict(_runtime)}
+            "sources": store.get("sources", []), "runtime": dict(_runtime), "active_filters": {
+                "years_experience": str(profile.get("years_experience") or "2"),
+                "currently_student": str(profile.get("currently_student") or "no"),
+                "security_clearance": str(profile.get("security_clearance") or "no"),
+                "requires_sponsorship": str(profile.get("requires_sponsorship") or "yes"),
+                "degree": "Master's completed" if str(profile.get("masters_completed") or "yes").casefold() == "yes" else "Degree profile",
+            }}
 
 
 @router.get("/{job_id}")

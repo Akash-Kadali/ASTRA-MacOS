@@ -1,4 +1,4 @@
-from backend.api import internet_jobs
+from backend.api import internet_jobs, jobright_agent
 
 
 def test_related_us_job_is_ranked_for_bay_area():
@@ -29,3 +29,15 @@ def test_newer_jobs_sort_first_within_region():
     older = {"region_priority": 3, "updated_at": "2026-01-01T00:00:00Z", "company": "B"}
     newer = {"region_priority": 3, "updated_at": "2026-10-01T00:00:00Z", "company": "A"}
     assert sorted([older, newer], key=internet_jobs._sort_key)[0] is newer
+
+
+def test_saved_profile_filters_experience_student_and_clearance(monkeypatch):
+    monkeypatch.setattr(jobright_agent, "settings", lambda: {"profile": {
+        "years_experience": "2", "currently_student": "no", "security_clearance": "no",
+        "requires_sponsorship": "yes", "citizenship": "India",
+    }})
+    base = {"company": "Example", "location": "San Francisco, CA", "title": "Machine Learning Engineer"}
+    assert internet_jobs._finish({**base, "id": "years", "description": "Required: at least three years of ML experience."}) is None
+    assert internet_jobs._finish({**base, "id": "student", "description": "Must be currently pursuing a Master's degree."}) is None
+    assert internet_jobs._finish({**base, "id": "clearance", "description": "Ability to obtain a Secret security clearance is required."}) is None
+    assert internet_jobs._finish({**base, "id": "entry", "description": "Master's degree and one year of Python experience."}) is not None

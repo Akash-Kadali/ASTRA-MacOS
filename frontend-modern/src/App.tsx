@@ -185,6 +185,7 @@ type InternetJobsResponse = {
   updated_at?: string;
   sources: { source: string; company: string; ok: boolean; jobs: number; error?: string }[];
   runtime: { running: boolean; message: string; error?: string; last_refresh?: string };
+  active_filters: { years_experience: string; currently_student: string; security_clearance: string; requires_sponsorship: string; degree: string };
 };
 type AgentProfile = {
   first_name: string;
@@ -3080,6 +3081,7 @@ function InternetJobs() {
       <div><span>California</span><strong>{(data?.counts["California"] || 0).toLocaleString()}</strong></div>
       <div className={data?.runtime.error ? "sync-error" : "sync-state"}><span>Status</span><strong>{data?.runtime.message || "Ready to search"}</strong></div>
     </div>
+    {data?.active_filters ? <div className="internet-profile-bar"><b>Eligibility profile active</b><span>0–{data.active_filters.years_experience} years experience</span><span>{data.active_filters.degree}</span><span>{data.active_filters.currently_student === "yes" ? "Current student roles allowed" : "No currently-pursuing roles"}</span><span>{data.active_filters.security_clearance === "yes" ? "Clearance roles allowed" : "No security-clearance roles"}</span><span>{data.active_filters.requires_sponsorship === "yes" ? "Must support future sponsorship" : "No sponsorship filter"}</span><a href="#/operations">Edit profile</a></div> : null}
     {data?.runtime.running ? <div className="import-banner"><span className="progress-ring"/><div><b>Searching employer career systems in parallel</b><p>ASTRA is downloading public descriptions, filtering education restrictions and removing jobs already represented in your application library.</p></div></div> : null}
     <div className="internet-filters panel">
       <label className="search"><Search size={17}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, company, skill or job description"/></label>
