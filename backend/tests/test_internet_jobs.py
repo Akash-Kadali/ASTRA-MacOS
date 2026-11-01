@@ -55,3 +55,20 @@ def test_total_experience_is_not_reduced_by_nested_or_later_requirements(monkeyp
     )
     assert internet_jobs._experience_minimum(description) == 4
     assert internet_jobs._finish({**base, "id": "compound-years", "description": description}) is None
+
+
+def test_frontier_research_seniority_without_numeric_years_is_excluded(monkeypatch):
+    monkeypatch.setattr(jobright_agent, "settings", lambda: {"profile": {
+        "years_experience": "2", "currently_student": "no", "security_clearance": "no",
+        "requires_sponsorship": "yes", "citizenship": "India",
+    }})
+    base = {"company": "Example", "location": "San Francisco, CA"}
+    assert internet_jobs._finish({
+        **base, "id": "opaque", "title": "Research Scientist, Interpretability",
+        "description": "Have a strong track record of scientific research and direct interpretability work. "
+                       "Minimum years of experience will correlate with the internal job level requirements.",
+    }) is None
+    assert internet_jobs._finish({
+        **base, "id": "new-grad", "title": "Machine Learning Research Scientist, New College Grad",
+        "description": "New college graduate role. Master's degree accepted and published ML research preferred.",
+    }) is not None

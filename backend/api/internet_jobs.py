@@ -79,6 +79,19 @@ CITIZENSHIP_REQUIRED = re.compile(
     r"must (?:be|qualify as).{0,20}(?:u\.?s\.? person|united states person)",
     re.I,
 )
+OPAQUE_OR_ADVANCED_RESEARCH = re.compile(
+    r"minimum years of experience.{0,100}(?:internal job level|correlate)|"
+    r"strong track record of (?:scientific |independent )?research|"
+    r"track record of original (?:technical|scientific|research) work|"
+    r"published research.{0,100}(?:major|top[- ]tier|neurips|icml|iclr|acl|emnlp|cvpr)|"
+    r"(?:interpretability|alignment|transformer circuits?).{0,80}(?:publication|research output|relevant work)",
+    re.I,
+)
+EARLY_CAREER_RESEARCH = re.compile(
+    r"new (?:college )?grad|recent graduate|entry[- ]level|early career|"
+    r"university graduate|graduate program|\bjunior\b|\bassociate\b|0\s*(?:-|to)\s*2 years",
+    re.I,
+)
 US_HINT = re.compile(
     r"united states|\busa\b|\bu\.s\.\b|remote.*us|california|\bca\b|"
     r"new york|washington|texas|massachusetts|virginia|maryland|colorado|"
@@ -183,6 +196,15 @@ def _accept(title: str, location: str, description: str) -> bool:
     if not currently_student and (jobright._requires_current_student(probe) or CURRENT_STUDENT_REQUIRED.search(required_text)):
         return False
     if _experience_minimum(required_text) > max_experience:
+        return False
+    # Research titles frequently omit a numeric requirement while describing a
+    # senior frontier-research profile. Keep them only when the posting gives
+    # explicit early-career evidence; do not interpret an unspecified internal
+    # level or a publication track record as suitable for 0–2 years.
+    research_title = bool(re.search(r"research (?:engineer\s*/\s*)?(?:scientist|engineer\s*/\s*scientist)", title, re.I))
+    if research_title and OPAQUE_OR_ADVANCED_RESEARCH.search(required_text) and not EARLY_CAREER_RESEARCH.search(
+        f"{title}\n{required_text}"
+    ):
         return False
     if not has_clearance and CLEARANCE_REQUIRED.search(required_text):
         return False
