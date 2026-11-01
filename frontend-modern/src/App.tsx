@@ -386,14 +386,15 @@ const fetchApplicationArchive = async () => {
   );
   return [first, ...rest].flatMap((x) => x.items);
 };
-const fmt = (v?: string) =>
-  v
-    ? new Intl.DateTimeFormat(undefined, {
+const fmt = (v?: string) => {
+  if (!v) return "Not recorded";
+  const date = new Date(v);
+  return Number.isNaN(date.getTime()) ? v : new Intl.DateTimeFormat(undefined, {
         month: "short",
         day: "numeric",
         year: "numeric",
-      }).format(new Date(v))
-    : "Not recorded";
+      }).format(date);
+};
 const localDate = (v?: string) =>
   v ? new Date(v).toISOString().slice(0, 16) : "";
 const notify = (
@@ -3046,6 +3047,8 @@ function InternetJobs() {
   const [region, setRegion] = useState("all");
   const [category, setCategory] = useState("all");
   const [view, setView] = useState<"eligible" | "filtered" | "all">("eligible");
+  const [companiesOpen, setCompaniesOpen] = useState(false);
+  const [companyQuery, setCompanyQuery] = useState("");
   const [selected, setSelected] = useState<InternetJob | null>(null);
   const qc = useQueryClient();
   const jobs = useQuery({
@@ -3064,6 +3067,11 @@ function InternetJobs() {
   const discoverySettings = useQuery({
     queryKey: ["internet-job-settings"],
     queryFn: () => api<{ enabled: boolean; interval_hours: number; minimum_score: number; quality: Record<string, number> }>("/api/internet-jobs/settings"),
+  });
+  const sponsorCompanies = useQuery({
+    queryKey: ["internet-sponsor-companies", companyQuery],
+    queryFn: () => api<{ items: { company: string; legal_employer: string; tech_lca_positions: number; direct_feed: boolean; live_in_astra: boolean; career_url?: string; ats: string }[]; total: number }>(`/api/internet-jobs/companies?q=${encodeURIComponent(companyQuery)}`),
+    enabled: companiesOpen,
   });
   const saveDiscoverySettings = useMutation({
     mutationFn: (payload: Record<string, unknown>) => api("/api/internet-jobs/settings", {
@@ -3118,7 +3126,8 @@ function InternetJobs() {
       <div><span>New since last scan</span><strong>{(data?.new_jobs || 0).toLocaleString()}</strong></div>
       <div className={data?.runtime.error ? "sync-error" : "sync-state"}><span>Status</span><strong>{data?.runtime.message || "Ready to search"}</strong></div>
     </div>
-    {data?.sponsor_registry ? <div className="sponsor-coverage panel"><div><b>{data.sponsor_registry.targets} sponsor-backed US tech targets</b><small>{data.sponsor_registry.connected_feeds} live public career feeds connected · {data.sponsor_registry.direct_feeds} verified direct-feed employers in the registry</small></div><span>Evidence: {data.sponsor_registry.evidence || "DOL certified LCA history"}</span>{data.sponsor_registry.source_url ? <a href={data.sponsor_registry.source_url} target="_blank" rel="noreferrer">Official source</a> : null}<p>{data.sponsor_registry.disclaimer}</p></div> : null}
+    {data?.sponsor_registry ? <div className="sponsor-coverage panel"><div><b>{data.sponsor_registry.targets} sponsor-backed US tech targets</b><small>{data.sponsor_registry.connected_feeds} live public career feeds connected · {data.sponsor_registry.direct_feeds} verified direct-feed employers in the registry</small></div><span>Evidence: {data.sponsor_registry.evidence || "DOL certified LCA history"}</span><button onClick={() => setCompaniesOpen((value) => !value)}>{companiesOpen ? "Close directory" : "View all 300 companies"}</button><p>{data.sponsor_registry.disclaimer}</p></div> : null}
+    {companiesOpen ? <section className="sponsor-directory panel"><header><div><b>Top 300 technology sponsor directory</b><small>Google, Microsoft, Apple and other custom career sites remain visible even when they do not provide a standard ATS feed.</small></div><label className="search"><Search size={15}/><input value={companyQuery} onChange={(event) => setCompanyQuery(event.target.value)} placeholder="Search all 300 companies"/></label></header><div className="sponsor-company-grid">{sponsorCompanies.isLoading ? <Skeleton rows={6}/> : (sponsorCompanies.data?.items || []).map((company) => <article key={`${company.company}-${company.legal_employer}`}><div><b>{company.company}</b><small>{company.tech_lca_positions.toLocaleString()} certified technical LCA positions</small></div><span className={company.live_in_astra ? "live" : "watch"}>{company.live_in_astra ? "Live in ASTRA" : "Career-site watchlist"}</span>{company.career_url ? <a href={company.career_url} target="_blank" rel="noreferrer">Open careers <ExternalLink size={12}/></a> : null}</article>)}</div></section> : null}
     {data?.active_filters ? <div className="internet-profile-bar"><b>Eligibility profile active</b><span>0–{data.active_filters.years_experience} years experience</span><span>{data.active_filters.degree}</span><span>{data.active_filters.currently_student === "yes" ? "Current student roles allowed" : "No currently-pursuing roles"}</span><span>{data.active_filters.security_clearance === "yes" ? "Clearance roles allowed" : "No security-clearance roles"}</span><span>{data.active_filters.requires_sponsorship === "yes" ? "Must support future sponsorship" : "No sponsorship filter"}</span><a href="#/operations">Edit profile</a></div> : null}
     {discoverySettings.data ? <div className="internet-schedule panel"><div><b>Automatic discovery</b><small>{discoverySettings.data.enabled ? `Runs every ${discoverySettings.data.interval_hours} hours and reports only genuinely new jobs.` : "Automatic discovery is paused."}</small></div><label><input type="checkbox" checked={discoverySettings.data.enabled} onChange={(event) => saveDiscoverySettings.mutate({ enabled: event.target.checked })}/> Enabled</label><select value={discoverySettings.data.interval_hours} onChange={(event) => saveDiscoverySettings.mutate({ interval_hours: Number(event.target.value) })}><option value={3}>Every 3 hours</option><option value={6}>Every 6 hours</option><option value={12}>Every 12 hours</option><option value={24}>Daily</option></select></div> : null}
     {data?.runtime.running ? <div className="import-banner"><span className="progress-ring"/><div><b>Searching employer career systems in parallel</b><p>ASTRA is downloading public descriptions, filtering education restrictions and removing jobs already represented in your application library.</p></div></div> : null}

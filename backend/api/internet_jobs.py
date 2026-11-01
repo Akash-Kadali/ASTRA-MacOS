@@ -40,6 +40,16 @@ ASHBY = {"OpenAI": "openai", "Cohere": "cohere", "Cursor": "cursor", "Perplexity
          "Harvey": "harvey", "Pika": "pika", "Decagon": "decagon", "Baseten": "baseten"}
 LEVER = {"Zoox": "zoox", "Shield AI": "shieldai", "Anduril": "andurilindustries",
          "Highspot": "highspot", "Highwire": "highwire"}
+MAJOR_CAREERS = {
+    "google": "https://www.google.com/about/careers/applications/jobs/results/",
+    "microsoft": "https://jobs.careers.microsoft.com/global/en/search",
+    "apple": "https://jobs.apple.com/en-us/search",
+    "amazon": "https://www.amazon.jobs/en/search",
+    "amazon web services": "https://www.amazon.jobs/content/en/teams/amazon-web-services",
+    "meta platforms": "https://www.metacareers.com/jobs/",
+    "nvidia": "https://jobs.nvidia.com/",
+    "oracle": "https://careers.oracle.com/jobs/",
+}
 
 
 @lru_cache(maxsize=1)
@@ -68,6 +78,8 @@ def _configured_feeds() -> list[tuple[str, str, str, Any]]:
     for company, token in GREENHOUSE.items(): feeds.setdefault(("greenhouse", token), ("Greenhouse", company, token, _greenhouse))
     for company, token in ASHBY.items(): feeds.setdefault(("ashby", token), ("Ashby", company, token, _ashby))
     for company, token in LEVER.items(): feeds.setdefault(("lever", token), ("Lever", company, token, _lever))
+    feeds[("amazon", "amazon.jobs")] = ("Amazon Jobs", "Amazon", "amazon.jobs", _amazon)
+    feeds[("workday", "nvidia")] = ("Workday", "NVIDIA", "nvidia", _nvidia)
     return list(feeds.values())
 
 ROLE_TERMS = re.compile(
@@ -139,7 +151,7 @@ EARLY_CAREER_RESEARCH = re.compile(
     re.I,
 )
 US_HINT = re.compile(
-    r"united states|\busa\b|\bu\.s\.\b|remote.*us|california|\bca\b|"
+    r"united states|\busa\b|\bus\b|\bu\.s\.\b|remote.*us|california|\bca\b|"
     r"new york|washington|texas|massachusetts|virginia|maryland|colorado|"
     r"pennsylvania|oregon|illinois|georgia|arizona|north carolina",
     re.I,
@@ -413,6 +425,79 @@ def _lever(company: str, site: str) -> list[dict[str, Any]]:
         if item:
             results.append(item)
     return results
+
+
+def _amazon(_company: str, _key: str) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for query in ("machine learning", "artificial intelligence", "LLM inference", "computer vision"):
+        for offset in (0, 100):
+            response = requests.get("https://www.amazon.jobs/en/search.json", params={
+                "base_query": query, "loc_query": "United States", "offset": offset, "result_limit": 100,
+            }, headers={"User-Agent": "Mozilla/5.0 ASTRA Job Discovery"}, timeout=35)
+            response.raise_for_status()
+            jobs = response.json().get("jobs", [])
+            for raw in jobs:
+                external = str(raw.get("id_icims") or raw.get("id") or "")
+                if not external or external in seen or str(raw.get("country_code") or "").upper() != "USA":
+                    continue
+                seen.add(external)
+                title = str(raw.get("title") or "").strip()
+                location = str(raw.get("normalized_location") or raw.get("location") or "United States")
+                description = _clean_html("\n".join(str(raw.get(k) or "") for k in (
+                    "description", "basic_qualifications", "preferred_qualifications")))
+                url = "https://www.amazon.jobs" + str(raw.get("job_path") or "")
+                item = _finish({"id": _id("Amazon Jobs", external, "Amazon", title), "external_id": external,
+                    "requisition_id": external, "title": title, "company": "Amazon", "location": location,
+                    "description": description, "url": url, "application_url": str(raw.get("url_next_step") or url),
+                    "source": "Amazon Jobs", "posted_at": raw.get("posted_date"), "updated_at": None,
+                    "salary": []}, retain_filtered=True)
+                if item:
+                    results.append(item)
+            if len(jobs) < 100:
+                break
+    return results
+
+
+def _nvidia(_company: str, _key: str) -> list[dict[str, Any]]:
+    base = "https://nvidia.wd5.myworkdayjobs.com"
+    board = "/wday/cxs/nvidia/NVIDIAExternalCareerSite"
+    postings: dict[str, dict[str, Any]] = {}
+    for query in ("machine learning", "artificial intelligence", "inference", "computer vision"):
+        for offset in (0, 20, 40, 60, 80):
+            response = requests.post(base + board + "/jobs", json={
+                "limit": 20, "offset": offset, "searchText": query, "appliedFacets": {},
+            }, headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 ASTRA Job Discovery"}, timeout=35)
+            response.raise_for_status()
+            batch = response.json().get("jobPostings", [])
+            for raw in batch:
+                location = str(raw.get("locationsText") or "")
+                path = str(raw.get("externalPath") or "")
+                title = str(raw.get("title") or "")
+                if path and US_HINT.search(location) and DOMAIN_TITLE.search(title) and not EXCLUDED_TITLE.search(title):
+                    postings[path] = raw
+            if len(batch) < 20:
+                break
+    def load_detail(pair: tuple[str, dict[str, Any]]) -> dict[str, Any] | None:
+        path, raw = pair
+        try:
+            detail = requests.get(base + board + path, headers={"User-Agent": "Mozilla/5.0 ASTRA Job Discovery"}, timeout=18)
+            detail.raise_for_status()
+            info = detail.json().get("jobPostingInfo") or {}
+            title = str(info.get("title") or raw.get("title") or "").strip()
+            location = str(info.get("location") or raw.get("locationsText") or "")
+            description = _clean_html(info.get("jobDescription"))
+            external = str((raw.get("bulletFields") or [""])[0] or path.rsplit("_", 1)[-1])
+            url = str(info.get("externalUrl") or f"{base}/en-US/NVIDIAExternalCareerSite{path}")
+            return _finish({"id": _id("Workday", external, "NVIDIA", title), "external_id": external,
+                "requisition_id": external, "title": title, "company": "NVIDIA", "location": location,
+                "description": description, "url": url, "application_url": url, "source": "Workday",
+                "posted_at": info.get("startDate") or raw.get("postedOn"), "updated_at": None,
+                "salary": []}, retain_filtered=True)
+        except Exception:
+            return None
+    with ThreadPoolExecutor(max_workers=16, thread_name_prefix="astra-nvidia-detail") as pool:
+        return [item for item in pool.map(load_detail, list(postings.items())[:160]) if item]
 
 
 def _adzuna(_company: str, _key: str) -> list[dict[str, Any]]:
@@ -735,6 +820,35 @@ def analytics() -> dict[str, Any]:
             "new_jobs": int(state.get("new_jobs", 0)), "quality": state.get("quality", {}),
             "duplicates_merged": sum(max(0, int(x.get("duplicate_count", 1)) - 1) for x in items),
             "closed_removed": sum(int(not s.get("ok", True)) for s in store.get("sources", []))}
+
+
+@router.get("/companies")
+def companies(q: str = Query("")) -> dict[str, Any]:
+    registry = _sponsor_registry()
+    rows = []
+    for raw in registry.get("companies", []):
+        item = dict(raw)
+        name = str(item.get("company") or "")
+        lowered = name.casefold()
+        career_url = ""
+        for key, url in MAJOR_CAREERS.items():
+            if key in lowered:
+                career_url = url
+                break
+        if not career_url and item.get("direct_feed"):
+            ats, token = str(item.get("ats") or ""), str(item.get("token") or "")
+            if ats == "greenhouse": career_url = f"https://job-boards.greenhouse.io/{token}"
+            elif ats == "lever": career_url = f"https://jobs.lever.co/{token}"
+            elif ats == "ashby": career_url = f"https://jobs.ashbyhq.com/{token}"
+        item["career_url"] = career_url
+        item["live_in_astra"] = bool(item.get("direct_feed")) or any(k in lowered for k in ("amazon", "nvidia"))
+        rows.append(item)
+    if q.strip():
+        needle = q.casefold()
+        rows = [x for x in rows if needle in f"{x.get('company','')} {x.get('legal_employer','')}".casefold()]
+    rows.sort(key=lambda x: (-int(x.get("tech_lca_positions", 0)), str(x.get("company") or "")))
+    return {"items": rows, "total": len(rows), "source_url": registry.get("source_url"),
+            "disclaimer": registry.get("disclaimer")}
 
 
 @router.get("/{job_id}")

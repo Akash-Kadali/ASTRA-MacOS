@@ -118,6 +118,14 @@ def test_sponsor_registry_has_300_targets_and_live_feeds():
     assert len(registry["companies"]) == 300
     assert sum(bool(x["direct_feed"]) for x in registry["companies"]) >= 150
     assert len(internet_jobs._configured_feeds()) >= 150
+    directory = internet_jobs.companies(q="")
+    by_name = {x["company"]: x for x in directory["items"]}
+    assert by_name["Google LLC"]["career_url"].startswith("https://www.google.com/about/careers")
+    assert by_name["Microsoft Corporation"]["career_url"].startswith("https://jobs.careers.microsoft.com")
+    assert by_name["Apple Inc."]["career_url"].startswith("https://jobs.apple.com")
+    sources = {(source, company) for source, company, _, _ in internet_jobs._configured_feeds()}
+    assert ("Amazon Jobs", "Amazon") in sources
+    assert ("Workday", "NVIDIA") in sources
 
 
 def test_wide_feed_non_engineering_ai_titles_are_excluded(monkeypatch):
