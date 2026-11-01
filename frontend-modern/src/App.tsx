@@ -177,10 +177,19 @@ type InternetJob = JobrightJob & {
   requisition_id?: string;
   salary?: unknown;
   workplace_type?: string;
+  rank_score?: number;
+  duplicate_count?: number;
+  source_names?: string[];
+  link_status?: "open" | "closed" | "stale" | "unknown" | "missing";
+  filter_decision?: { eligible: boolean; score: number; overridden?: boolean; experience_required?: number; technical_fit?: number; matched_skills?: string[]; missing_skills?: string[]; reasons: { code: string; message: string; evidence: string }[] };
 };
 type InternetJobsResponse = {
   items: InternetJob[];
   total: number;
+  eligible_total: number;
+  filtered_total: number;
+  new_jobs: number;
+  reason_counts: Record<string, number>;
   counts: Record<string, number>;
   updated_at?: string;
   sources: { source: string; company: string; ok: boolean; jobs: number; error?: string }[];
@@ -3032,11 +3041,12 @@ function InternetJobs() {
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("all");
   const [category, setCategory] = useState("all");
+  const [view, setView] = useState<"eligible" | "filtered" | "all">("eligible");
   const [selected, setSelected] = useState<InternetJob | null>(null);
   const qc = useQueryClient();
   const jobs = useQuery({
-    queryKey: ["internet-jobs", query, region, category],
-    queryFn: () => api<InternetJobsResponse>(`/api/internet-jobs?q=${encodeURIComponent(query)}&region=${encodeURIComponent(region)}&category=${encodeURIComponent(category)}&limit=2000`),
+    queryKey: ["internet-jobs", query, region, category, view],
+    queryFn: () => api<InternetJobsResponse>(`/api/internet-jobs?q=${encodeURIComponent(query)}&region=${encodeURIComponent(region)}&category=${encodeURIComponent(category)}&view=${view}&hide_applied=${view === "eligible"}&limit=2000`),
     refetchInterval: (result) => result.state.data?.runtime.running ? 1500 : 30000,
   });
   const refresh = useMutation({
@@ -3044,6 +3054,29 @@ function InternetJobs() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["internet-jobs"] });
       notify("Internet job search started", "info");
+    },
+    onError: (error) => notify(error.message, "error"),
+  });
+  const discoverySettings = useQuery({
+    queryKey: ["internet-job-settings"],
+    queryFn: () => api<{ enabled: boolean; interval_hours: number; minimum_score: number; quality: Record<string, number> }>("/api/internet-jobs/settings"),
+  });
+  const saveDiscoverySettings = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => api("/api/internet-jobs/settings", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["internet-job-settings"] }); notify("Discovery schedule updated"); },
+    onError: (error) => notify(error.message, "error"),
+  });
+  const feedback = useMutation({
+    mutationFn: ({ job, action }: { job: InternetJob; action: "restore" | "hide" | "correct" }) => api(`/api/internet-jobs/${job.id}/feedback`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, note: action === "restore" ? "Filter marked incorrect from Internet Jobs" : "Manual Internet Jobs correction" }),
+    }),
+    onSuccess: (_, value) => {
+      qc.invalidateQueries({ queryKey: ["internet-jobs"] });
+      setSelected(null);
+      notify(value.action === "restore" ? "Job restored and correction recorded" : "Job hidden and feedback recorded");
     },
     onError: (error) => notify(error.message, "error"),
   });
@@ -3076,23 +3109,31 @@ function InternetJobs() {
   return <div className="page">
     <PageTitle eyebrow="Internet job discovery" title="Fresh AI jobs beyond Jobright." description="Search direct public employer feeds across the United States, with California and Bay Area roles ranked first. Applied jobs and degree-ineligible roles are removed." action={<button className="button primary" disabled={refresh.isPending || data?.runtime.running} onClick={() => refresh.mutate()}><RefreshCw size={16}/>{data?.runtime.running ? "Searching…" : data?.updated_at ? "Refresh internet jobs" : "Search internet jobs"}</button>} />
     <div className="jobright-summary panel">
-      <div><span>Relevant unapplied jobs</span><strong>{(data?.total || 0).toLocaleString()}</strong></div>
+      <div><span>Eligible unapplied jobs</span><strong>{(data?.eligible_total || data?.total || 0).toLocaleString()}</strong></div>
       <div><span>Bay Area</span><strong>{(data?.counts["Bay Area"] || 0).toLocaleString()}</strong></div>
-      <div><span>California</span><strong>{(data?.counts["California"] || 0).toLocaleString()}</strong></div>
+      <div><span>New since last scan</span><strong>{(data?.new_jobs || 0).toLocaleString()}</strong></div>
       <div className={data?.runtime.error ? "sync-error" : "sync-state"}><span>Status</span><strong>{data?.runtime.message || "Ready to search"}</strong></div>
     </div>
     {data?.active_filters ? <div className="internet-profile-bar"><b>Eligibility profile active</b><span>0–{data.active_filters.years_experience} years experience</span><span>{data.active_filters.degree}</span><span>{data.active_filters.currently_student === "yes" ? "Current student roles allowed" : "No currently-pursuing roles"}</span><span>{data.active_filters.security_clearance === "yes" ? "Clearance roles allowed" : "No security-clearance roles"}</span><span>{data.active_filters.requires_sponsorship === "yes" ? "Must support future sponsorship" : "No sponsorship filter"}</span><a href="#/operations">Edit profile</a></div> : null}
+    {discoverySettings.data ? <div className="internet-schedule panel"><div><b>Automatic discovery</b><small>{discoverySettings.data.enabled ? `Runs every ${discoverySettings.data.interval_hours} hours and reports only genuinely new jobs.` : "Automatic discovery is paused."}</small></div><label><input type="checkbox" checked={discoverySettings.data.enabled} onChange={(event) => saveDiscoverySettings.mutate({ enabled: event.target.checked })}/> Enabled</label><select value={discoverySettings.data.interval_hours} onChange={(event) => saveDiscoverySettings.mutate({ interval_hours: Number(event.target.value) })}><option value={3}>Every 3 hours</option><option value={6}>Every 6 hours</option><option value={12}>Every 12 hours</option><option value={24}>Daily</option></select></div> : null}
     {data?.runtime.running ? <div className="import-banner"><span className="progress-ring"/><div><b>Searching employer career systems in parallel</b><p>ASTRA is downloading public descriptions, filtering education restrictions and removing jobs already represented in your application library.</p></div></div> : null}
     <div className="internet-filters panel">
       <label className="search"><Search size={17}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, company, skill or job description"/></label>
       <select value={region} onChange={(event) => { setRegion(event.target.value); setSelected(null); }}><option value="all">All USA · Bay Area first</option><option value="Bay Area">Bay Area only</option><option value="California">California only</option><option value="United States">Other USA</option></select>
       <select value={category} onChange={(event) => { setCategory(event.target.value); setSelected(null); }}>{categories.map((item) => <option value={item} key={item}>{item === "all" ? "All related roles" : item}</option>)}</select>
     </div>
+    <div className="internet-view-tabs">
+      <button className={view === "eligible" ? "active" : ""} onClick={() => { setView("eligible"); setSelected(null); }}>Recommended <span>{data?.eligible_total || 0}</span></button>
+      <button className={view === "filtered" ? "active" : ""} onClick={() => { setView("filtered"); setSelected(null); }}>Filtered with reasons <span>{data?.filtered_total || 0}</span></button>
+      <button className={view === "all" ? "active" : ""} onClick={() => { setView("all"); setSelected(null); }}>All discovered</button>
+    </div>
     <div className="jobright-grid internet-grid">
       <section className="panel job-feed"><div className="toolbar"><span className="feed-count">{items.length.toLocaleString()} jobs shown · newest source updates first</span></div><div className="job-list">
-        {jobs.isLoading ? <Skeleton rows={9}/> : jobs.isError ? <Empty title="Internet search is unavailable" copy="Restart ASTRA and try the search again."/> : items.length ? items.map((job) => <button key={job.id} className={selected?.id === job.id ? "selected" : ""} onClick={() => setSelected(job)}><span className="company-mark">{job.company.slice(0, 2).toUpperCase()}</span><span><b>{job.title}</b><small>{job.company} · {job.location || "USA"}</small><time>{job.region} · {job.source}{job.updated_at ? ` · Updated ${fmt(job.updated_at)}` : ""}</time></span><em>{job.category}</em></button>) : <Empty title={data?.updated_at ? "No matching new jobs" : "Search the public job internet"} copy={data?.updated_at ? "Try a broader role or region. Previously applied jobs remain hidden." : "Start a search to import relevant roles from public employer feeds."}/>}
+        {jobs.isLoading ? <Skeleton rows={9}/> : jobs.isError ? <Empty title="Internet search is unavailable" copy="Restart ASTRA and try the search again."/> : items.length ? items.map((job) => <button key={job.id} className={selected?.id === job.id ? "selected" : ""} onClick={() => setSelected(job)}><span className="company-mark">{job.company.slice(0, 2).toUpperCase()}</span><span><b>{job.title}</b><small>{job.company} · {job.location || "USA"}</small><time>{job.region} · {(job.source_names || [job.source]).join(" + ")}{job.updated_at ? ` · Updated ${fmt(job.updated_at)}` : ""}</time></span><em className={job.filter_decision?.eligible ? "" : "filtered-tag"}>{job.filter_decision?.eligible ? `${job.rank_score || job.filter_decision.score}% fit` : "Filtered"}</em></button>) : <Empty title={data?.updated_at ? "No jobs in this view" : "Search the public job internet"} copy={view === "filtered" ? "No relevant postings were rejected by your current eligibility profile." : data?.updated_at ? "Try a broader role or region. Previously applied jobs remain hidden." : "Start a search to import relevant roles from public employer feeds."}/>}
       </div></section>
-      <aside className="panel job-detail">{selected ? <><div className="job-detail-head"><span className="eyebrow">{selected.region} · {selected.source}</span><h2>{selected.title}</h2><p>{selected.company} · {selected.location || "United States"}</p><div className="detail-tags"><span>{selected.category}</span>{selected.workplace_type ? <span>{selected.workplace_type}</span> : null}{selected.requisition_id ? <span>Req {selected.requisition_id}</span> : null}{salary(selected.salary) ? <span>{salary(selected.salary)}</span> : null}</div></div><div className="job-detail-body"><section className="job-section"><h3>Complete job description</h3><div className="description-copy">{(selected.description || "Description is not available.").split("\n").filter(Boolean).map((line, index) => <p key={index}>{line}</p>)}</div></section></div><div className="job-detail-actions"><a className="button ghost" href={selected.url} target="_blank" rel="noreferrer"><ExternalLink size={15}/>Employer posting</a><a className="button ghost" href={selected.application_url || selected.url} target="_blank" rel="noreferrer"><BriefcaseBusiness size={15}/>Open application</a><button className="button primary" onClick={() => useJob(selected)}><Command size={15}/>Generate tailored résumé</button></div></> : <Empty title="Choose an internet job" copy="Open the full employer description, then send it directly to Resume Studio."/>}</aside>
+      <aside className="panel job-detail">{selected ? <><div className="job-detail-head"><span className="eyebrow">{selected.region} · {(selected.source_names || [selected.source]).join(" + ")}</span><h2>{selected.title}</h2><p>{selected.company} · {selected.location || "United States"}</p><div className="detail-tags"><span>{selected.category}</span><span>{selected.rank_score || selected.filter_decision?.score || 0}% fit</span><span>Link {selected.link_status || "unchecked"}</span>{selected.duplicate_count && selected.duplicate_count > 1 ? <span>{selected.duplicate_count} sources merged</span> : null}{selected.workplace_type ? <span>{selected.workplace_type}</span> : null}{selected.requisition_id ? <span>Req {selected.requisition_id}</span> : null}{salary(selected.salary) ? <span>{salary(selected.salary)}</span> : null}</div></div><div className="job-detail-body">
+        <section className={`filter-explanation ${selected.filter_decision?.eligible ? "eligible" : "rejected"}`}><h3>{selected.filter_decision?.eligible ? "Why ASTRA recommends this" : "Why ASTRA filtered this"}</h3>{selected.filter_decision?.reasons?.length ? selected.filter_decision.reasons.map((reason) => <div key={reason.code}><b>{reason.message}</b><blockquote>{reason.evidence}</blockquote></div>) : <p>No hard eligibility conflict was found. Ranking combines experience, technical coverage, role relevance, location and freshness.</p>}{selected.filter_decision?.technical_fit !== undefined ? <small>Technical requirement coverage: {selected.filter_decision.technical_fit}%{selected.filter_decision.missing_skills?.length ? ` · Check: ${selected.filter_decision.missing_skills.join(", ")}` : ""}</small> : null}{selected.filter_decision?.overridden ? <small>Manual correction active</small> : null}</section>
+        <section className="job-section"><h3>Complete job description</h3><div className="description-copy">{(selected.description || "Description is not available.").split("\n").filter(Boolean).map((line, index) => <p key={index}>{line}</p>)}</div></section></div><div className="job-detail-actions"><a className="button ghost" href={selected.url} target="_blank" rel="noreferrer"><ExternalLink size={15}/>Employer posting</a>{selected.filter_decision?.eligible ? <><button className="button ghost" onClick={() => feedback.mutate({ job: selected, action: "hide" })}>Hide job</button><button className="button primary" onClick={() => useJob(selected)}><Command size={15}/>Generate tailored résumé</button></> : <button className="button primary" onClick={() => feedback.mutate({ job: selected, action: "restore" })}>Filter is wrong · restore</button>}</div></> : <Empty title="Choose an internet job" copy="Review its fit score, exact eligibility evidence and complete employer description."/>}</aside>
     </div>
     {data?.sources?.length ? <details className="source-coverage panel"><summary>Source coverage · {data.sources.filter((item) => item.ok).length} of {data.sources.length} employer feeds available</summary><div>{data.sources.map((item) => <span className={item.ok ? "source-ok" : "source-error"} key={`${item.source}-${item.company}`}><b>{item.company}</b><small>{item.ok ? `${item.jobs} matching jobs · ${item.source}` : `Unavailable · ${item.error || item.source}`}</small></span>)}</div></details> : null}
   </div>;

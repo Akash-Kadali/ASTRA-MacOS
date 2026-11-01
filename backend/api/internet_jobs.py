@@ -6,20 +6,23 @@ import html
 import json
 import os
 import re
+import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import requests
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 
 from backend.api import jobright
 from backend.core import config
 
 router = APIRouter(prefix="/api/internet-jobs", tags=["internet-jobs"])
 STORE = Path(config.DATA_DIR) / "internet_jobs.json"
+SETTINGS_STORE = Path(config.DATA_DIR) / "internet_jobs_settings.json"
 _LOCK = threading.RLock()
 _runtime: dict[str, Any] = {"running": False, "message": "Ready", "error": "", "last_refresh": None}
 
@@ -28,9 +31,13 @@ _runtime: dict[str, Any] = {"running": False, "message": "Ready", "error": "", "
 GREENHOUSE = {
     "Anthropic": "anthropic", "Scale AI": "scaleai", "Databricks": "databricks",
     "Waymo": "waymo", "Nuro": "nuro", "Together AI": "togetherai",
+    "Weights & Biases": "wandb", "SambaNova Systems": "sambanova", "Figure AI": "figureai",
+    "Applied Intuition": "appliedintuition", "Waabi": "waabi", "Skydio": "skydio",
 }
-ASHBY = {"OpenAI": "openai", "Cohere": "cohere", "Cursor": "cursor", "Perplexity": "perplexity"}
-LEVER = {"Zoox": "zoox", "Shield AI": "shieldai"}
+ASHBY = {"OpenAI": "openai", "Cohere": "cohere", "Cursor": "cursor", "Perplexity": "perplexity",
+         "Harvey": "harvey", "Pika": "pika", "Decagon": "decagon", "Baseten": "baseten"}
+LEVER = {"Zoox": "zoox", "Shield AI": "shieldai", "Anduril": "andurilindustries",
+         "Highspot": "highspot", "Highwire": "highwire"}
 
 ROLE_TERMS = re.compile(
     r"machine learning|\bml\b|artificial intelligence|\bai\b|deep learning|"
@@ -87,6 +94,13 @@ OPAQUE_OR_ADVANCED_RESEARCH = re.compile(
     r"(?:interpretability|alignment|transformer circuits?).{0,80}(?:publication|research output|relevant work)",
     re.I,
 )
+QUALITATIVE_SENIORITY = re.compile(
+    r"\b(?:extensive|substantial|significant) experience\b|\bdeep expertise\b|"
+    r"\bproven track record\b|\bexpert(?:ise)? in\b|"
+    r"\bown and pursue a research agenda\b|\bhave built demanding (?:ml|ai|distributed) systems\b|"
+    r"\btraining runs (?:working )?at scale\b|\bleading large[- ]scale .{0,35}(?:project|initiative)",
+    re.I,
+)
 EARLY_CAREER_RESEARCH = re.compile(
     r"new (?:college )?grad|recent graduate|entry[- ]level|early career|"
     r"university graduate|graduate program|\bjunior\b|\bassociate\b|0\s*(?:-|to)\s*2 years",
@@ -105,6 +119,28 @@ BAY_AREA = re.compile(
     re.I,
 )
 CALIFORNIA = re.compile(r"california|\bca\b|los angeles|san diego|irvine|sacramento", re.I)
+TECH_SKILLS = ("python", "pytorch", "tensorflow", "sql", "aws", "gcp", "azure", "docker",
+               "kubernetes", "spark", "ray", "cuda", "c++", "opencv", "nlp", "llm", "rag",
+               "transformer", "computer vision", "machine learning", "deep learning", "retrieval")
+PROFILE_SKILLS = {"python", "pytorch", "tensorflow", "sql", "aws", "docker", "opencv", "nlp", "llm",
+                  "rag", "transformer", "computer vision", "machine learning", "deep learning", "retrieval"}
+
+
+def _settings() -> dict[str, Any]:
+    defaults = {"enabled": True, "interval_hours": 6, "minimum_score": 60,
+                "last_scheduled_refresh": None, "seen_ids": [], "corrections": [], "quality": {}}
+    try:
+        value = json.loads(SETTINGS_STORE.read_text(encoding="utf-8"))
+        return {**defaults, **value} if isinstance(value, dict) else defaults
+    except Exception:
+        return defaults
+
+
+def _save_settings(value: dict[str, Any]) -> None:
+    SETTINGS_STORE.parent.mkdir(parents=True, exist_ok=True)
+    pending = SETTINGS_STORE.with_suffix(".tmp")
+    pending.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(pending, SETTINGS_STORE)
 
 
 def _now() -> str:
@@ -152,7 +188,8 @@ def _experience_minimum(description: str) -> int:
     for line in _required_lines(description):
         units.extend(x.strip() for x in re.split(r"(?<=[.!?;])\s+|\s+[•·]\s+", line) if x.strip())
     for line in units:
-        if not re.search(r"experience|worked|background", line, re.I):
+        if not re.search(r"experience|worked|background|\b\d{1,2}\s*(?:\+|plus)?\s*years?\b|"
+                         r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:plus\s+)?years?\b", line, re.I):
             continue
         values = []
         for match in re.finditer(r"\b(\d{1,2})\s*(?:\+|plus)?\s*(?:(?:-|to)\s*\d{1,2}\s*)?(?:years?|yrs?)\b", line, re.I):
@@ -175,12 +212,15 @@ def _experience_minimum(description: str) -> int:
     return max(requirements) if requirements else 0
 
 
-def _accept(title: str, location: str, description: str) -> bool:
-    if not DOMAIN_TITLE.search(title) or EXCLUDED_TITLE.search(title):
-        return False
+def _assessment(title: str, location: str, description: str) -> dict[str, Any]:
+    reasons: list[dict[str, str]] = []
+    if not DOMAIN_TITLE.search(title):
+        reasons.append({"code": "unrelated_title", "message": "The title is outside your selected AI, ML, LLM, vision and related software domains.", "evidence": title})
+    if EXCLUDED_TITLE.search(title):
+        reasons.append({"code": "seniority_or_domain", "message": "The title indicates an excluded seniority level or unrelated function.", "evidence": title})
     location_text = location or description[:800]
     if not location_text or not US_HINT.search(location_text):
-        return False
+        reasons.append({"code": "outside_usa", "message": "The posting does not identify a United States work location.", "evidence": location or "No US location found"})
     required_text = "\n".join(_required_lines(description))
     probe = {"title": title, "description": required_text, "description_sections": {"required": required_text}}
     from backend.api import jobright_agent
@@ -192,39 +232,66 @@ def _accept(title: str, location: str, description: str) -> bool:
     needs_sponsorship = str(profile.get("requires_sponsorship") or "yes").casefold() == "yes"
     citizenship = str(profile.get("citizenship") or "India").casefold()
     if jobright._requires_phd(probe):
-        return False
+        reasons.append({"code": "phd_required", "message": "The role requires PhD or doctoral eligibility.", "evidence": next((x for x in _required_lines(description) if re.search(r"ph\.?d|doctoral", x, re.I)), "PhD requirement detected")})
     if not currently_student and (jobright._requires_current_student(probe) or CURRENT_STUDENT_REQUIRED.search(required_text)):
-        return False
-    if _experience_minimum(required_text) > max_experience:
-        return False
+        reasons.append({"code": "current_student", "message": "The role requires current enrolment or a future graduation window.", "evidence": next((x for x in _required_lines(description) if CURRENT_STUDENT_REQUIRED.search(x)), "Current-student requirement detected")})
+    experience = _experience_minimum(required_text)
+    if experience > max_experience:
+        reasons.append({"code": "experience", "message": f"The role requires at least {experience} years; your profile allows up to {max_experience}.", "evidence": next((x for x in _required_lines(description) if _experience_minimum(x) == experience), f"{experience}+ years required")})
     # Research titles frequently omit a numeric requirement while describing a
     # senior frontier-research profile. Keep them only when the posting gives
     # explicit early-career evidence; do not interpret an unspecified internal
     # level or a publication track record as suitable for 0–2 years.
-    research_title = bool(re.search(r"research (?:engineer\s*/\s*)?(?:scientist|engineer\s*/\s*scientist)", title, re.I))
+    research_title = bool(re.search(r"research (?:engineer|scientist)(?:\s*/\s*(?:research )?(?:engineer|scientist))?", title, re.I))
     if research_title and OPAQUE_OR_ADVANCED_RESEARCH.search(required_text) and not EARLY_CAREER_RESEARCH.search(
         f"{title}\n{required_text}"
     ):
-        return False
+        reasons.append({"code": "advanced_research", "message": "The role expects an advanced or specialised research record without clear early-career eligibility.", "evidence": next((x for x in _required_lines(description) if OPAQUE_OR_ADVANCED_RESEARCH.search(x)), "Advanced research track record required")})
+    qualitative = QUALITATIVE_SENIORITY.search(required_text)
+    if qualitative and not EARLY_CAREER_RESEARCH.search(f"{title}\n{required_text}"):
+        reasons.append({"code": "qualitative_seniority", "message": "The role uses senior-level experience language without a 0–2 year pathway.", "evidence": next((x for x in _required_lines(description) if QUALITATIVE_SENIORITY.search(x)), qualitative.group(0))})
     if not has_clearance and CLEARANCE_REQUIRED.search(required_text):
-        return False
+        reasons.append({"code": "clearance", "message": "The role requires or expects eligibility for a security clearance.", "evidence": next((x for x in _required_lines(description) if CLEARANCE_REQUIRED.search(x)), "Security clearance required")})
     if needs_sponsorship and SPONSORSHIP_UNAVAILABLE.search(required_text):
-        return False
+        reasons.append({"code": "sponsorship", "message": "The posting says visa or immigration sponsorship is unavailable.", "evidence": next((x for x in _required_lines(description) if SPONSORSHIP_UNAVAILABLE.search(x)), "Sponsorship unavailable")})
     if citizenship not in {"us", "usa", "united states", "united states of america"} and CITIZENSHIP_REQUIRED.search(required_text):
-        return False
-    return True
+        reasons.append({"code": "citizenship", "message": "The role requires US citizenship, permanent residency or US-person status.", "evidence": next((x for x in _required_lines(description) if CITIZENSHIP_REQUIRED.search(x)), "US citizenship restriction")})
+    required_skills = sorted(skill for skill in TECH_SKILLS if re.search(rf"(?<!\w){re.escape(skill)}(?!\w)", required_text, re.I))
+    matched_skills = sorted(set(required_skills) & PROFILE_SKILLS)
+    missing_skills = sorted(set(required_skills) - PROFILE_SKILLS)
+    technical_fit = round(100 * len(matched_skills) / len(required_skills)) if required_skills else 75
+    score = 90
+    score -= 35 if experience == max_experience and experience else 0
+    score -= 10 if len(description) < 500 else 0
+    score += round((technical_fit - 50) * .2)
+    score += 5 if BAY_AREA.search(location) else 3 if CALIFORNIA.search(location) else 0
+    score = max(0, min(100, score if not reasons else 0))
+    return {"eligible": not reasons, "score": score, "reasons": reasons,
+            "experience_required": experience, "profile_max_experience": max_experience,
+            "technical_fit": technical_fit, "matched_skills": matched_skills, "missing_skills": missing_skills}
 
 
-def _finish(item: dict[str, Any]) -> dict[str, Any] | None:
+def _accept(title: str, location: str, description: str) -> bool:
+    return bool(_assessment(title, location, description)["eligible"])
+
+
+def _finish(item: dict[str, Any], retain_filtered: bool = False) -> dict[str, Any] | None:
     title, location, description = item["title"], item.get("location", ""), item.get("description", "")
-    if not _accept(title, location, description):
+    # Store domain-related US postings even when profile filters reject them so
+    # the UI can explain the decision and allow a correction. Truly unrelated
+    # titles and non-US locations are discarded before persistence.
+    if not DOMAIN_TITLE.search(title) or not (location or description[:800]) or not US_HINT.search(location or description[:800]):
         return None
     category, relevant = jobright._classify_role(title)
     if not relevant and not ROLE_TERMS.search(title):
         return None
     region, priority = _region(location)
+    assessment = _assessment(title, location, description)
+    if not assessment["eligible"] and not retain_filtered:
+        return None
     item.update(category=category, relevant=True, region=region, region_priority=priority,
-                captured_at=_now(), description_status="complete" if len(description) >= 300 else "partial")
+                captured_at=_now(), description_status="complete" if len(description) >= 300 else "partial",
+                filter_decision=assessment)
     return item
 
 
@@ -241,7 +308,7 @@ def _greenhouse(company: str, token: str) -> list[dict[str, Any]]:
             "requisition_id": str(raw.get("requisition_id") or ""), "title": title, "company": company,
             "location": location, "description": description, "url": url, "application_url": url,
             "source": "Greenhouse", "posted_at": raw.get("first_published"), "updated_at": raw.get("updated_at"),
-            "salary": raw.get("pay_input_ranges") or []})
+            "salary": raw.get("pay_input_ranges") or []}, retain_filtered=True)
         if item:
             results.append(item)
     return results
@@ -262,7 +329,7 @@ def _ashby(company: str, board: str) -> list[dict[str, Any]]:
             "location": location, "description": description, "url": url,
             "application_url": str(raw.get("applyUrl") or url), "source": "Ashby",
             "posted_at": raw.get("publishedAt"), "updated_at": raw.get("publishedAt"),
-            "workplace_type": raw.get("workplaceType"), "salary": raw.get("compensation")})
+            "workplace_type": raw.get("workplaceType"), "salary": raw.get("compensation")}, retain_filtered=True)
         if item:
             results.append(item)
     return results
@@ -286,7 +353,7 @@ def _lever(company: str, site: str) -> list[dict[str, Any]]:
             "description": description, "url": str(raw.get("hostedUrl") or ""),
             "application_url": str(raw.get("applyUrl") or raw.get("hostedUrl") or ""), "source": "Lever",
             "posted_at": None, "updated_at": None, "workplace_type": raw.get("workplaceType"),
-            "salary": raw.get("salaryRange") or raw.get("salaryDescriptionPlain")})
+            "salary": raw.get("salaryRange") or raw.get("salaryDescriptionPlain")}, retain_filtered=True)
         if item:
             results.append(item)
     return results
@@ -314,7 +381,7 @@ def _adzuna(_company: str, _key: str) -> list[dict[str, Any]]:
                 "description": _clean_html(raw.get("description")), "url": str(raw.get("redirect_url") or ""),
                 "application_url": str(raw.get("redirect_url") or ""), "source": "Adzuna",
                 "posted_at": raw.get("created"), "updated_at": raw.get("created"),
-                "salary": {"min": raw.get("salary_min"), "max": raw.get("salary_max")}})
+                "salary": {"min": raw.get("salary_min"), "max": raw.get("salary_max")}}, retain_filtered=True)
             if item:
                 results.append(item)
     return results
@@ -348,7 +415,7 @@ def _usajobs(_company: str, _key: str) -> list[dict[str, Any]]:
                 "title": title, "company": company, "location": location, "description": description,
                 "url": url, "application_url": str((raw.get("ApplyURI") or [url])[0]), "source": "USAJOBS",
                 "posted_at": raw.get("PublicationStartDate"), "updated_at": raw.get("PublicationStartDate"),
-                "salary": raw.get("PositionRemuneration") or []})
+                "salary": raw.get("PositionRemuneration") or []}, retain_filtered=True)
             if item:
                 results.append(item)
     return results
@@ -363,7 +430,52 @@ def _write(items: list[dict[str, Any]], sources: list[dict[str, Any]]) -> None:
 
 def _sort_key(item: dict[str, Any]) -> tuple[int, float, str]:
     stamp = jobright._timestamp(str(item.get("updated_at") or item.get("posted_at") or ""))
-    return (-int(item.get("region_priority", 0)), -stamp, str(item.get("company") or ""))
+    return (-int(item.get("rank_score", item.get("filter_decision", {}).get("score", 0))), -stamp,
+            str(item.get("company") or ""))
+
+
+def _canonical_key(item: dict[str, Any]) -> str:
+    company = jobright._normalized_name(str(item.get("company") or ""))
+    company = re.sub(r"\s+(?:inc|incorporated|llc|ltd|limited|corp|corporation)$", "", company).strip()
+    role = jobright._normalized_role(str(item.get("title") or ""))
+    requisition = re.sub(r"\W+", "", str(item.get("requisition_id") or "")).casefold()
+    if requisition:
+        return f"req:{company}:{requisition}"
+    return f"role:{company}:{role}"
+
+
+def _rank(item: dict[str, Any]) -> int:
+    decision = item.get("filter_decision") or {}
+    if not decision.get("eligible"):
+        return 0
+    score = int(decision.get("score", 70))
+    score += {3: 8, 2: 5, 1: 2}.get(int(item.get("region_priority", 0)), 0)
+    title = str(item.get("title") or "")
+    if re.search(r"\b(?:junior|associate|entry[- ]level|new grad|early career|engineer i|engineer 1)\b", title, re.I):
+        score += 10
+    if re.search(r"llm|inference|machine learning|computer vision|\bai\b", title, re.I):
+        score += 5
+    return max(0, min(100, score))
+
+
+def _validate_link(item: dict[str, Any]) -> dict[str, Any]:
+    url = str(item.get("application_url") or item.get("url") or "")
+    if not url:
+        item.update(link_status="missing", link_checked_at=_now())
+        return item
+    try:
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0 ASTRA Link Validator"},
+                                timeout=10, allow_redirects=True, stream=True)
+        status = response.status_code
+        final_url = response.url
+        response.close()
+        stamp = jobright._timestamp(str(item.get("updated_at") or item.get("posted_at") or ""))
+        stale = bool(stamp and time.time() - stamp > 180 * 86400)
+        item.update(link_status="stale" if status < 400 and stale else "open" if status < 400 else "closed", link_http_status=status,
+                    final_url=final_url, link_checked_at=_now())
+    except Exception as exc:
+        item.update(link_status="unknown", link_error=str(exc)[:160], link_checked_at=_now())
+    return item
 
 
 def _read() -> dict[str, Any]:
@@ -398,13 +510,37 @@ def refresh() -> None:
                     source_status.append({"source": source, "company": company, "ok": True, "jobs": len(found)})
                 except Exception as exc:
                     source_status.append({"source": source, "company": company, "ok": False, "jobs": 0, "error": str(exc)[:240]})
-        unique = {}
+        unique: dict[str, dict[str, Any]] = {}
         for item in items:
-            key = jobright._normalized_url(item.get("application_url") or item.get("url") or "") or item["id"]
-            unique[key] = item
+            key = _canonical_key(item)
+            if key in unique:
+                existing = unique[key]
+                sources = set(existing.get("source_names") or [existing.get("source")])
+                sources.add(item.get("source"))
+                existing["source_names"] = sorted(str(x) for x in sources if x)
+                existing["duplicate_count"] = int(existing.get("duplicate_count", 1)) + 1
+                if len(str(item.get("description") or "")) > len(str(existing.get("description") or "")):
+                    preserved = {"source_names": existing["source_names"], "duplicate_count": existing["duplicate_count"]}
+                    existing.update(item)
+                    existing.update(preserved)
+            else:
+                item.update(source_names=[item.get("source")], duplicate_count=1)
+                unique[key] = item
         items = list(unique.values())
+        with ThreadPoolExecutor(max_workers=12, thread_name_prefix="astra-link-check") as pool:
+            items = list(pool.map(_validate_link, items))
+        items = [x for x in items if x.get("link_status") not in {"closed", "stale"}]
+        for item in items:
+            item["rank_score"] = _rank(item)
         items.sort(key=_sort_key)
         _write(items, source_status)
+        settings = _settings()
+        previous = set(settings.get("seen_ids") or [])
+        eligible_ids = {str(x.get("id")) for x in items if (x.get("filter_decision") or {}).get("eligible")}
+        settings["new_jobs"] = len(eligible_ids - previous)
+        settings["seen_ids"] = sorted(previous | eligible_ids)[-10000:]
+        settings["last_scheduled_refresh"] = _now()
+        _save_settings(settings)
         _runtime.update(message=f"Found {len(items)} relevant US jobs from {sum(x['ok'] for x in source_status)} feeds",
                         last_refresh=_now())
     except Exception as exc:
@@ -423,10 +559,35 @@ def start_refresh() -> dict[str, Any]:
 
 @router.get("")
 def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Query("all"),
-              hide_applied: bool = Query(True), limit: int = Query(500, ge=1, le=5000)) -> dict[str, Any]:
+              hide_applied: bool = Query(True), view: str = Query("eligible"),
+              limit: int = Query(500, ge=1, le=5000)) -> dict[str, Any]:
     store = _read()
-    items = [x for x in store.get("items", []) if _accept(
-        str(x.get("title") or ""), str(x.get("location") or ""), str(x.get("description") or ""))]
+    state = _settings()
+    corrections = {str(x.get("job_id")): x for x in state.get("corrections", [])}
+    items = []
+    for raw in store.get("items", []):
+        x = dict(raw)
+        assessment = _assessment(str(x.get("title") or ""), str(x.get("location") or ""), str(x.get("description") or ""))
+        correction = corrections.get(str(x.get("id")))
+        if correction and correction.get("action") == "restore":
+            assessment = {**assessment, "eligible": True, "score": max(60, int(assessment.get("score", 0))),
+                          "overridden": True}
+        elif correction and correction.get("action") == "hide":
+            assessment = {**assessment, "eligible": False, "reasons": [{"code": "user_hidden", "message": "You hid this posting.", "evidence": correction.get("note", "Manual correction")}], "overridden": True}
+        x["filter_decision"] = assessment
+        x["rank_score"] = _rank(x)
+        if (not correction or correction.get("action") != "restore") and assessment.get("eligible") and x["rank_score"] < int(state.get("minimum_score", 60)):
+            assessment = {**assessment, "eligible": False, "reasons": [{
+                "code": "low_fit", "message": f"The fit score is below your {state.get('minimum_score', 60)}% recommendation threshold.",
+                "evidence": f"Calculated fit: {x['rank_score']}%",
+            }]}
+            x["filter_decision"] = assessment
+        items.append(x)
+    evaluated_items = list(items)
+    if view == "eligible":
+        items = [x for x in items if (x.get("filter_decision") or {}).get("eligible")]
+    elif view == "filtered":
+        items = [x for x in items if not (x.get("filter_decision") or {}).get("eligible")]
     if hide_applied:
         from backend.api.decision_center import _best_application_match
         items = [x for x in items if not _best_application_match(x)]
@@ -441,7 +602,15 @@ def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Qu
     counts = {name: sum(x.get("region") == name for x in items) for name in ("Bay Area", "California", "United States")}
     from backend.api import jobright_agent
     profile = jobright_agent.settings().get("profile", {})
-    return {"items": items[:limit], "total": len(items), "counts": counts, "updated_at": store.get("updated_at"),
+    eligible_total = sum(bool((x.get("filter_decision") or {}).get("eligible")) for x in evaluated_items)
+    filtered_total = len(evaluated_items) - eligible_total
+    reason_counts: dict[str, int] = {}
+    for x in evaluated_items:
+        for reason in (x.get("filter_decision") or {}).get("reasons", []):
+            reason_counts[reason["code"]] = reason_counts.get(reason["code"], 0) + 1
+    return {"items": items[:limit], "total": len(items), "eligible_total": eligible_total,
+            "filtered_total": filtered_total, "reason_counts": reason_counts, "new_jobs": int(state.get("new_jobs", 0)),
+            "counts": counts, "updated_at": store.get("updated_at"),
             "sources": store.get("sources", []), "runtime": dict(_runtime), "active_filters": {
                 "years_experience": str(profile.get("years_experience") or "2"),
                 "currently_student": str(profile.get("currently_student") or "no"),
@@ -451,9 +620,73 @@ def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Qu
             }}
 
 
+@router.get("/settings")
+def get_settings() -> dict[str, Any]:
+    return _settings()
+
+
+@router.patch("/settings")
+def update_settings(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    value = _settings()
+    if "enabled" in payload:
+        value["enabled"] = bool(payload["enabled"])
+    if "interval_hours" in payload:
+        value["interval_hours"] = max(1, min(168, int(payload["interval_hours"])))
+    if "minimum_score" in payload:
+        value["minimum_score"] = max(0, min(100, int(payload["minimum_score"])))
+    _save_settings(value)
+    return value
+
+
+@router.post("/{job_id}/feedback")
+def feedback(job_id: str, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    action = str(payload.get("action") or "")
+    if action not in {"restore", "hide", "correct"}:
+        raise HTTPException(400, "Unsupported correction action")
+    value = _settings()
+    corrections = [x for x in value.get("corrections", []) if str(x.get("job_id")) != job_id]
+    corrections.append({"job_id": job_id, "action": action, "note": str(payload.get("note") or ""), "created_at": _now()})
+    value["corrections"] = corrections[-5000:]
+    quality = dict(value.get("quality") or {})
+    quality[action] = int(quality.get(action, 0)) + 1
+    value["quality"] = quality
+    _save_settings(value)
+    return {"ok": True, "settings": value}
+
+
+@router.get("/analytics")
+def analytics() -> dict[str, Any]:
+    store, state = _read(), _settings()
+    items = store.get("items", [])
+    eligible = [x for x in items if _accept(str(x.get("title") or ""), str(x.get("location") or ""), str(x.get("description") or ""))]
+    return {"discovered": len(items), "eligible": len(eligible), "filtered": len(items) - len(eligible),
+            "new_jobs": int(state.get("new_jobs", 0)), "quality": state.get("quality", {}),
+            "duplicates_merged": sum(max(0, int(x.get("duplicate_count", 1)) - 1) for x in items),
+            "closed_removed": sum(int(not s.get("ok", True)) for s in store.get("sources", []))}
+
+
 @router.get("/{job_id}")
 def get_job(job_id: str) -> dict[str, Any]:
     job = next((x for x in _read().get("items", []) if str(x.get("id")) == job_id), None)
     if not job:
         raise HTTPException(404, "Internet job not found")
     return job
+
+
+def _discovery_scheduler() -> None:
+    """Refresh quietly on the configured cadence while ASTRA is running."""
+    while True:
+        try:
+            value = _settings()
+            if value.get("enabled") and not _runtime.get("running"):
+                last = jobright._timestamp(str(value.get("last_scheduled_refresh") or ""))
+                interval = max(1, int(value.get("interval_hours", 6))) * 3600
+                if not last or time.time() - last >= interval:
+                    refresh()
+        except Exception:
+            pass
+        time.sleep(60)
+
+
+if "pytest" not in sys.modules and "PYTEST_CURRENT_TEST" not in os.environ:
+    threading.Thread(target=_discovery_scheduler, daemon=True, name="astra-internet-discovery").start()

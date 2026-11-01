@@ -29,7 +29,8 @@ test("applications and document preview remain reachable", async ({ page }) => {
 test("internet jobs shows direct employer results and filters", async ({ page }) => {
   await page.goto("/#/internet");
   await expect(page.getByRole("heading", { name: "Fresh AI jobs beyond Jobright." })).toBeVisible();
-  await expect(page.getByText("Relevant unapplied jobs")).toBeVisible();
-  await expect(page.getByRole("combobox").first()).toContainText("All USA");
+  await expect(page.getByText("Eligible unapplied jobs")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Filtered with reasons/ })).toBeVisible();
+  await expect(page.locator(".internet-filters select").first()).toContainText("All USA");
   await expect(page.locator(".job-list > button").first()).toBeVisible();
 });

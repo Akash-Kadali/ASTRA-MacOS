@@ -72,3 +72,42 @@ def test_frontier_research_seniority_without_numeric_years_is_excluded(monkeypat
         **base, "id": "new-grad", "title": "Machine Learning Research Scientist, New College Grad",
         "description": "New college graduate role. Master's degree accepted and published ML research preferred.",
     }) is not None
+
+
+def test_filtered_jobs_can_be_retained_with_exact_evidence(monkeypatch):
+    monkeypatch.setattr(jobright_agent, "settings", lambda: {"profile": {
+        "years_experience": "2", "currently_student": "no", "security_clearance": "no",
+        "requires_sponsorship": "yes", "citizenship": "India",
+    }})
+    item = internet_jobs._finish({
+        "id": "retained", "company": "Example", "location": "San Francisco, CA",
+        "title": "Machine Learning Engineer", "description": "Required: 5+ years of production ML experience.",
+    }, retain_filtered=True)
+    assert item is not None
+    assert item["filter_decision"]["eligible"] is False
+    assert item["filter_decision"]["reasons"][0]["code"] == "experience"
+    assert "5+ years" in item["filter_decision"]["reasons"][0]["evidence"]
+
+
+def test_canonical_key_merges_requisition_across_sources():
+    first = {"company": "Example AI, Inc.", "title": "ML Engineer", "requisition_id": "REQ-123"}
+    second = {"company": "Example AI", "title": "Machine Learning Engineer", "requisition_id": "REQ 123"}
+    assert internet_jobs._canonical_key(first) == internet_jobs._canonical_key(second)
+
+
+def test_year_requirement_with_in_phrase_is_parsed():
+    assert internet_jobs._experience_minimum(
+        "Requirements:\n3+ years in AI performance engineering, with significant time leading projects."
+    ) == 3
+
+
+def test_qualitative_seniority_without_early_career_path_is_excluded(monkeypatch):
+    monkeypatch.setattr(jobright_agent, "settings", lambda: {"profile": {
+        "years_experience": "2", "currently_student": "no", "security_clearance": "no",
+        "requires_sponsorship": "yes", "citizenship": "India",
+    }})
+    assert internet_jobs._finish({
+        "id": "qualitative", "company": "Example", "location": "San Jose, CA",
+        "title": "AI Engineer, Perception",
+        "description": "Requirements: Extensive experience in production-level ML engineering.",
+    }) is None
