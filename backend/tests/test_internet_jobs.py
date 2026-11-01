@@ -111,3 +111,22 @@ def test_qualitative_seniority_without_early_career_path_is_excluded(monkeypatch
         "title": "AI Engineer, Perception",
         "description": "Requirements: Extensive experience in production-level ML engineering.",
     }) is None
+
+
+def test_sponsor_registry_has_300_targets_and_live_feeds():
+    registry = internet_jobs._sponsor_registry()
+    assert len(registry["companies"]) == 300
+    assert sum(bool(x["direct_feed"]) for x in registry["companies"]) >= 150
+    assert len(internet_jobs._configured_feeds()) >= 150
+
+
+def test_wide_feed_non_engineering_ai_titles_are_excluded(monkeypatch):
+    monkeypatch.setattr(jobright_agent, "settings", lambda: {"profile": {
+        "years_experience": "2", "currently_student": "no", "security_clearance": "no",
+        "requires_sponsorship": "yes", "citizenship": "India",
+    }})
+    base = {"company": "Example", "location": "San Francisco, CA", "description": "Work with AI products."}
+    for title in ("Developer Advocate - AI", "Vice President, Product Management, Managed AI",
+                  "Applied AI Engineer, Fullstack", "Applied Scientist Intern"):
+        assert internet_jobs._finish({**base, "id": title, "title": title}) is None
+    assert internet_jobs._finish({**base, "id": "rs", "title": "AI Research Scientist"}) is None

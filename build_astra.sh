@@ -63,6 +63,7 @@ pyinstaller \
   --add-data "backend/.env:backend" \
   --add-data "data:data" \
   --add-data "backend/templates:backend/templates" \
+  --add-data "backend/data:backend/data" \
   --add-data "backend/api/base_coverletter.tex:backend/api" \
   --add-data "backend/api/base_resume.tex:backend/api" \
   --collect-submodules backend \

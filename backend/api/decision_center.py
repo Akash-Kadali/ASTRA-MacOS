@@ -104,6 +104,11 @@ def _best_application_match(job: dict[str, Any]) -> dict[str, Any] | None:
         app_url = candidate["url"]
         url_match = bool(app_url and app_url in urls)
         company_score = 1.0 if job_company == candidate["company"] else (0.85 if jobright._company_match(job_company, candidate["company"]) else 0.0)
+        # Avoid expensive role/JD similarity work for unrelated companies.
+        # This is material with the 300-employer internet feed and large local
+        # application libraries, while exact requisition URLs still bypass it.
+        if not url_match and company_score == 0:
+            continue
         role_score = len(job_role_tokens & candidate["role_tokens"]) / max(1, len(job_role_tokens | candidate["role_tokens"]))
         jd_score = (len(job_jd_tokens & candidate["jd_tokens"]) / min(len(job_jd_tokens), len(candidate["jd_tokens"]))) if job_jd_tokens and candidate["jd_tokens"] else 0.0
         score = 1.0 if url_match else (0.40 * company_score + 0.35 * role_score + 0.25 * jd_score)

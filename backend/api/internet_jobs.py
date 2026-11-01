@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from functools import lru_cache
 
 import requests
 from fastapi import APIRouter, Body, HTTPException, Query
@@ -23,6 +24,7 @@ from backend.core import config
 router = APIRouter(prefix="/api/internet-jobs", tags=["internet-jobs"])
 STORE = Path(config.DATA_DIR) / "internet_jobs.json"
 SETTINGS_STORE = Path(config.DATA_DIR) / "internet_jobs_settings.json"
+SPONSOR_REGISTRY = Path(__file__).resolve().parent.parent / "data" / "top_tech_sponsors.json"
 _LOCK = threading.RLock()
 _runtime: dict[str, Any] = {"running": False, "message": "Ready", "error": "", "last_refresh": None}
 
@@ -39,6 +41,35 @@ ASHBY = {"OpenAI": "openai", "Cohere": "cohere", "Cursor": "cursor", "Perplexity
 LEVER = {"Zoox": "zoox", "Shield AI": "shieldai", "Anduril": "andurilindustries",
          "Highspot": "highspot", "Highwire": "highwire"}
 
+
+@lru_cache(maxsize=1)
+def _sponsor_registry() -> dict[str, Any]:
+    try:
+        value = json.loads(SPONSOR_REGISTRY.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {"companies": []}
+    except Exception:
+        return {"companies": []}
+
+
+@lru_cache(maxsize=1)
+def _sponsor_map() -> dict[str, dict[str, Any]]:
+    return {jobright._normalized_name(str(x.get("company") or "")): x
+            for x in _sponsor_registry().get("companies", []) if isinstance(x, dict)}
+
+
+def _configured_feeds() -> list[tuple[str, str, str, Any]]:
+    feeds: dict[tuple[str, str], tuple[str, str, str, Any]] = {}
+    functions = {"greenhouse": _greenhouse, "ashby": _ashby, "lever": _lever}
+    for item in _sponsor_registry().get("companies", []):
+        ats, token = str(item.get("ats") or "").casefold(), str(item.get("token") or "")
+        if item.get("direct_feed") and ats in functions and token:
+            feeds[(ats, token)] = (ats.title(), str(item.get("company") or token), token, functions[ats])
+    # Preserve locally configured boards even when they are outside the top-300 registry.
+    for company, token in GREENHOUSE.items(): feeds.setdefault(("greenhouse", token), ("Greenhouse", company, token, _greenhouse))
+    for company, token in ASHBY.items(): feeds.setdefault(("ashby", token), ("Ashby", company, token, _ashby))
+    for company, token in LEVER.items(): feeds.setdefault(("lever", token), ("Lever", company, token, _lever))
+    return list(feeds.values())
+
 ROLE_TERMS = re.compile(
     r"machine learning|\bml\b|artificial intelligence|\bai\b|deep learning|"
     r"large language model|\bllm\b|inference|computer vision|vision engineer|"
@@ -54,8 +85,9 @@ DOMAIN_TITLE = re.compile(
     re.I,
 )
 EXCLUDED_TITLE = re.compile(
-    r"cyber|security engineer|frontend|front[- ]end|full[- ]stack|sales|marketing|"
-    r"account executive|product manager|recruiter|attorney|counsel|designer|"
+    r"cyber|security engineer|frontend|front[- ]end|full[- ]?stack|sales|marketing|"
+    r"account executive|product manager|product management|product builder|recruiter|attorney|counsel|designer|"
+    r"developer advocate|developer relations|office of the ceo|\bintern(?:ship)?\b|vice president|\bvp\b|"
     r"\bmanager\b|\barchitect\b|\bstrategist\b|\badvisory\b|"
     r"\bsenior\b|\bsr\.?\b|\bstaff\b|\bprincipal\b|\blead\b|\bdirector\b|\bhead\b|distinguished|"
     r"\bpolicy\b|\bgovernance\b|\boperations\b|\bpeople\b|\bfellow(?:ship)?\b|"
@@ -143,6 +175,23 @@ def _save_settings(value: dict[str, Any]) -> None:
     os.replace(pending, SETTINGS_STORE)
 
 
+@lru_cache(maxsize=4)
+def _profile_for_stamp(stamp: int) -> tuple[dict[str, Any], str]:
+    from backend.api import jobright_agent
+    profile = jobright_agent.settings().get("profile", {})
+    fingerprint = hashlib.sha1(json.dumps(profile, sort_keys=True, default=str).encode()).hexdigest()[:16]
+    return profile, fingerprint
+
+
+def _profile_context() -> tuple[dict[str, Any], str]:
+    from backend.api import jobright_agent
+    try:
+        stamp = jobright_agent.SETTINGS.stat().st_mtime_ns
+    except OSError:
+        stamp = 0
+    return _profile_for_stamp(stamp)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -223,8 +272,7 @@ def _assessment(title: str, location: str, description: str) -> dict[str, Any]:
         reasons.append({"code": "outside_usa", "message": "The posting does not identify a United States work location.", "evidence": location or "No US location found"})
     required_text = "\n".join(_required_lines(description))
     probe = {"title": title, "description": required_text, "description_sections": {"required": required_text}}
-    from backend.api import jobright_agent
-    profile = jobright_agent.settings().get("profile", {})
+    profile, _ = _profile_context()
     years_match = re.search(r"\d+", str(profile.get("years_experience") or "2"))
     max_experience = int(years_match.group(0)) if years_match else 2
     currently_student = str(profile.get("currently_student") or "no").casefold() == "yes"
@@ -238,6 +286,10 @@ def _assessment(title: str, location: str, description: str) -> dict[str, Any]:
     experience = _experience_minimum(required_text)
     if experience > max_experience:
         reasons.append({"code": "experience", "message": f"The role requires at least {experience} years; your profile allows up to {max_experience}.", "evidence": next((x for x in _required_lines(description) if _experience_minimum(x) == experience), f"{experience}+ years required")})
+    if re.search(r"\bresearch scientist\b", title, re.I) and not experience and not EARLY_CAREER_RESEARCH.search(
+        f"{title}\n{required_text}"
+    ):
+        reasons.append({"code": "research_seniority_unspecified", "message": "The Research Scientist role does not provide a clear 0–2 year or early-career pathway.", "evidence": title})
     # Research titles frequently omit a numeric requirement while describing a
     # senior frontier-research profile. Keep them only when the posting gives
     # explicit early-career evidence; do not interpret an unspecified internal
@@ -289,9 +341,13 @@ def _finish(item: dict[str, Any], retain_filtered: bool = False) -> dict[str, An
     assessment = _assessment(title, location, description)
     if not assessment["eligible"] and not retain_filtered:
         return None
+    sponsor = _sponsor_map().get(jobright._normalized_name(str(item.get("company") or "")), {})
+    _, profile_fingerprint = _profile_context()
     item.update(category=category, relevant=True, region=region, region_priority=priority,
                 captured_at=_now(), description_status="complete" if len(description) >= 300 else "partial",
-                filter_decision=assessment)
+                filter_decision=assessment, sponsor_history=bool(sponsor),
+                tech_lca_positions=int(sponsor.get("tech_lca_positions", 0)),
+                sponsorship_evidence=sponsor.get("evidence", ""), profile_fingerprint=profile_fingerprint)
     return item
 
 
@@ -491,16 +547,14 @@ def refresh() -> None:
         if _runtime["running"]:
             return
         _runtime.update(running=True, message="Searching public employer job feeds", error="")
-    feeds = [("Greenhouse", company, token, _greenhouse) for company, token in GREENHOUSE.items()]
-    feeds += [("Ashby", company, board, _ashby) for company, board in ASHBY.items()]
-    feeds += [("Lever", company, site, _lever) for company, site in LEVER.items()]
+    feeds = _configured_feeds()
     if os.getenv("ADZUNA_APP_ID") and os.getenv("ADZUNA_APP_KEY"):
         feeds.append(("Adzuna", "USA aggregate", "configured", _adzuna))
     if os.getenv("USAJOBS_API_KEY") and os.getenv("USAJOBS_EMAIL"):
         feeds.append(("USAJOBS", "Federal jobs", "configured", _usajobs))
     items, source_status = [], []
     try:
-        with ThreadPoolExecutor(max_workers=8, thread_name_prefix="astra-internet-jobs") as pool:
+        with ThreadPoolExecutor(max_workers=20, thread_name_prefix="astra-internet-jobs") as pool:
             futures = {pool.submit(fn, company, key): (source, company) for source, company, key, fn in feeds}
             for future in as_completed(futures):
                 source, company = futures[future]
@@ -527,8 +581,13 @@ def refresh() -> None:
                 item.update(source_names=[item.get("source")], duplicate_count=1)
                 unique[key] = item
         items = list(unique.values())
-        with ThreadPoolExecutor(max_workers=12, thread_name_prefix="astra-link-check") as pool:
-            items = list(pool.map(_validate_link, items))
+        eligible_items = [x for x in items if (x.get("filter_decision") or {}).get("eligible")]
+        filtered_items = [x for x in items if not (x.get("filter_decision") or {}).get("eligible")]
+        for item in filtered_items:
+            item.setdefault("link_status", "not_checked")
+        with ThreadPoolExecutor(max_workers=16, thread_name_prefix="astra-link-check") as pool:
+            eligible_items = list(pool.map(_validate_link, eligible_items))
+        items = eligible_items + filtered_items
         items = [x for x in items if x.get("link_status") not in {"closed", "stale"}]
         for item in items:
             item["rank_score"] = _rank(item)
@@ -563,11 +622,13 @@ def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Qu
               limit: int = Query(500, ge=1, le=5000)) -> dict[str, Any]:
     store = _read()
     state = _settings()
+    _, current_profile_fingerprint = _profile_context()
     corrections = {str(x.get("job_id")): x for x in state.get("corrections", [])}
     items = []
     for raw in store.get("items", []):
         x = dict(raw)
-        assessment = _assessment(str(x.get("title") or ""), str(x.get("location") or ""), str(x.get("description") or ""))
+        assessment = dict(x.get("filter_decision") or {}) if (not x.get("profile_fingerprint") or x.get("profile_fingerprint") == current_profile_fingerprint) else _assessment(
+            str(x.get("title") or ""), str(x.get("location") or ""), str(x.get("description") or ""))
         correction = corrections.get(str(x.get("id")))
         if correction and correction.get("action") == "restore":
             assessment = {**assessment, "eligible": True, "score": max(60, int(assessment.get("score", 0))),
@@ -608,10 +669,21 @@ def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Qu
     for x in evaluated_items:
         for reason in (x.get("filter_decision") or {}).get("reasons", []):
             reason_counts[reason["code"]] = reason_counts.get(reason["code"], 0) + 1
+    registry = _sponsor_registry()
+    targets = registry.get("companies", [])
+    connected = {jobright._normalized_name(str(x.get("company") or ""))
+                 for x in store.get("sources", []) if x.get("ok")}
     return {"items": items[:limit], "total": len(items), "eligible_total": eligible_total,
             "filtered_total": filtered_total, "reason_counts": reason_counts, "new_jobs": int(state.get("new_jobs", 0)),
             "counts": counts, "updated_at": store.get("updated_at"),
-            "sources": store.get("sources", []), "runtime": dict(_runtime), "active_filters": {
+            "sources": store.get("sources", []), "runtime": dict(_runtime), "sponsor_registry": {
+                "targets": len(targets),
+                "direct_feeds": sum(bool(x.get("direct_feed")) for x in targets),
+                "connected_feeds": sum(jobright._normalized_name(str(x.get("company") or "")) in connected
+                                       for x in targets if x.get("direct_feed")),
+                "evidence": registry.get("generated_from"), "source_url": registry.get("source_url"),
+                "disclaimer": registry.get("disclaimer"),
+            }, "active_filters": {
                 "years_experience": str(profile.get("years_experience") or "2"),
                 "currently_student": str(profile.get("currently_student") or "no"),
                 "security_clearance": str(profile.get("security_clearance") or "no"),

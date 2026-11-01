@@ -1,0 +1,2708 @@
+{
+  "version": 1,
+  "generated_from": "US Department of Labor OFLC LCA Disclosure Data FY2025 Q4",
+  "source_url": "https://www.dol.gov/agencies/eta/foreign-labor/performance",
+  "disclaimer": "Certified LCA history is evidence of prior sponsorship activity, not a guarantee for a specific vacancy.",
+  "companies": [
+    {
+      "company": "Robinhood",
+      "legal_employer": "Robinhood Markets, Inc.",
+      "tech_lca_positions": 443,
+      "ats": "greenhouse",
+      "token": "robinhood",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Anthropic",
+      "legal_employer": "Anthropic, PBC",
+      "tech_lca_positions": 121,
+      "ats": "greenhouse",
+      "token": "anthropic",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Lucid Motors",
+      "legal_employer": "Lucid USA, Inc.",
+      "tech_lca_positions": 119,
+      "ats": "greenhouse",
+      "token": "lucidmotors",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "MongoDB",
+      "legal_employer": "MONGODB, INC.",
+      "tech_lca_positions": 111,
+      "ats": "greenhouse",
+      "token": "mongodb",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "DoorDash",
+      "legal_employer": "DoorDash, Inc.",
+      "tech_lca_positions": 94,
+      "ats": "greenhouse",
+      "token": "doordashusa",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Snowflake",
+      "legal_employer": "Snowflake Inc.",
+      "tech_lca_positions": 84,
+      "ats": "ashby",
+      "token": "snowflake",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Pinterest",
+      "legal_employer": "Pinterest, Inc.",
+      "tech_lca_positions": 69,
+      "ats": "greenhouse",
+      "token": "pinterest",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Twitch",
+      "legal_employer": "Twitch Interactive, Inc.",
+      "tech_lca_positions": 68,
+      "ats": "greenhouse",
+      "token": "twitch",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Databricks",
+      "legal_employer": "Databricks, Inc.",
+      "tech_lca_positions": 52,
+      "ats": "greenhouse",
+      "token": "databricks",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "SoFi",
+      "legal_employer": "Social Finance, LLC",
+      "tech_lca_positions": 49,
+      "ats": "greenhouse",
+      "token": "sofi",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Zoox",
+      "legal_employer": "Zoox, Inc.",
+      "tech_lca_positions": 48,
+      "ats": "lever",
+      "token": "zoox",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Roblox",
+      "legal_employer": "Roblox Corporation",
+      "tech_lca_positions": 45,
+      "ats": "greenhouse",
+      "token": "roblox",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Stripe",
+      "legal_employer": "Stripe, Inc.",
+      "tech_lca_positions": 42,
+      "ats": "greenhouse",
+      "token": "stripe",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Waymo",
+      "legal_employer": "Waymo LLC",
+      "tech_lca_positions": 41,
+      "ats": "greenhouse",
+      "token": "waymo",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Airbnb",
+      "legal_employer": "AIRBNB, INC.",
+      "tech_lca_positions": 38,
+      "ats": "greenhouse",
+      "token": "airbnb",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Twilio",
+      "legal_employer": "Twilio, Inc.",
+      "tech_lca_positions": 34,
+      "ats": "greenhouse",
+      "token": "twilio",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Block",
+      "legal_employer": "Block, Inc.",
+      "tech_lca_positions": 29,
+      "ats": "greenhouse",
+      "token": "block",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Confluent",
+      "legal_employer": "Confluent, Inc.",
+      "tech_lca_positions": 29,
+      "ats": "ashby",
+      "token": "confluent",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Reddit",
+      "legal_employer": "Reddit, Inc.",
+      "tech_lca_positions": 24,
+      "ats": "greenhouse",
+      "token": "reddit",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Coinbase",
+      "legal_employer": "Coinbase, Inc.",
+      "tech_lca_positions": 23,
+      "ats": "greenhouse",
+      "token": "coinbase",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Instacart",
+      "legal_employer": "Maplebear Inc.",
+      "tech_lca_positions": 23,
+      "ats": "greenhouse",
+      "token": "instacart",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Lyft",
+      "legal_employer": "LYFT, Inc.",
+      "tech_lca_positions": 23,
+      "ats": "greenhouse",
+      "token": "lyft",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "OpenAI",
+      "legal_employer": "OpenAI OpCo, LLC",
+      "tech_lca_positions": 23,
+      "ats": "ashby",
+      "token": "openai",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Chime",
+      "legal_employer": "Chime Financial, Inc.",
+      "tech_lca_positions": 21,
+      "ats": "greenhouse",
+      "token": "chime",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Upstart",
+      "legal_employer": "Upstart Network, Inc.",
+      "tech_lca_positions": 21,
+      "ats": "greenhouse",
+      "token": "upstart",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Cloudflare",
+      "legal_employer": "CLOUDFLARE, INC.",
+      "tech_lca_positions": 19,
+      "ats": "greenhouse",
+      "token": "cloudflare",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Natera",
+      "legal_employer": "Natera, Inc.",
+      "tech_lca_positions": 19,
+      "ats": "greenhouse",
+      "token": "natera",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Okta",
+      "legal_employer": "Okta, Inc.",
+      "tech_lca_positions": 19,
+      "ats": "greenhouse",
+      "token": "okta",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "CoreWeave",
+      "legal_employer": "CoreWeave, Inc.",
+      "tech_lca_positions": 17,
+      "ats": "greenhouse",
+      "token": "coreweave",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Verkada",
+      "legal_employer": "Verkada, Inc",
+      "tech_lca_positions": 17,
+      "ats": "greenhouse",
+      "token": "verkada",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Discord",
+      "legal_employer": "Discord, Inc.",
+      "tech_lca_positions": 16,
+      "ats": "greenhouse",
+      "token": "discord",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "BILL",
+      "legal_employer": "BILL Operations LLC",
+      "tech_lca_positions": 15,
+      "ats": "greenhouse",
+      "token": "billcom",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Datadog",
+      "legal_employer": "Datadog, Inc.",
+      "tech_lca_positions": 15,
+      "ats": "greenhouse",
+      "token": "datadog",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Affirm",
+      "legal_employer": "Affirm, Inc.",
+      "tech_lca_positions": 13,
+      "ats": "greenhouse",
+      "token": "affirm",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Archer Aviation",
+      "legal_employer": "Archer Aviation Inc.",
+      "tech_lca_positions": 13,
+      "ats": "greenhouse",
+      "token": "archer",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Dropbox",
+      "legal_employer": "Dropbox, Inc.",
+      "tech_lca_positions": 13,
+      "ats": "greenhouse",
+      "token": "dropbox",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Spotify",
+      "legal_employer": "SPOTIFY USA, INC.",
+      "tech_lca_positions": 13,
+      "ats": "lever",
+      "token": "spotify",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Riot Games",
+      "legal_employer": "Riot Games, Inc.",
+      "tech_lca_positions": 11,
+      "ats": "greenhouse",
+      "token": "riotgames",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Gusto",
+      "legal_employer": "Gusto, Inc.",
+      "tech_lca_positions": 10,
+      "ats": "greenhouse",
+      "token": "gusto",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Redwood Materials",
+      "legal_employer": "REDWOOD MATERIALS, INC.",
+      "tech_lca_positions": 10,
+      "ats": "greenhouse",
+      "token": "redwoodmaterials",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Sigma Computing",
+      "legal_employer": "Sigma Computing, Inc.",
+      "tech_lca_positions": 10,
+      "ats": "greenhouse",
+      "token": "sigmacomputing",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Smartsheet",
+      "legal_employer": "Smartsheet, Inc.",
+      "tech_lca_positions": 10,
+      "ats": "greenhouse",
+      "token": "smartsheet",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Crusoe",
+      "legal_employer": "Crusoe Energy Systems, Inc.",
+      "tech_lca_positions": 9,
+      "ats": "ashby",
+      "token": "crusoe",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Klaviyo",
+      "legal_employer": "Klaviyo, Inc.",
+      "tech_lca_positions": 9,
+      "ats": "greenhouse",
+      "token": "klaviyo",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Nuro",
+      "legal_employer": "Nuro, Inc",
+      "tech_lca_positions": 9,
+      "ats": "greenhouse",
+      "token": "nuro",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Samsara",
+      "legal_employer": "Samsara Inc.",
+      "tech_lca_positions": 9,
+      "ats": "greenhouse",
+      "token": "samsara",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Asana",
+      "legal_employer": "Asana, Inc.",
+      "tech_lca_positions": 8,
+      "ats": "greenhouse",
+      "token": "asana",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Peloton",
+      "legal_employer": "Peloton Interactive, Inc.",
+      "tech_lca_positions": 8,
+      "ats": "greenhouse",
+      "token": "peloton",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Scale AI",
+      "legal_employer": "Scale AI, Inc.",
+      "tech_lca_positions": 8,
+      "ats": "greenhouse",
+      "token": "scaleai",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Thumbtack",
+      "legal_employer": "Thumbtack, Inc.",
+      "tech_lca_positions": 8,
+      "ats": "ashby",
+      "token": "thumbtack",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Motional",
+      "legal_employer": "Motional AD Inc.",
+      "tech_lca_positions": 7,
+      "ats": "greenhouse",
+      "token": "motional",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Nextdoor",
+      "legal_employer": "Nextdoor, Inc.",
+      "tech_lca_positions": 7,
+      "ats": "greenhouse",
+      "token": "nextdoor",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Snorkel AI",
+      "legal_employer": "Snorkel AI, Inc.",
+      "tech_lca_positions": 7,
+      "ats": "greenhouse",
+      "token": "snorkelai",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Upgrade",
+      "legal_employer": "Upgrade, Inc.",
+      "tech_lca_positions": 7,
+      "ats": "greenhouse",
+      "token": "upgrade",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Vanta",
+      "legal_employer": "Vanta Inc.",
+      "tech_lca_positions": 7,
+      "ats": "ashby",
+      "token": "vanta",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Amplitude",
+      "legal_employer": "Amplitude, Inc.",
+      "tech_lca_positions": 6,
+      "ats": "ashby",
+      "token": "amplitude",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Carta",
+      "legal_employer": "eShares, Inc.",
+      "tech_lca_positions": 6,
+      "ats": "greenhouse",
+      "token": "carta",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Skydio",
+      "legal_employer": "Skydio, Inc.",
+      "tech_lca_positions": 6,
+      "ats": "ashby",
+      "token": "skydio",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "SpaceX",
+      "legal_employer": "Space Exploration Technologies Corp.",
+      "tech_lca_positions": 6,
+      "ats": "greenhouse",
+      "token": "spacex",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Anyscale",
+      "legal_employer": "Anyscale, Inc.",
+      "tech_lca_positions": 5,
+      "ats": "ashby",
+      "token": "anyscale",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Figma",
+      "legal_employer": "Figma, Inc.",
+      "tech_lca_positions": 5,
+      "ats": "greenhouse",
+      "token": "figma",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Lambda",
+      "legal_employer": "Lambda, Inc.",
+      "tech_lca_positions": 5,
+      "ats": "ashby",
+      "token": "lambda",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Patreon",
+      "legal_employer": "PATREON, INC.",
+      "tech_lca_positions": 5,
+      "ats": "ashby",
+      "token": "patreon",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Squarespace",
+      "legal_employer": "SQUARESPACE, INC.",
+      "tech_lca_positions": 5,
+      "ats": "greenhouse",
+      "token": "squarespace",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Tripadvisor",
+      "legal_employer": "TripAdvisor LLC",
+      "tech_lca_positions": 5,
+      "ats": "greenhouse",
+      "token": "tripadvisor",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Agility Robotics",
+      "legal_employer": "Agility Robotics Inc.",
+      "tech_lca_positions": 4,
+      "ats": "greenhouse",
+      "token": "agilityrobotics",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Attentive",
+      "legal_employer": "Attentive Mobile, Inc.",
+      "tech_lca_positions": 4,
+      "ats": "greenhouse",
+      "token": "attentive",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Capsule",
+      "legal_employer": "Capsule Corporation",
+      "tech_lca_positions": 4,
+      "ats": "ashby",
+      "token": "capsule",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Cribl",
+      "legal_employer": "Cribl, Inc.",
+      "tech_lca_positions": 4,
+      "ats": "greenhouse",
+      "token": "cribl",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Duolingo",
+      "legal_employer": "Duolingo, Inc.",
+      "tech_lca_positions": 4,
+      "ats": "greenhouse",
+      "token": "duolingo",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Epic Games",
+      "legal_employer": "Epic Games, Inc.",
+      "tech_lca_positions": 4,
+      "ats": "greenhouse",
+      "token": "epicgames",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Harvey",
+      "legal_employer": "Counsel AI Corporation",
+      "tech_lca_positions": 4,
+      "ats": "ashby",
+      "token": "harvey",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Included Health",
+      "legal_employer": "Included Health Inc.",
+      "tech_lca_positions": 4,
+      "ats": "lever",
+      "token": "includedhealth",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "LangChain",
+      "legal_employer": "LangChain Inc.",
+      "tech_lca_positions": 4,
+      "ats": "ashby",
+      "token": "langchain",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "NerdWallet",
+      "legal_employer": "NerdWallet, Inc.",
+      "tech_lca_positions": 4,
+      "ats": "ashby",
+      "token": "nerdwallet",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Temporal Technologies",
+      "legal_employer": "Temporal Technologies, Inc.",
+      "tech_lca_positions": 4,
+      "ats": "ashby",
+      "token": "temporal",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Toast",
+      "legal_employer": "Toast, Inc.",
+      "tech_lca_positions": 4,
+      "ats": "greenhouse",
+      "token": "toast",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Ambience Healthcare",
+      "legal_employer": "Ambience Healthcare, Inc.",
+      "tech_lca_positions": 3,
+      "ats": "ashby",
+      "token": "ambiencehealthcare",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Bungie",
+      "legal_employer": "Bungie, Inc.",
+      "tech_lca_positions": 3,
+      "ats": "greenhouse",
+      "token": "bungie",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "C3 AI",
+      "legal_employer": "C3.ai, Inc.",
+      "tech_lca_positions": 3,
+      "ats": "greenhouse",
+      "token": "c3iot",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Collibra",
+      "legal_employer": "Collibra, Inc.",
+      "tech_lca_positions": 3,
+      "ats": "greenhouse",
+      "token": "collibra",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Cursor",
+      "legal_employer": "Anysphere, Inc.",
+      "tech_lca_positions": 3,
+      "ats": "ashby",
+      "token": "cursor",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Elastic",
+      "legal_employer": "Elasticsearch, Inc.",
+      "tech_lca_positions": 3,
+      "ats": "greenhouse",
+      "token": "elastic",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Finix",
+      "legal_employer": "Finix Payments, Inc.",
+      "tech_lca_positions": 3,
+      "ats": "lever",
+      "token": "finix",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Flexport",
+      "legal_employer": "Flexport, Inc.",
+      "tech_lca_positions": 3,
+      "ats": "greenhouse",
+      "token": "flexport",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "GoFundMe",
+      "legal_employer": "GoFundMe, Inc.",
+      "tech_lca_positions": 3,
+      "ats": "greenhouse",
+      "token": "gofundme",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Komodo Health",
+      "legal_employer": "Komodo Health, Inc.",
+      "tech_lca_positions": 3,
+      "ats": "greenhouse",
+      "token": "komodohealth",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Oportun",
+      "legal_employer": "Oportun, Inc.",
+      "tech_lca_positions": 3,
+      "ats": "greenhouse",
+      "token": "oportun",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Oscar Health",
+      "legal_employer": "Oscar Management Corporation",
+      "tech_lca_positions": 3,
+      "ats": "greenhouse",
+      "token": "oscar",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Ramp",
+      "legal_employer": "Ramp Business Corporation",
+      "tech_lca_positions": 3,
+      "ats": "ashby",
+      "token": "ramp",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Scopely",
+      "legal_employer": "Scopely, Inc.",
+      "tech_lca_positions": 3,
+      "ats": "greenhouse",
+      "token": "scopely",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Socure",
+      "legal_employer": "Socure, Inc.",
+      "tech_lca_positions": 3,
+      "ats": "ashby",
+      "token": "socure",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Sumo Logic",
+      "legal_employer": "SUMO LOGIC INC.",
+      "tech_lca_positions": 3,
+      "ats": "greenhouse",
+      "token": "sumologic",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "WHOOP",
+      "legal_employer": "WHOOP Inc.",
+      "tech_lca_positions": 3,
+      "ats": "ashby",
+      "token": "whoop",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Wealthfront",
+      "legal_employer": "Wealthfront Corporation",
+      "tech_lca_positions": 3,
+      "ats": "lever",
+      "token": "wealthfront",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Aircall",
+      "legal_employer": "Aircall.io, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "lever",
+      "token": "aircall",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Airtable",
+      "legal_employer": "Formagrid, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "airtable",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Braze",
+      "legal_employer": "Braze, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "braze",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Character.AI",
+      "legal_employer": "Character Technologies Inc.",
+      "tech_lca_positions": 2,
+      "ats": "ashby",
+      "token": "character",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Checkr",
+      "legal_employer": "Checkr, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "checkr",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Circle",
+      "legal_employer": "Circle Internet Financial, LLC",
+      "tech_lca_positions": 2,
+      "ats": "ashby",
+      "token": "circle",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "ClickHouse",
+      "legal_employer": "ClickHouse, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "ashby",
+      "token": "clickhouse",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Dave",
+      "legal_employer": "Dave Operating LLC",
+      "tech_lca_positions": 2,
+      "ats": "ashby",
+      "token": "dave",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Entrata",
+      "legal_employer": "Entrata, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "lever",
+      "token": "entrata",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Harness",
+      "legal_employer": "Harness Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "harnessinc",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Headway",
+      "legal_employer": "Therapymatch, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "ashby",
+      "token": "headway",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Highnote",
+      "legal_employer": "Highnote Platform, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "highnote",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "HomeLight",
+      "legal_employer": "Homelight, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "homelight",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Justworks",
+      "legal_employer": "Justworks, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "justworks",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Kodiak Robotics",
+      "legal_employer": "Kodiak Robotics, Inc",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "kodiak",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Labelbox",
+      "legal_employer": "Labelbox, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "labelbox",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Mixpanel",
+      "legal_employer": "Mixpanel Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "mixpanel",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "New Relic",
+      "legal_employer": "New Relic, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "newrelic",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Persona",
+      "legal_employer": "Persona Identities, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "ashby",
+      "token": "persona",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Replit",
+      "legal_employer": "Replit Inc.",
+      "tech_lca_positions": 2,
+      "ats": "ashby",
+      "token": "replit",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "SeatGeek",
+      "legal_employer": "SeatGeek, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "seatgeek",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Strava",
+      "legal_employer": "Strava, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "ashby",
+      "token": "strava",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Substack",
+      "legal_employer": "Substack, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "ashby",
+      "token": "substack",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Tanium",
+      "legal_employer": "Tanium Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "tanium",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Together AI",
+      "legal_employer": "Together Computer, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "togetherai",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Twist Bioscience",
+      "legal_employer": "Twist Bioscience Corporation",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "twistbioscience",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Udemy",
+      "legal_employer": "Udemy, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "greenhouse",
+      "token": "udemy",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Waabi",
+      "legal_employer": "Waabi Innovation US Inc.",
+      "tech_lca_positions": 2,
+      "ats": "lever",
+      "token": "waabi",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Writer",
+      "legal_employer": "Writer, Inc.",
+      "tech_lca_positions": 2,
+      "ats": "ashby",
+      "token": "writer",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Acorns",
+      "legal_employer": "Acorns Grow Incorporated",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "acorns",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Airbyte",
+      "legal_employer": "Airbyte, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "airbyte",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Atlan",
+      "legal_employer": "Atlan Inc",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "atlan",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Benchling",
+      "legal_employer": "Benchling, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "benchling",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Brex",
+      "legal_employer": "Brex Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "brex",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "ClickUp",
+      "legal_employer": "Mango Technologies, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "clickup",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Cohere",
+      "legal_employer": "Cohere US, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "cohere",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Dataiku",
+      "legal_employer": "Dataiku Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "dataiku",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Dialpad",
+      "legal_employer": "Dialpad, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "dialpad",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "ElevenLabs",
+      "legal_employer": "Eleven Labs, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "elevenlabs",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Faire",
+      "legal_employer": "Faire Wholesale, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "faire",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Figure AI",
+      "legal_employer": "FIGURE AI INC.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "figureai",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Fivetran",
+      "legal_employer": "Fivetran, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "fivetran",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "FullStory",
+      "legal_employer": "FullStory, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "fullstory",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Gopuff",
+      "legal_employer": "GoBrands Inc.",
+      "tech_lca_positions": 1,
+      "ats": "lever",
+      "token": "gopuff",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Imply",
+      "legal_employer": "Imply Data, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "imply",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Iterable",
+      "legal_employer": "Iterable, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "iterable",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Kickstarter",
+      "legal_employer": "Kickstarter PBC",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "kickstarter",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Lattice",
+      "legal_employer": "Degree, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "lattice",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Locus Robotics",
+      "legal_employer": "Locus Robotics Corp.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "locusrobotics",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Modern Treasury",
+      "legal_employer": "Modern Treasury Corporation",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "moderntreasury",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Mozilla",
+      "legal_employer": "Mozilla Corporation",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "mozilla",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Narvar",
+      "legal_employer": "Narvar, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "narvar",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Omada Health",
+      "legal_employer": "OMADA HEALTH INC.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "omadahealth",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Oura",
+      "legal_employer": "OuraRing Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "oura",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Pacaso",
+      "legal_employer": "Pacaso, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "pacaso",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Plaid",
+      "legal_employer": "Plaid Inc.",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "plaid",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Platform Science",
+      "legal_employer": "Platform Science, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "platformscience",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Quora",
+      "legal_employer": "Quora, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "quora",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Recursion",
+      "legal_employer": "Recursion Co.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "recursionpharmaceuticals",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Ro",
+      "legal_employer": "Roman Health Ventures, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "lever",
+      "token": "ro",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Rocket Lab",
+      "legal_employer": "Rocket Lab USA, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "rocketlab",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Sardine",
+      "legal_employer": "SardineAI Corp",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "sardine",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Sentry",
+      "legal_employer": "Functional Software, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "sentry",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Shield AI",
+      "legal_employer": "Shield AI, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "lever",
+      "token": "shieldai",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "SingleStore",
+      "legal_employer": "SingleStore Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "singlestore",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Suno",
+      "legal_employer": "Suno, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "ashby",
+      "token": "suno",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Vercel",
+      "legal_employer": "Vercel, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "vercel",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Wise",
+      "legal_employer": "Wise US Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "wise",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Wrike",
+      "legal_employer": "Wrike, Inc.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "wrike",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Zocdoc",
+      "legal_employer": "ZOCDOC, INC.",
+      "tech_lca_positions": 1,
+      "ats": "greenhouse",
+      "token": "zocdoc",
+      "direct_feed": true,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Microsoft Corporation",
+      "legal_employer": "Microsoft Corporation",
+      "tech_lca_positions": 9991,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "NVIDIA Corporation",
+      "legal_employer": "NVIDIA Corporation",
+      "tech_lca_positions": 9244,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Amazon.com Services LLC",
+      "legal_employer": "Amazon.com Services LLC",
+      "tech_lca_positions": 7644,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "INFOSYS LIMITED",
+      "legal_employer": "INFOSYS LIMITED",
+      "tech_lca_positions": 5094,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "CGI Technologies and Solutions Inc.",
+      "legal_employer": "CGI Technologies and Solutions Inc.",
+      "tech_lca_positions": 4197,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Apple Inc.",
+      "legal_employer": "Apple Inc.",
+      "tech_lca_positions": 3833,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Oracle America, Inc.",
+      "legal_employer": "Oracle America, Inc.",
+      "tech_lca_positions": 3304,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "COGNIZANT TECHNOLOGY SOLUTIONS US CORP",
+      "legal_employer": "COGNIZANT TECHNOLOGY SOLUTIONS US CORP",
+      "tech_lca_positions": 2428,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Amazon Web Services, Inc.",
+      "legal_employer": "Amazon Web Services, Inc.",
+      "tech_lca_positions": 2390,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Meta Platforms, Inc",
+      "legal_employer": "Meta Platforms, Inc",
+      "tech_lca_positions": 1815,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Cisco Systems, Inc.",
+      "legal_employer": "Cisco Systems, Inc.",
+      "tech_lca_positions": 1812,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "KFORCE INC.",
+      "legal_employer": "KFORCE INC.",
+      "tech_lca_positions": 1800,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Deloitte Consulting LLP",
+      "legal_employer": "Deloitte Consulting LLP",
+      "tech_lca_positions": 1724,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Amazon Development Center U.S., Inc.",
+      "legal_employer": "Amazon Development Center U.S., Inc.",
+      "tech_lca_positions": 1716,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "WIPRO LIMITED",
+      "legal_employer": "WIPRO LIMITED",
+      "tech_lca_positions": 1170,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Western Digital Technologies, Inc.",
+      "legal_employer": "Western Digital Technologies, Inc.",
+      "tech_lca_positions": 865,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Google LLC",
+      "legal_employer": "Google LLC",
+      "tech_lca_positions": 804,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "TATA CONSULTANCY SERVICES LIMITED",
+      "legal_employer": "TATA CONSULTANCY SERVICES LIMITED",
+      "tech_lca_positions": 774,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Ernst & Young U.S. LLP",
+      "legal_employer": "Ernst & Young U.S. LLP",
+      "tech_lca_positions": 729,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Palo Alto Networks, Inc.",
+      "legal_employer": "Palo Alto Networks, Inc.",
+      "tech_lca_positions": 729,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "WAL-MART ASSOCIATES, INC.",
+      "legal_employer": "WAL-MART ASSOCIATES, INC.",
+      "tech_lca_positions": 669,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "HCL AMERICA INC",
+      "legal_employer": "HCL AMERICA INC",
+      "tech_lca_positions": 648,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "COMPUNNEL SOFTWARE GROUP, INC",
+      "legal_employer": "COMPUNNEL SOFTWARE GROUP, INC",
+      "tech_lca_positions": 631,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Synopsys, Inc.",
+      "legal_employer": "Synopsys, Inc.",
+      "tech_lca_positions": 630,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Sandisk Technologies, Inc.",
+      "legal_employer": "Sandisk Technologies, Inc.",
+      "tech_lca_positions": 601,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "MIRAFRA INC",
+      "legal_employer": "MIRAFRA INC",
+      "tech_lca_positions": 600,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Accenture LLP",
+      "legal_employer": "Accenture LLP",
+      "tech_lca_positions": 540,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "JPMorgan Chase & Co.",
+      "legal_employer": "JPMorgan Chase & Co.",
+      "tech_lca_positions": 539,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Amazon Data Services, Inc",
+      "legal_employer": "Amazon Data Services, Inc",
+      "tech_lca_positions": 535,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Bloomberg L.P.",
+      "legal_employer": "Bloomberg L.P.",
+      "tech_lca_positions": 492,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "IBM Corporation",
+      "legal_employer": "IBM Corporation",
+      "tech_lca_positions": 453,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Fidelity Technology Group, LLC d/b/a Fidelity Investments",
+      "legal_employer": "Fidelity Technology Group, LLC d/b/a Fidelity Investments",
+      "tech_lca_positions": 447,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Mastech Digital Technologies, Inc.",
+      "legal_employer": "Mastech Digital Technologies, Inc.",
+      "tech_lca_positions": 432,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "LTIMindtree Limited",
+      "legal_employer": "LTIMindtree Limited",
+      "tech_lca_positions": 401,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Mphasis Corporation",
+      "legal_employer": "Mphasis Corporation",
+      "tech_lca_positions": 395,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Salesforce, Inc.",
+      "legal_employer": "Salesforce, Inc.",
+      "tech_lca_positions": 380,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "CAPGEMINI AMERICA INC",
+      "legal_employer": "CAPGEMINI AMERICA INC",
+      "tech_lca_positions": 375,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "TikTok Inc.",
+      "legal_employer": "TikTok Inc.",
+      "tech_lca_positions": 371,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Samsung Semiconductor, Inc.",
+      "legal_employer": "Samsung Semiconductor, Inc.",
+      "tech_lca_positions": 365,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Intuit Inc.",
+      "legal_employer": "Intuit Inc.",
+      "tech_lca_positions": 349,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Citibank, N.A.",
+      "legal_employer": "Citibank, N.A.",
+      "tech_lca_positions": 324,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Tesla, Inc.",
+      "legal_employer": "Tesla, Inc.",
+      "tech_lca_positions": 301,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "ServiceNow, Inc.",
+      "legal_employer": "ServiceNow, Inc.",
+      "tech_lca_positions": 288,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Intel Corporation",
+      "legal_employer": "Intel Corporation",
+      "tech_lca_positions": 274,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "TikTok U.S. Data Security Inc.",
+      "legal_employer": "TikTok U.S. Data Security Inc.",
+      "tech_lca_positions": 260,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "BYTEDANCE INC.",
+      "legal_employer": "BYTEDANCE INC.",
+      "tech_lca_positions": 258,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Fujitsu North America, Inc.",
+      "legal_employer": "Fujitsu North America, Inc.",
+      "tech_lca_positions": 250,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Qualcomm Technologies, Inc.",
+      "legal_employer": "Qualcomm Technologies, Inc.",
+      "tech_lca_positions": 235,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "TECH MAHINDRA (AMERICAS), INC",
+      "legal_employer": "TECH MAHINDRA (AMERICAS), INC",
+      "tech_lca_positions": 222,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Deloitte & Touche LLP",
+      "legal_employer": "Deloitte & Touche LLP",
+      "tech_lca_positions": 200,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "PayPal, Inc.",
+      "legal_employer": "PayPal, Inc.",
+      "tech_lca_positions": 191,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "RANDSTAD DIGITAL, LLC",
+      "legal_employer": "RANDSTAD DIGITAL, LLC",
+      "tech_lca_positions": 190,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "General Motors",
+      "legal_employer": "General Motors",
+      "tech_lca_positions": 183,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "SKILLTUNE TECHNOLOGIES INC",
+      "legal_employer": "SKILLTUNE TECHNOLOGIES INC",
+      "tech_lca_positions": 176,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "FORD MOTOR COMPANY",
+      "legal_employer": "FORD MOTOR COMPANY",
+      "tech_lca_positions": 164,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Decision Six Inc",
+      "legal_employer": "Decision Six Inc",
+      "tech_lca_positions": 162,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Zensar Technologies, Inc.",
+      "legal_employer": "Zensar Technologies, Inc.",
+      "tech_lca_positions": 159,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Cummins Inc.",
+      "legal_employer": "Cummins Inc.",
+      "tech_lca_positions": 156,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "FIS Management Services, LLC",
+      "legal_employer": "FIS Management Services, LLC",
+      "tech_lca_positions": 154,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Capital One Services, LLC",
+      "legal_employer": "Capital One Services, LLC",
+      "tech_lca_positions": 153,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Morgan Stanley Services Group Inc.",
+      "legal_employer": "Morgan Stanley Services Group Inc.",
+      "tech_lca_positions": 150,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Infinite Computer Solutions, Inc.",
+      "legal_employer": "Infinite Computer Solutions, Inc.",
+      "tech_lca_positions": 147,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Infocons Inc",
+      "legal_employer": "Infocons Inc",
+      "tech_lca_positions": 142,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Oracle Financial Services Software, Inc.",
+      "legal_employer": "Oracle Financial Services Software, Inc.",
+      "tech_lca_positions": 139,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "VIRTUSA CORPORATION",
+      "legal_employer": "VIRTUSA CORPORATION",
+      "tech_lca_positions": 137,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Mastercard Technologies, LLC",
+      "legal_employer": "Mastercard Technologies, LLC",
+      "tech_lca_positions": 133,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Optum Services, Inc.",
+      "legal_employer": "Optum Services, Inc.",
+      "tech_lca_positions": 132,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Coupang Global LLC",
+      "legal_employer": "Coupang Global LLC",
+      "tech_lca_positions": 130,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Comcast Cable Communications, LLC",
+      "legal_employer": "Comcast Cable Communications, LLC",
+      "tech_lca_positions": 126,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "BANK OF AMERICA N.A.",
+      "legal_employer": "BANK OF AMERICA N.A.",
+      "tech_lca_positions": 125,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Uber Technologies, Inc.",
+      "legal_employer": "Uber Technologies, Inc.",
+      "tech_lca_positions": 122,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Hexaware Technologies, Inc.",
+      "legal_employer": "Hexaware Technologies, Inc.",
+      "tech_lca_positions": 122,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Advanced Micro Devices, Inc.",
+      "legal_employer": "Advanced Micro Devices, Inc.",
+      "tech_lca_positions": 120,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "T-Mobile USA, Inc.",
+      "legal_employer": "T-Mobile USA, Inc.",
+      "tech_lca_positions": 120,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "American Express Travel Related Services Company, Inc.",
+      "legal_employer": "American Express Travel Related Services Company, Inc.",
+      "tech_lca_positions": 118,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "AT&T SERVICES, INC.",
+      "legal_employer": "AT&T SERVICES, INC.",
+      "tech_lca_positions": 118,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Charles Schwab & Company, Inc.",
+      "legal_employer": "Charles Schwab & Company, Inc.",
+      "tech_lca_positions": 116,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Charter Communications, Inc.",
+      "legal_employer": "Charter Communications, Inc.",
+      "tech_lca_positions": 115,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Government Employee Insurance Company (GEICO)",
+      "legal_employer": "Government Employee Insurance Company (GEICO)",
+      "tech_lca_positions": 115,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "CVS Pharmacy Inc.",
+      "legal_employer": "CVS Pharmacy Inc.",
+      "tech_lca_positions": 112,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "City National Bank",
+      "legal_employer": "City National Bank",
+      "tech_lca_positions": 111,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "UST Global Inc",
+      "legal_employer": "UST Global Inc",
+      "tech_lca_positions": 111,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Adobe Inc.",
+      "legal_employer": "Adobe Inc.",
+      "tech_lca_positions": 110,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "L&T Technology Services Limited",
+      "legal_employer": "L&T Technology Services Limited",
+      "tech_lca_positions": 108,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Elevance Health, Inc.",
+      "legal_employer": "Elevance Health, Inc.",
+      "tech_lca_positions": 107,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Medline Industries, LP.",
+      "legal_employer": "Medline Industries, LP.",
+      "tech_lca_positions": 106,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "U.S. Bank National Association",
+      "legal_employer": "U.S. Bank National Association",
+      "tech_lca_positions": 105,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Caremark LLC",
+      "legal_employer": "Caremark LLC",
+      "tech_lca_positions": 104,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "INNOVA SOLUTIONS, INC.",
+      "legal_employer": "INNOVA SOLUTIONS, INC.",
+      "tech_lca_positions": 102,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "PRICEWATERHOUSECOOPERS ADVISORY SERVICES LLC",
+      "legal_employer": "PRICEWATERHOUSECOOPERS ADVISORY SERVICES LLC",
+      "tech_lca_positions": 101,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "AAA UNITED STATES, INC",
+      "legal_employer": "AAA UNITED STATES, INC",
+      "tech_lca_positions": 100,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Visa Technology & Operations LLC",
+      "legal_employer": "Visa Technology & Operations LLC",
+      "tech_lca_positions": 97,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "HTC GLOBAL SERVICES INC.",
+      "legal_employer": "HTC GLOBAL SERVICES INC.",
+      "tech_lca_positions": 97,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Broadcom Corporation",
+      "legal_employer": "Broadcom Corporation",
+      "tech_lca_positions": 97,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Federal Express Corporation",
+      "legal_employer": "Federal Express Corporation",
+      "tech_lca_positions": 96,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Cigna-Evernorth Services Inc.",
+      "legal_employer": "Cigna-Evernorth Services Inc.",
+      "tech_lca_positions": 96,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "EFICENS SYSTEMS INC",
+      "legal_employer": "EFICENS SYSTEMS INC",
+      "tech_lca_positions": 95,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "People Center, Inc. d/b/a Rippling",
+      "legal_employer": "People Center, Inc. d/b/a Rippling",
+      "tech_lca_positions": 94,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Fiserv Solutions, LLC",
+      "legal_employer": "Fiserv Solutions, LLC",
+      "tech_lca_positions": 93,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Annapurna Labs (U.S.) Inc.",
+      "legal_employer": "Annapurna Labs (U.S.) Inc.",
+      "tech_lca_positions": 93,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Barclays Services Corp.",
+      "legal_employer": "Barclays Services Corp.",
+      "tech_lca_positions": 87,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "MPG Operations LLC",
+      "legal_employer": "MPG Operations LLC",
+      "tech_lca_positions": 86,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Amazon Advertising LLC",
+      "legal_employer": "Amazon Advertising LLC",
+      "tech_lca_positions": 86,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Lowe's Companies, Inc.",
+      "legal_employer": "Lowe's Companies, Inc.",
+      "tech_lca_positions": 85,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "eBay Inc.",
+      "legal_employer": "eBay Inc.",
+      "tech_lca_positions": 84,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "American Airlines, Inc.",
+      "legal_employer": "American Airlines, Inc.",
+      "tech_lca_positions": 83,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Hewlett Packard Enterprise Company",
+      "legal_employer": "Hewlett Packard Enterprise Company",
+      "tech_lca_positions": 82,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "FCA US LLC",
+      "legal_employer": "FCA US LLC",
+      "tech_lca_positions": 81,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Expedia, Inc.",
+      "legal_employer": "Expedia, Inc.",
+      "tech_lca_positions": 80,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Coforge Limited",
+      "legal_employer": "Coforge Limited",
+      "tech_lca_positions": 80,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "GOLDMAN SACHS SERVICES LLC",
+      "legal_employer": "GOLDMAN SACHS SERVICES LLC",
+      "tech_lca_positions": 79,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "V-Soft Consulting Group, INC",
+      "legal_employer": "V-Soft Consulting Group, INC",
+      "tech_lca_positions": 78,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "CitiusTech Inc.",
+      "legal_employer": "CitiusTech Inc.",
+      "tech_lca_positions": 78,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Navy Federal Credit Union",
+      "legal_employer": "Navy Federal Credit Union",
+      "tech_lca_positions": 77,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "ZS Associates, Inc.",
+      "legal_employer": "ZS Associates, Inc.",
+      "tech_lca_positions": 76,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Populus Group LLC",
+      "legal_employer": "Populus Group LLC",
+      "tech_lca_positions": 75,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "The Northern Trust Company",
+      "legal_employer": "The Northern Trust Company",
+      "tech_lca_positions": 75,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Netflix, Inc.",
+      "legal_employer": "Netflix, Inc.",
+      "tech_lca_positions": 74,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "UBS Business Solutions US LLC",
+      "legal_employer": "UBS Business Solutions US LLC",
+      "tech_lca_positions": 73,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Aetna Resources LLC",
+      "legal_employer": "Aetna Resources LLC",
+      "tech_lca_positions": 72,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "VMware LLC",
+      "legal_employer": "VMware LLC",
+      "tech_lca_positions": 72,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Humana Inc.",
+      "legal_employer": "Humana Inc.",
+      "tech_lca_positions": 71,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Home Depot Management Company LLC",
+      "legal_employer": "Home Depot Management Company LLC",
+      "tech_lca_positions": 69,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Caterpillar Inc.",
+      "legal_employer": "Caterpillar Inc.",
+      "tech_lca_positions": 69,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Micron Technology, Inc.",
+      "legal_employer": "Micron Technology, Inc.",
+      "tech_lca_positions": 68,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "GlobalLogic Inc.",
+      "legal_employer": "GlobalLogic Inc.",
+      "tech_lca_positions": 68,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "PERSISTENT SYSTEMS LIMITED",
+      "legal_employer": "PERSISTENT SYSTEMS LIMITED",
+      "tech_lca_positions": 68,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Starbucks Coffee Company",
+      "legal_employer": "Starbucks Coffee Company",
+      "tech_lca_positions": 68,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "SATIN SOLUTIONS LLC",
+      "legal_employer": "SATIN SOLUTIONS LLC",
+      "tech_lca_positions": 67,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Truist Bank",
+      "legal_employer": "Truist Bank",
+      "tech_lca_positions": 66,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "State Street Bank and Trust Company",
+      "legal_employer": "State Street Bank and Trust Company",
+      "tech_lca_positions": 66,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Capital One, National Association",
+      "legal_employer": "Capital One, National Association",
+      "tech_lca_positions": 65,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "Rivian Automotive, LLC",
+      "legal_employer": "Rivian Automotive, LLC",
+      "tech_lca_positions": 65,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "SAP America, Inc.",
+      "legal_employer": "SAP America, Inc.",
+      "tech_lca_positions": 65,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    },
+    {
+      "company": "CVS Shared Services Resources LLC",
+      "legal_employer": "CVS Shared Services Resources LLC",
+      "tech_lca_positions": 64,
+      "ats": "watchlist",
+      "token": "",
+      "direct_feed": false,
+      "evidence": "DOL FY2025 certified LCA, SOC 15/17"
+    }
+  ]
+}
