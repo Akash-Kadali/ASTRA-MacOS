@@ -32,6 +32,7 @@ backend/data/cache/
 backend/data/mastermind_sessions/
 backend/data/pdf_text_cache/
 backend/data/jobright*.json
+backend/data/internet_jobs.json
 backend/data/decision_center.json
 backend/data/backups/
 backend/data/*.sqlite3*

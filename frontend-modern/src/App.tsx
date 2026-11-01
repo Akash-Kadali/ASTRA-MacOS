@@ -19,6 +19,7 @@ import {
   FileCheck2,
   FileText,
   FolderOpen,
+  Globe2,
   LayoutDashboard,
   Maximize2,
   Menu,
@@ -38,6 +39,7 @@ import {
 type Route =
   | "studio"
   | "jobright"
+  | "internet"
   | "decisions"
   | "operations"
   | "applications"
@@ -166,6 +168,24 @@ type JobrightResponse = {
   category_counts: Record<string, number>;
   state: { running: boolean; phase: string; message?: string; error?: string };
 };
+type InternetJob = JobrightJob & {
+  source: string;
+  region: "Bay Area" | "California" | "United States";
+  region_priority: number;
+  posted_at?: string;
+  updated_at?: string;
+  requisition_id?: string;
+  salary?: unknown;
+  workplace_type?: string;
+};
+type InternetJobsResponse = {
+  items: InternetJob[];
+  total: number;
+  counts: Record<string, number>;
+  updated_at?: string;
+  sources: { source: string; company: string; ok: boolean; jobs: number; error?: string }[];
+  runtime: { running: boolean; message: string; error?: string; last_refresh?: string };
+};
 type AgentProfile = {
   first_name: string;
   last_name: string;
@@ -252,6 +272,13 @@ const routes: {
     label: "Jobright Jobs",
     description: "Import your matched jobs",
     icon: BriefcaseBusiness,
+    group: "Workspace",
+  },
+  {
+    id: "internet",
+    label: "Internet Jobs",
+    description: "Search public US employer feeds",
+    icon: Globe2,
     group: "Workspace",
   },
   {
@@ -3000,6 +3027,75 @@ function usePdfUrl(base64?: string) {
   return url;
 }
 
+function InternetJobs() {
+  const [query, setQuery] = useState("");
+  const [region, setRegion] = useState("all");
+  const [category, setCategory] = useState("all");
+  const [selected, setSelected] = useState<InternetJob | null>(null);
+  const qc = useQueryClient();
+  const jobs = useQuery({
+    queryKey: ["internet-jobs", query, region, category],
+    queryFn: () => api<InternetJobsResponse>(`/api/internet-jobs?q=${encodeURIComponent(query)}&region=${encodeURIComponent(region)}&category=${encodeURIComponent(category)}&limit=2000`),
+    refetchInterval: (result) => result.state.data?.runtime.running ? 1500 : 30000,
+  });
+  const refresh = useMutation({
+    mutationFn: () => api("/api/internet-jobs/refresh", { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["internet-jobs"] });
+      notify("Internet job search started", "info");
+    },
+    onError: (error) => notify(error.message, "error"),
+  });
+  useEffect(() => {
+    if (jobs.data && !jobs.data.updated_at && !jobs.data.runtime.running && !refresh.isPending) refresh.mutate();
+  }, [jobs.data?.updated_at, jobs.data?.runtime.running]);
+  const useJob = (job: InternetJob) => {
+    localStorage.setItem("astra-studio-draft", job.description || "");
+    localStorage.setItem("astra-studio-job", JSON.stringify({
+      source: job.source, id: job.id, title: job.title, company: job.company,
+      url: job.url, application_url: job.application_url,
+      requisition_id: job.requisition_id || "",
+    }));
+    location.hash = "#/studio";
+    notify("Internet job sent to Resume Studio");
+  };
+  const data = jobs.data;
+  const items = data?.items || [];
+  const categories = ["all", "Machine Learning & AI", "LLM & Inference", "Computer Vision", "Software Engineering", "Data"];
+  const salary = (value: unknown) => {
+    if (!value) return "";
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return value.map((item) => typeof item === "object" && item ? String((item as Record<string, unknown>).title || "") : "").filter(Boolean).join(" · ");
+    if (typeof value === "object") {
+      const item = value as Record<string, unknown>;
+      return item.min && item.max ? `$${Number(item.min).toLocaleString()}–$${Number(item.max).toLocaleString()}` : "";
+    }
+    return "";
+  };
+  return <div className="page">
+    <PageTitle eyebrow="Internet job discovery" title="Fresh AI jobs beyond Jobright." description="Search direct public employer feeds across the United States, with California and Bay Area roles ranked first. Applied jobs and degree-ineligible roles are removed." action={<button className="button primary" disabled={refresh.isPending || data?.runtime.running} onClick={() => refresh.mutate()}><RefreshCw size={16}/>{data?.runtime.running ? "Searching…" : data?.updated_at ? "Refresh internet jobs" : "Search internet jobs"}</button>} />
+    <div className="jobright-summary panel">
+      <div><span>Relevant unapplied jobs</span><strong>{(data?.total || 0).toLocaleString()}</strong></div>
+      <div><span>Bay Area</span><strong>{(data?.counts["Bay Area"] || 0).toLocaleString()}</strong></div>
+      <div><span>California</span><strong>{(data?.counts["California"] || 0).toLocaleString()}</strong></div>
+      <div className={data?.runtime.error ? "sync-error" : "sync-state"}><span>Status</span><strong>{data?.runtime.message || "Ready to search"}</strong></div>
+    </div>
+    {data?.runtime.running ? <div className="import-banner"><span className="progress-ring"/><div><b>Searching employer career systems in parallel</b><p>ASTRA is downloading public descriptions, filtering education restrictions and removing jobs already represented in your application library.</p></div></div> : null}
+    <div className="internet-filters panel">
+      <label className="search"><Search size={17}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, company, skill or job description"/></label>
+      <select value={region} onChange={(event) => { setRegion(event.target.value); setSelected(null); }}><option value="all">All USA · Bay Area first</option><option value="Bay Area">Bay Area only</option><option value="California">California only</option><option value="United States">Other USA</option></select>
+      <select value={category} onChange={(event) => { setCategory(event.target.value); setSelected(null); }}>{categories.map((item) => <option value={item} key={item}>{item === "all" ? "All related roles" : item}</option>)}</select>
+    </div>
+    <div className="jobright-grid internet-grid">
+      <section className="panel job-feed"><div className="toolbar"><span className="feed-count">{items.length.toLocaleString()} jobs shown · newest source updates first</span></div><div className="job-list">
+        {jobs.isLoading ? <Skeleton rows={9}/> : jobs.isError ? <Empty title="Internet search is unavailable" copy="Restart ASTRA and try the search again."/> : items.length ? items.map((job) => <button key={job.id} className={selected?.id === job.id ? "selected" : ""} onClick={() => setSelected(job)}><span className="company-mark">{job.company.slice(0, 2).toUpperCase()}</span><span><b>{job.title}</b><small>{job.company} · {job.location || "USA"}</small><time>{job.region} · {job.source}{job.updated_at ? ` · Updated ${fmt(job.updated_at)}` : ""}</time></span><em>{job.category}</em></button>) : <Empty title={data?.updated_at ? "No matching new jobs" : "Search the public job internet"} copy={data?.updated_at ? "Try a broader role or region. Previously applied jobs remain hidden." : "Start a search to import relevant roles from public employer feeds."}/>}
+      </div></section>
+      <aside className="panel job-detail">{selected ? <><div className="job-detail-head"><span className="eyebrow">{selected.region} · {selected.source}</span><h2>{selected.title}</h2><p>{selected.company} · {selected.location || "United States"}</p><div className="detail-tags"><span>{selected.category}</span>{selected.workplace_type ? <span>{selected.workplace_type}</span> : null}{selected.requisition_id ? <span>Req {selected.requisition_id}</span> : null}{salary(selected.salary) ? <span>{salary(selected.salary)}</span> : null}</div></div><div className="job-detail-body"><section className="job-section"><h3>Complete job description</h3><div className="description-copy">{(selected.description || "Description is not available.").split("\n").filter(Boolean).map((line, index) => <p key={index}>{line}</p>)}</div></section></div><div className="job-detail-actions"><a className="button ghost" href={selected.url} target="_blank" rel="noreferrer"><ExternalLink size={15}/>Employer posting</a><a className="button ghost" href={selected.application_url || selected.url} target="_blank" rel="noreferrer"><BriefcaseBusiness size={15}/>Open application</a><button className="button primary" onClick={() => useJob(selected)}><Command size={15}/>Generate tailored résumé</button></div></> : <Empty title="Choose an internet job" copy="Open the full employer description, then send it directly to Resume Studio."/>}</aside>
+    </div>
+    {data?.sources?.length ? <details className="source-coverage panel"><summary>Source coverage · {data.sources.filter((item) => item.ok).length} of {data.sources.length} employer feeds available</summary><div>{data.sources.map((item) => <span className={item.ok ? "source-ok" : "source-error"} key={`${item.source}-${item.company}`}><b>{item.company}</b><small>{item.ok ? `${item.jobs} matching jobs · ${item.source}` : `Unavailable · ${item.error || item.source}`}</small></span>)}</div></details> : null}
+  </div>;
+}
+
 function JobrightJobs() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
@@ -3669,6 +3765,7 @@ function ResumeStudio() {
       });
     },
     onSuccess: async (d) => {
+      const jobMeta = JSON.parse(localStorage.getItem("astra-studio-job") || "{}");
       setResult(d);
       localStorage.removeItem("astra-studio-draft");
       const history = JSON.parse(
@@ -3689,8 +3786,8 @@ function ResumeStudio() {
         ),
       );
       const save = new FormData();
-      save.set("company", d.company || d.company_name || "Company");
-      save.set("role", d.role || "Role");
+      save.set("company", jobMeta.company || d.company || d.company_name || "Company");
+      save.set("role", jobMeta.title || d.role || "Role");
       save.set("jd_text", jd);
       save.set("resume_tex", d.tex_string || "");
       save.set("humanized_tex", d.humanized_tex || d.tex_string || "");
@@ -3700,7 +3797,12 @@ function ResumeStudio() {
         "fit_score",
         String(d.rating_score ?? Math.round((d.coverage_ratio || 0) * 100)),
       );
+      save.set("source", jobMeta.source || "Manual");
+      save.set("job_url", jobMeta.url || "");
+      save.set("application_url", jobMeta.application_url || "");
+      save.set("requisition_id", jobMeta.requisition_id || "");
       await api("/api/context/save", { method: "POST", body: save });
+      localStorage.removeItem("astra-studio-job");
       notify("Résumé created and saved");
     },
     onError: (e) => notify(e.message, "error"),
@@ -4869,6 +4971,8 @@ export function App() {
         <ResumeStudio />
       ) : route === "jobright" ? (
         <JobrightJobs />
+      ) : route === "internet" ? (
+        <InternetJobs />
       ) : route === "decisions" ? (
         <DecisionCentre />
       ) : route === "operations" ? (

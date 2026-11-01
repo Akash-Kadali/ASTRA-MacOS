@@ -251,6 +251,10 @@ async def save_context(
 
     model: str = Form(""),
     fit_score: str = Form(""),
+    source: str = Form(""),
+    job_url: str = Form(""),
+    application_url: str = Form(""),
+    requisition_id: str = Form(""),
 ):
     """
     Persist context under a STABLE key per (Company, Role).
@@ -275,6 +279,10 @@ async def save_context(
         "model": model or getattr(config, "DEFAULT_MODEL", "gpt-5.4-nano"),
         "fit_score": fit_score,
         "title_for_memory": f"{safe_filename(company)}_{safe_filename(role)}_{_nowstamp()}",
+        "source": source,
+        "job_url": job_url,
+        "application_url": application_url,
+        "requisition_id": requisition_id,
     }
 
     # legacy flat fields

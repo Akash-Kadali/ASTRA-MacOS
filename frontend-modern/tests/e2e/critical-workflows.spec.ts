@@ -25,3 +25,11 @@ test("applications and document preview remain reachable", async ({ page }) => {
   await page.goto("/#/preview");
   await expect(page.getByText("Résumé library", { exact: true })).toBeVisible();
 });
+
+test("internet jobs shows direct employer results and filters", async ({ page }) => {
+  await page.goto("/#/internet");
+  await expect(page.getByRole("heading", { name: "Fresh AI jobs beyond Jobright." })).toBeVisible();
+  await expect(page.getByText("Relevant unapplied jobs")).toBeVisible();
+  await expect(page.getByRole("combobox").first()).toContainText("All USA");
+  await expect(page.locator(".job-list > button").first()).toBeVisible();
+});

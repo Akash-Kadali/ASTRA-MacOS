@@ -76,6 +76,7 @@ pyinstaller \
   --hidden-import backend.api.dashboard \
   --hidden-import backend.api.jobright \
   --hidden-import backend.api.jobright_agent \
+  --hidden-import backend.api.internet_jobs \
   --hidden-import backend.api.decision_center \
   --hidden-import backend.api.models_router \
   --hidden-import backend.api.context_store \

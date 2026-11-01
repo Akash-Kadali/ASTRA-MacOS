@@ -13,6 +13,7 @@ ASTRA is a local career operating system for tailoring LaTeX résumés, creating
 - Cover letters passed through the SuperHuman writing style and saved to `~/Desktop/ASTRA Cover Letters`
 - Talk to HIREX answers grounded in the selected résumé and job description
 - Jobright import with role, education, duplicate, and prior-application filtering
+- Internet Jobs discovery across public Greenhouse, Ashby and Lever employer feeds, with optional Adzuna and USAJOBS coverage and Bay Area/California priority ranking
 - Application Decision Centre with explainable matching, eligibility evidence, document checks, safe preparation, corrections, comparison, packages, timelines, analytics, and backups
 - Agent Operations workspace with human review, persistent checkpoints, editable eligibility profile, PDF repair, backup restore, interview kits, follow-up drafts, and an SQLite audit trail
 - Application tracker for recruiter calls, interviews, follow-ups, offers, and rejections
@@ -90,6 +91,11 @@ OPENAI_API_KEY=your_key
 DEFAULT_MODEL=gpt-5.4-nano
 ASTRA_HOST=127.0.0.1
 ASTRA_PORT=8000
+# Optional nationwide aggregators
+ADZUNA_APP_ID=your_adzuna_app_id
+ADZUNA_APP_KEY=your_adzuna_app_key
+USAJOBS_EMAIL=your_email
+USAJOBS_API_KEY=your_usajobs_key
 ```
 
 Additional applicant and integration settings can be supplied through environment variables or the local application profile. Do not commit private keys or candidate data.

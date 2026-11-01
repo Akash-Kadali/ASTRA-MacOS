@@ -143,6 +143,7 @@ for _modname in (
     "backend.api.applications",
     "backend.api.jobright",
     "backend.api.jobright_agent",
+    "backend.api.internet_jobs",
     "backend.api.decision_center",
     "backend.api.models_router",
     "backend.api.context_store",
@@ -169,7 +170,7 @@ def _safe_import(module: str):
 
 ROUTER_NAMES = [
     "optimize", "coverletter", "talk", "superhuman", "humanize", "mastermind",
-    "dashboard", "applications", "jobright", "jobright_agent", "decision_center", "models_router", "context_store",
+    "dashboard", "applications", "jobright", "jobright_agent", "internet_jobs", "decision_center", "models_router", "context_store",
     "utils_router", "debug",
 ]
 ROUTERS: Dict[str, object] = {name: _safe_import(name) for name in ROUTER_NAMES}
