@@ -120,15 +120,25 @@ def _region(location: str) -> tuple[str, int]:
 
 def _required_lines(description: str) -> list[str]:
     lines = [re.sub(r"\s+", " ", line).strip() for line in description.splitlines() if line.strip()]
+    units = []
+    for line in lines:
+        units.extend(x.strip() for x in re.split(r"(?<=[.!?;])\s+|\s+[•·]\s+", line) if x.strip())
     preferred = re.compile(r"preferred|nice to have|bonus|plus|ideally|desirable", re.I)
-    return [line for line in lines if not preferred.search(line)]
+    return [line for line in units if not preferred.search(line)]
 
 
 def _experience_minimum(description: str) -> int:
     requirements = []
     word_number = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
                    "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+    # Treat sentences/bullets independently. Some feeds flatten an entire job
+    # description into one line; in that case a later mention of a master's
+    # degree must not turn an earlier "4+ years total, including 2+ years..."
+    # requirement into a two-year requirement.
+    units = []
     for line in _required_lines(description):
+        units.extend(x.strip() for x in re.split(r"(?<=[.!?;])\s+|\s+[•·]\s+", line) if x.strip())
+    for line in units:
         if not re.search(r"experience|worked|background", line, re.I):
             continue
         values = []
@@ -141,9 +151,14 @@ def _experience_minimum(description: str) -> int:
                                  r"(?:\s*\+|\s+plus)?\s+(?:years?|yrs?)", line, re.I):
             values.append(word_number[match.group(1).casefold()])
         if values:
-            # Degree-equivalency lines often offer a lower experience threshold
-            # for a completed master's degree; the saved profile has one.
-            requirements.append(min(values) if re.search(r"master'?s|m\.?s\.?\b", line, re.I) else max(values))
+            # Only use a master's-specific lower threshold when the same
+            # sentence explicitly expresses degree alternatives. A generic
+            # master's mention elsewhere is not an experience equivalency.
+            degree_alternative = bool(
+                re.search(r"(?:bachelor|b\.?s\.?).{0,80}(?:or|/)\s*(?:a\s+)?(?:master|m\.?s\.?)", line, re.I)
+                or re.search(r"(?:master|m\.?s\.?).{0,80}(?:or|/)\s*(?:a\s+)?(?:bachelor|b\.?s\.?)", line, re.I)
+            )
+            requirements.append(min(values) if degree_alternative else max(values))
     return max(requirements) if requirements else 0
 
 

@@ -41,3 +41,17 @@ def test_saved_profile_filters_experience_student_and_clearance(monkeypatch):
     assert internet_jobs._finish({**base, "id": "student", "description": "Must be currently pursuing a Master's degree."}) is None
     assert internet_jobs._finish({**base, "id": "clearance", "description": "Ability to obtain a Secret security clearance is required."}) is None
     assert internet_jobs._finish({**base, "id": "entry", "description": "Master's degree and one year of Python experience."}) is not None
+
+
+def test_total_experience_is_not_reduced_by_nested_or_later_requirements(monkeypatch):
+    monkeypatch.setattr(jobright_agent, "settings", lambda: {"profile": {
+        "years_experience": "2", "currently_student": "no", "security_clearance": "no",
+        "requires_sponsorship": "yes", "citizenship": "India",
+    }})
+    base = {"company": "Example", "location": "San Francisco, CA", "title": "Machine Learning Engineer"}
+    description = (
+        "Required: 4+ years of total experience, including 2+ years working on large-scale model training platforms. "
+        "A completed Master's degree in Computer Science is preferred."
+    )
+    assert internet_jobs._experience_minimum(description) == 4
+    assert internet_jobs._finish({**base, "id": "compound-years", "description": description}) is None
