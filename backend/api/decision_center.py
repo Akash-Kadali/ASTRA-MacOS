@@ -31,7 +31,8 @@ def _now() -> str:
 
 
 def _empty() -> dict[str, Any]:
-    return {"version": 1, "overrides": {}, "blocked_companies": [], "timeline": {}, "saved_views": []}
+    return {"version": 2, "overrides": {}, "blocked_companies": [], "timeline": {}, "saved_views": [],
+            "audit_log": [], "followups": {}, "interview_kits": {}}
 
 
 def _load() -> dict[str, Any]:
@@ -47,6 +48,53 @@ def _save(value: dict[str, Any]) -> None:
     pending = STORE.with_suffix(".tmp")
     pending.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(pending, STORE)
+
+
+def _audit(state: dict[str, Any], action: str, subject: str = "", **details: Any) -> None:
+    state.setdefault("audit_log", []).insert(0, {"at": _now(), "action": action, "subject": subject,
+                                                  "details": details})
+    state["audit_log"] = state["audit_log"][:5000]
+
+
+def _context_file(job: dict[str, Any]) -> Path:
+    key = f"{re.sub(r'[^A-Za-z0-9]+', '_', str(job.get('company',''))).strip('_')}__{re.sub(r'[^A-Za-z0-9]+', '_', str(job.get('title',''))).strip('_')}"
+    return config.get_contexts_dir() / f"{key}.json"
+
+
+def _readiness(job: dict[str, Any]) -> dict[str, Any]:
+    state = _load()
+    eligibility = _eligibility(job)
+    match = _best_application_match(job) or {}
+    checkpoint = operational_store.get_checkpoint(str(job.get("id") or "")) or {}
+    resume = Path(str(match.get("pdf_path") or ""))
+    context = _context_file(job)
+    cover_available = False
+    if context.is_file():
+        try:
+            cover = (json.loads(context.read_text(encoding="utf-8")).get("cover_letter") or {})
+            cover_available = bool(cover.get("body_text") or Path(str(cover.get("pdf_path") or "")).is_file())
+        except Exception:
+            pass
+    url = str(job.get("application_url") or job.get("url") or "")
+    checks = [
+        {"key": "eligibility", "label": "Eligibility verified", "ok": eligibility["status"] == "eligible",
+         "detail": eligibility["reasons"][0] if eligibility.get("reasons") else "No conflict found"},
+        {"key": "link", "label": "Employer application link", "ok": url.startswith("http"), "detail": url or "Missing URL"},
+        {"key": "resume", "label": "Matching résumé", "ok": resume.is_file(), "detail": str(resume) if resume else "No résumé attached"},
+        {"key": "cover_letter", "label": "Cover letter", "ok": cover_available, "optional": True,
+         "detail": "Available" if cover_available else "Not generated"},
+        {"key": "answers", "label": "Application answers reviewed",
+         "ok": bool(checkpoint) and not checkpoint.get("unanswered_fields"),
+         "detail": f"{len(checkpoint.get('unanswered_fields') or [])} unanswered fields"},
+        {"key": "identity", "label": "Company and requisition identity", "ok": bool(job.get("company") and (job.get("requisition_id") or url)),
+         "detail": str(job.get("requisition_id") or "URL identity")},
+    ]
+    required = [x for x in checks if not x.get("optional")]
+    score = round(100 * sum(bool(x["ok"]) for x in required) / max(1, len(required)))
+    blockers = [x["label"] for x in required if not x["ok"]]
+    return {"job_id": job.get("id"), "score": score, "ready": not blockers, "blockers": blockers,
+            "checks": checks, "submission_enabled": False, "human_approval_required": True,
+            "last_reviewed": checkpoint.get("updated_at")}
 
 
 def _similarity(left: str, right: str) -> float:
@@ -303,6 +351,7 @@ def job_action(job_id: str, payload: dict[str, Any] = Body(...)) -> dict[str, An
         state.setdefault("overrides", {})[job_id] = {"action": action, "at": _now(), "reason": str(payload.get("reason") or "")}
     event = {"at": _now(), "action": action, "note": str(payload.get("reason") or "")}
     state.setdefault("timeline", {}).setdefault(job_id, []).insert(0, event)
+    _audit(state, f"job_{action}", job_id, company=job.get("company"), title=job.get("title"))
     application_id = _record_application(job, confirmation=payload) if action == "applied" else ""
     _save(state)
     return {"ok": True, "job_id": job_id, "action": action, "application_id": application_id,
@@ -333,6 +382,14 @@ def review_queue() -> dict[str, Any]:
         seen.add(job_id)
     items.extend(x for x in legacy if str(x.get("job_id") or "") not in seen)
     return {"items": items[:250], "total": len(items)}
+
+
+@router.get("/jobs/{job_id}/readiness")
+def readiness(job_id: str) -> dict[str, Any]:
+    job = next((x for x in jobright._read_store().get("items", []) if str(x.get("id")) == job_id), None)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    return _readiness(job)
 
 
 @router.patch("/review/{job_id}")
@@ -447,6 +504,7 @@ async def generate_follow_up(job_id: str) -> dict[str, Any]:
     result = {"text": final, "generated_at": _now(), "send_automatically": False}
     state.setdefault("followups", {})[job_id] = result
     state.setdefault("timeline", {}).setdefault(job_id, []).insert(0, {"at": _now(), "action": "follow_up_drafted", "note": "Draft only; not sent."})
+    _audit(state, "follow_up_drafted", job_id)
     _save(state)
     return result
 
@@ -505,8 +563,7 @@ def package(job_id: str):
         pdf = Path(str(match.get("pdf_path") or ""))
         if pdf.is_file():
             archive.writestr("resume.pdf", applications._read_pdf_bytes(pdf))
-        context_key = f"{re.sub(r'[^A-Za-z0-9]+', '_', str(job.get('company',''))).strip('_')}__{re.sub(r'[^A-Za-z0-9]+', '_', str(job.get('title',''))).strip('_')}"
-        ctx = config.get_contexts_dir() / f"{context_key}.json"
+        ctx = _context_file(job)
         if ctx.is_file():
             raw = json.loads(ctx.read_text(encoding="utf-8"))
             cover = raw.get("cover_letter") or {}
@@ -528,6 +585,7 @@ def save_view(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     view = {"id": hashlib.sha1(name.casefold().encode()).hexdigest()[:12], "name": name,
             "filters": dict(payload.get("filters") or {}), "updated_at": _now()}
     state["saved_views"] = [x for x in state.get("saved_views", []) if x.get("id") != view["id"]] + [view]
+    _audit(state, "saved_view_updated", view["id"], name=name)
     _save(state)
     return view
 
@@ -578,12 +636,69 @@ def analytics() -> dict[str, Any]:
     stats = applications._stats(apps)
     by_source: dict[str, int] = {}
     by_role: dict[str, int] = {}
+    outcomes = {"recruiter": 0, "assessment": 0, "interview": 0, "offer": 0, "rejected": 0}
+    response_days: list[float] = []
+    by_resume: dict[str, dict[str, int]] = {}
     for app in apps:
         source = str(app.get("source") or "Unknown")
         by_source[source] = by_source.get(source, 0) + 1
         role = jobright._classify_role(str(app.get("role") or ""))[0]
         by_role[role] = by_role.get(role, 0) + 1
-    return {"stats": stats, "by_source": by_source, "by_role": by_role}
+        status = str(app.get("status") or "").casefold()
+        for name in outcomes:
+            if name in status:
+                outcomes[name] += 1
+        applied = jobright._timestamp(str(app.get("applied_at") or ""))
+        contact = jobright._timestamp(str(app.get("recruiter_contact_at") or app.get("interview_at") or ""))
+        if applied and contact and contact >= applied:
+            response_days.append((contact - applied) / 86400)
+        for entry in app.get("files", []):
+            if str(entry.get("path") or "").casefold().endswith(".pdf"):
+                name = Path(str(entry["path"])).name
+                record = by_resume.setdefault(name, {"applications": 0, "responses": 0, "interviews": 0})
+                record["applications"] += 1
+                record["responses"] += int(any(x in status for x in ("recruiter", "assessment", "interview", "offer")))
+                record["interviews"] += int(any(x in status for x in ("interview", "offer")))
+    total = max(1, len(apps))
+    return {"stats": stats, "by_source": by_source, "by_role": by_role, "outcomes": outcomes,
+            "response_rate": round(100 * sum(outcomes[x] for x in ("recruiter", "assessment", "interview", "offer")) / total, 1),
+            "interview_rate": round(100 * (outcomes["interview"] + outcomes["offer"]) / total, 1),
+            "average_response_days": round(sum(response_days) / len(response_days), 1) if response_days else None,
+            "by_resume": by_resume}
+
+
+@router.get("/audit-log")
+def audit_log(limit: int = Query(250, ge=1, le=5000)) -> dict[str, Any]:
+    items = _load().get("audit_log", [])[:limit]
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/follow-ups/due")
+def followups_due(days: int = Query(6, ge=1, le=30)) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).timestamp()
+    items = []
+    for app in applications._load().get("applications", {}).values():
+        applied = jobright._timestamp(str(app.get("applied_at") or ""))
+        status = str(app.get("status") or "").casefold()
+        if applied and now - applied >= days * 86400 and not any(x in status for x in ("interview", "offer", "rejected")):
+            items.append({"application_id": app.get("id"), "company": app.get("company"), "role": app.get("role"),
+                          "applied_at": app.get("applied_at"), "days_waiting": int((now - applied) / 86400)})
+    items.sort(key=lambda x: -x["days_waiting"])
+    return {"items": items, "total": len(items), "automatic_sending": False}
+
+
+@router.get("/export")
+def export_workspace():
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, path in (("applications.json", applications.STORE_PATH), ("jobright-jobs.json", jobright.STORE),
+                           ("decision-center.json", STORE), ("agent-settings.json", jobright_agent.SETTINGS)):
+            if path.is_file():
+                archive.writestr(name, path.read_bytes())
+        archive.writestr("export-manifest.json", json.dumps({"created_at": _now(), "format_version": 2,
+                                                               "includes": ["applications", "jobs", "decisions", "settings"]}, indent=2))
+    return Response(buffer.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": 'attachment; filename="ASTRA-workspace-export.zip"'})
 
 
 @router.post("/backup")

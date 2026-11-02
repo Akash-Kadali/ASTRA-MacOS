@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import "./styles.css";
+import "./upgrades.css";
 
 const App = lazy(() => import("./App").then(module => ({default: module.App})));
 

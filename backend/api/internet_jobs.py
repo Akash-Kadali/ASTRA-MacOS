@@ -6,6 +6,7 @@ import html
 import json
 import os
 import re
+import shutil
 import sys
 import threading
 import time
@@ -25,6 +26,7 @@ from backend.core import config
 router = APIRouter(prefix="/api/internet-jobs", tags=["internet-jobs"])
 STORE = Path(config.DATA_DIR) / "internet_jobs.json"
 SETTINGS_STORE = Path(config.DATA_DIR) / "internet_jobs_settings.json"
+SNAPSHOT_DIR = Path(config.DATA_DIR) / "internet_job_snapshots"
 SPONSOR_REGISTRY = Path(__file__).resolve().parent.parent / "data" / "top_tech_sponsors.json"
 _LOCK = threading.RLock()
 _runtime: dict[str, Any] = {"running": False, "message": "Ready", "error": "", "last_refresh": None}
@@ -325,6 +327,10 @@ def _experience_minimum(description: str) -> int:
         for match in re.finditer(r"\b(\d{1,2})\s*(?:\+|plus)?\s*(?:(?:-|to)\s*\d{1,2}\s*)?(?:years?|yrs?)\b", line, re.I):
             values.append(int(match.group(1)))
         for match in re.finditer(r"(?:minimum of|at least)\s+(\d{1,2})\s+(?:years?|yrs?)", line, re.I):
+            values.append(int(match.group(1)))
+        for match in re.finditer(r"(?:more than|over)\s+(\d{1,2})\s+(?:years?|yrs?)", line, re.I):
+            values.append(int(match.group(1)) + 1)
+        for match in re.finditer(r"\b(\d{1,2})\s+(?:or more|minimum|required)\s+(?:years?|yrs?)", line, re.I):
             values.append(int(match.group(1)))
         for match in re.finditer(r"(?:minimum of|at least)?\s*"
                                  r"(one|two|three|four|five|six|seven|eight|nine|ten)"
@@ -736,6 +742,19 @@ def _write(items: list[dict[str, Any]], sources: list[dict[str, Any]]) -> None:
     os.replace(pending, STORE)
 
 
+def _snapshot_store() -> str:
+    if not STORE.is_file():
+        return ""
+    SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    target = SNAPSHOT_DIR / f"internet-jobs-{stamp}.json"
+    shutil.copy2(STORE, target)
+    snapshots = sorted(SNAPSHOT_DIR.glob("internet-jobs-*.json"), reverse=True)
+    for old in snapshots[20:]:
+        old.unlink(missing_ok=True)
+    return target.name
+
+
 def _sort_key(item: dict[str, Any]) -> tuple[int, float, str]:
     stamp = jobright._timestamp(str(item.get("updated_at") or item.get("posted_at") or ""))
     return (-int(item.get("rank_score", item.get("filter_decision", {}).get("score", 0))), -stamp,
@@ -895,6 +914,7 @@ def refresh(force: bool = False) -> None:
         for item in items:
             item["rank_score"] = _rank(item)
         items.sort(key=_sort_key)
+        snapshot_name = _snapshot_store()
         _write(items, source_status)
         previous = set(settings.get("seen_ids") or [])
         eligible_ids = {str(x.get("id")) for x in items if (x.get("filter_decision") or {}).get("eligible")}
@@ -920,6 +940,7 @@ def refresh(force: bool = False) -> None:
         settings["seen_ids"] = sorted(previous | eligible_ids)[-10000:]
         settings["last_scheduled_refresh"] = _now()
         settings["source_health"] = health
+        settings["last_snapshot"] = snapshot_name
         _save_settings(settings)
         _runtime.update(message=f"Found {len(items)} relevant US jobs from {sum(x['ok'] for x in source_status)} feeds",
                         last_refresh=_now())
@@ -941,6 +962,8 @@ def start_refresh(force: bool = Query(True)) -> dict[str, Any]:
 def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Query("all"),
               hide_applied: bool = Query(True), view: str = Query("eligible"),
               company_tier: str = Query("all"),
+              company: str = Query(""), sponsorship: str = Query("all"),
+              freshness_days: int = Query(0, ge=0, le=365), workplace: str = Query("all"),
               limit: int = Query(500, ge=1, le=5000)) -> dict[str, Any]:
     store = _read()
     state = _settings()
@@ -995,6 +1018,20 @@ def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Qu
         major = {"google", "youtube", "apple", "amazon", "nvidia", "microsoft", "meta", "oracle",
                  "salesforce", "adobe", "intel", "uber", "airbnb", "databricks", "openai", "netflix", "tesla"}
         items = [x for x in items if any(name in jobright._normalized_name(str(x.get("company") or "")) for name in major)]
+    if company.strip():
+        names = {jobright._normalized_name(x) for x in company.split(",") if x.strip()}
+        items = [x for x in items if any(jobright._company_match(str(x.get("company") or ""), name) for name in names)]
+    if sponsorship != "all":
+        accepted = {"confirmed": {"posting_supports"}, "history": {"posting_supports", "strong_history", "company_history"},
+                    "unknown": {"unknown"}, "unavailable": {"unavailable"}}.get(sponsorship, set())
+        if accepted:
+            items = [x for x in items if str((x.get("sponsorship") or {}).get("status")) in accepted]
+    if freshness_days:
+        cutoff = time.time() - freshness_days * 86400
+        items = [x for x in items if jobright._timestamp(str(x.get("updated_at") or x.get("posted_at") or "")) >= cutoff]
+    if workplace != "all":
+        needle = workplace.casefold()
+        items = [x for x in items if needle in f"{x.get('workplace_type','')} {x.get('location','')} {x.get('description','')[:800]}".casefold()]
     if region != "all":
         items = [x for x in items if str(x.get("region")) == region]
     if category != "all":
@@ -1137,10 +1174,64 @@ def analytics() -> dict[str, Any]:
     store, state = _read(), _settings()
     items = store.get("items", [])
     eligible = [x for x in items if _accept(str(x.get("title") or ""), str(x.get("location") or ""), str(x.get("description") or ""))]
+    sponsor_counts: dict[str, int] = {}
+    source_counts: dict[str, int] = {}
+    for item in items:
+        status = str((item.get("sponsorship") or {}).get("status") or "unknown")
+        sponsor_counts[status] = sponsor_counts.get(status, 0) + 1
+        source = str(item.get("source") or "Unknown")
+        source_counts[source] = source_counts.get(source, 0) + 1
     return {"discovered": len(items), "eligible": len(eligible), "filtered": len(items) - len(eligible),
             "new_jobs": int(state.get("new_jobs", 0)), "quality": state.get("quality", {}),
             "duplicates_merged": sum(max(0, int(x.get("duplicate_count", 1)) - 1) for x in items),
-            "closed_removed": sum(int(not s.get("ok", True)) for s in store.get("sources", []))}
+            "closed_removed": sum(int(not s.get("ok", True)) for s in store.get("sources", [])),
+            "sponsorship": sponsor_counts, "sources": source_counts,
+            "link_health": {name: sum(str(x.get("link_status")) == name for x in items)
+                            for name in ("open", "closed", "stale", "unknown", "missing")}}
+
+
+@router.get("/coverage-gaps")
+def coverage_gaps() -> dict[str, Any]:
+    live = {jobright._normalized_name(str(x.get("company") or "")) for x in _read().get("sources", []) if x.get("ok")}
+    rows = []
+    for item in _sponsor_registry().get("companies", []):
+        name = str(item.get("company") or "")
+        normalized = jobright._normalized_name(name)
+        connected = bool(item.get("direct_feed")) or any(key in normalized for key in ("google", "apple", "amazon", "nvidia"))
+        if not connected:
+            rows.append({"company": name, "tech_lca_positions": int(item.get("tech_lca_positions", 0)),
+                         "status": "career_link_only" if any(key in normalized for key in MAJOR_CAREERS) else "unconnected"})
+    rows.sort(key=lambda x: -x["tech_lca_positions"])
+    return {"items": rows, "total": len(rows), "live_sources": len(live),
+            "message": "These employers do not expose a verified public feed currently connected to ASTRA."}
+
+
+@router.get("/snapshots")
+def snapshots() -> dict[str, Any]:
+    items = [{"id": path.stem, "file": path.name, "size": path.stat().st_size,
+              "created_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()}
+             for path in sorted(SNAPSHOT_DIR.glob("internet-jobs-*.json"), reverse=True)] if SNAPSHOT_DIR.is_dir() else []
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/snapshots/{snapshot_id}/restore")
+def restore_snapshot(snapshot_id: str) -> dict[str, Any]:
+    if not re.fullmatch(r"internet-jobs-\d{8}-\d{6}-\d{6}", snapshot_id):
+        raise HTTPException(400, "Invalid snapshot identifier")
+    source = SNAPSHOT_DIR / f"{snapshot_id}.json"
+    if not source.is_file():
+        raise HTTPException(404, "Snapshot not found")
+    try:
+        value = json.loads(source.read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or not isinstance(value.get("items"), list):
+            raise ValueError("Snapshot does not contain a job catalogue")
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(400, f"Invalid snapshot: {exc}") from exc
+    safety = _snapshot_store()
+    pending = STORE.with_suffix(".restore")
+    shutil.copy2(source, pending)
+    os.replace(pending, STORE)
+    return {"ok": True, "restored": source.name, "safety_snapshot": safety}
 
 
 @router.get("/companies")

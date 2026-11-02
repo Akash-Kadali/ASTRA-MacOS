@@ -629,6 +629,11 @@ function DecisionCentre() {
       }>(`/api/decision-center/jobs/${selected!.id}/integrity`),
     enabled: !!selected,
   });
+  const readiness = useQuery({
+    queryKey: ["decision-readiness", selected?.id],
+    queryFn: () => api<{ score: number; ready: boolean; blockers: string[]; checks: { key: string; label: string; ok: boolean; optional?: boolean; detail: string }[]; human_approval_required: boolean }>(`/api/decision-center/jobs/${selected!.id}/readiness`),
+    enabled: !!selected,
+  });
   const act = useMutation({
     mutationFn: ({
       job,
@@ -744,6 +749,9 @@ function DecisionCentre() {
             <button className="button ghost" onClick={saveView}>
               Save view
             </button>
+            <a className="button ghost" href="/api/decision-center/export">
+              Export workspace
+            </a>
             <button
               className="button primary"
               disabled={backup.isPending}
@@ -959,6 +967,11 @@ function DecisionCentre() {
                         : (integrity.data?.issues || ["No matching PDF"])[0]}
                     </p>
                   )}
+                </section>
+                <section className="readiness-card">
+                  <h3>Application readiness · {readiness.data?.score ?? "—"}%</h3>
+                  {readiness.isLoading ? <p>Validating application package…</p> : readiness.data?.checks.map((check) => <p key={check.key}><b>{check.ok ? "✓" : check.optional ? "○" : "!"} {check.label}</b><small>{check.detail}</small></p>)}
+                  <small>Human approval is always required. ASTRA cannot submit from this screen.</small>
                 </section>
                 {selected.timeline?.length ? (
                   <section>
@@ -3052,14 +3065,17 @@ function InternetJobs() {
   const [region, setRegion] = useState("all");
   const [category, setCategory] = useState("all");
   const [companyTier, setCompanyTier] = useState<"all" | "major">("all");
+  const [sponsorship, setSponsorship] = useState("all");
+  const [freshness, setFreshness] = useState(0);
+  const [workplace, setWorkplace] = useState("all");
   const [view, setView] = useState<"eligible" | "filtered" | "all">("eligible");
   const [companiesOpen, setCompaniesOpen] = useState(false);
   const [companyQuery, setCompanyQuery] = useState("");
   const [selected, setSelected] = useState<InternetJob | null>(null);
   const qc = useQueryClient();
   const jobs = useQuery({
-    queryKey: ["internet-jobs", query, region, category, companyTier, view],
-    queryFn: () => api<InternetJobsResponse>(`/api/internet-jobs?q=${encodeURIComponent(query)}&region=${encodeURIComponent(region)}&category=${encodeURIComponent(category)}&company_tier=${companyTier}&view=${view}&hide_applied=${view === "eligible"}&limit=2000`),
+    queryKey: ["internet-jobs", query, region, category, companyTier, sponsorship, freshness, workplace, view],
+    queryFn: () => api<InternetJobsResponse>(`/api/internet-jobs?q=${encodeURIComponent(query)}&region=${encodeURIComponent(region)}&category=${encodeURIComponent(category)}&company_tier=${companyTier}&sponsorship=${sponsorship}&freshness_days=${freshness}&workplace=${workplace}&view=${view}&hide_applied=${view === "eligible"}&limit=2000`),
     refetchInterval: (result) => result.state.data?.runtime.running ? 1500 : 30000,
   });
   const refresh = useMutation({
@@ -3158,6 +3174,9 @@ function InternetJobs() {
       <select value={region} onChange={(event) => { setRegion(event.target.value); setSelected(null); }}><option value="all">All USA · Bay Area first</option><option value="Bay Area">Bay Area only</option><option value="California">California only</option><option value="United States">Other USA</option></select>
       <select value={category} onChange={(event) => { setCategory(event.target.value); setSelected(null); }}>{categories.map((item) => <option value={item} key={item}>{item === "all" ? "All related roles" : item}</option>)}</select>
       <button className={`button ghost ${companyTier === "major" ? "active" : ""}`} onClick={() => { setCompanyTier((value) => value === "major" ? "all" : "major"); setSelected(null); }}>{companyTier === "major" ? "Big Tech only ✓" : "Big Tech only"}</button>
+      <select value={sponsorship} onChange={(event) => setSponsorship(event.target.value)}><option value="all">Any sponsorship evidence</option><option value="confirmed">Role confirms sponsorship</option><option value="history">Confirmed or company history</option><option value="unknown">Sponsorship unknown</option></select>
+      <select value={freshness} onChange={(event) => setFreshness(Number(event.target.value))}><option value={0}>Any posting date</option><option value={3}>Last 3 days</option><option value={7}>Last 7 days</option><option value={14}>Last 14 days</option><option value={30}>Last 30 days</option></select>
+      <select value={workplace} onChange={(event) => setWorkplace(event.target.value)}><option value="all">Any workplace</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">Onsite</option></select>
       <button className="button ghost" onClick={() => saveCurrentSearch.mutate()}>Save search</button>
     </div>
     {(savedSearches.data?.items.length || savedSearches.data?.alerts.length) ? <div className="saved-search-row"><b>Saved alerts</b>{savedSearches.data?.alerts.map((alert) => <span className="new-alert" key={alert.id}>{alert.name} · {alert.count} new</span>)}{savedSearches.data?.items.map((saved) => <span key={saved.id}><button onClick={() => { setQuery(saved.q); setRegion(saved.region); setCategory(saved.category); }}>{saved.name}</button><button aria-label={`Delete ${saved.name}`} onClick={() => deleteSavedSearch.mutate(saved.id)}>×</button></span>)}</div> : null}

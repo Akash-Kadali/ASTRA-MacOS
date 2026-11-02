@@ -1,3 +1,5 @@
+import json
+
 from backend.api import internet_jobs, jobright_agent
 
 
@@ -191,3 +193,22 @@ def test_saved_search_crud(tmp_path, monkeypatch):
                                        "category": "LLM & Inference", "minimum_score": 75})
     assert internet_jobs.saved_searches()["items"][0]["name"] == "Bay AI"
     assert internet_jobs.delete_search(saved["id"])["deleted"] == 1
+
+
+def test_experience_parser_handles_indirect_numeric_phrases():
+    assert internet_jobs._experience_minimum("More than 2 years of ML experience required.") == 3
+    assert internet_jobs._experience_minimum("4 or more years of production experience.") == 4
+    assert internet_jobs._experience_minimum("Preferred: over 3 years of Python experience.") == 4
+
+
+def test_catalogue_snapshot_and_restore(tmp_path, monkeypatch):
+    store = tmp_path / "internet_jobs.json"
+    snapshots = tmp_path / "snapshots"
+    store.write_text('{"items":[{"id":"old"}],"sources":[]}', encoding="utf-8")
+    monkeypatch.setattr(internet_jobs, "STORE", store)
+    monkeypatch.setattr(internet_jobs, "SNAPSHOT_DIR", snapshots)
+    snapshot = internet_jobs._snapshot_store()
+    store.write_text('{"items":[{"id":"new"}],"sources":[]}', encoding="utf-8")
+    restored = internet_jobs.restore_snapshot(snapshot.removesuffix(".json"))
+    assert restored["ok"]
+    assert json.loads(store.read_text(encoding="utf-8"))["items"][0]["id"] == "old"

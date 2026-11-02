@@ -93,3 +93,20 @@ def test_submission_confirmation_saves_requisition(tmp_path, monkeypatch):
     record = next(x for x in saved.values() if x.get("requisition_id") == "REQ-42")
     assert record["applied_at"] == "2026-10-31T10:00:00Z"
     assert record["job_url"].endswith("/phd")
+
+
+def test_readiness_requires_reviewed_answers(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    result = decision_center.readiness("match")
+    assert result["submission_enabled"] is False
+    assert result["human_approval_required"] is True
+    assert "Application answers reviewed" in result["blockers"]
+
+
+def test_workspace_export_contains_manifest(tmp_path, monkeypatch):
+    _setup(tmp_path, monkeypatch)
+    decision_center._save(decision_center._empty())
+    response = decision_center.export_workspace()
+    archive = zipfile.ZipFile(io.BytesIO(response.body))
+    assert "export-manifest.json" in archive.namelist()
+    assert "applications.json" in archive.namelist()
