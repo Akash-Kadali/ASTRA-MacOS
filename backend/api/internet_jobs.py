@@ -28,6 +28,7 @@ SETTINGS_STORE = Path(config.DATA_DIR) / "internet_jobs_settings.json"
 SPONSOR_REGISTRY = Path(__file__).resolve().parent.parent / "data" / "top_tech_sponsors.json"
 _LOCK = threading.RLock()
 _runtime: dict[str, Any] = {"running": False, "message": "Ready", "error": "", "last_refresh": None}
+FILTER_ENGINE_VERSION = 2
 
 # Public company feeds. Invalid or unavailable boards are skipped without
 # interrupting the rest of the refresh.
@@ -275,23 +276,46 @@ def _region(location: str) -> tuple[str, int]:
 
 def _required_lines(description: str) -> list[str]:
     lines = [re.sub(r"\s+", " ", line).strip() for line in description.splitlines() if line.strip()]
-    units = []
+    units: list[str] = []
     for line in lines:
         units.extend(x.strip() for x in re.split(r"(?<=[.!?;])\s+|\s+[•·]\s+", line) if x.strip())
-    preferred = re.compile(r"preferred|nice to have|bonus|plus|ideally|desirable", re.I)
-    return [line for line in units if not preferred.search(line)]
+    required: list[str] = []
+    in_preferred_section = False
+    preferred_heading = re.compile(
+        r"^(?:preferred|desired|nice[- ]to[- ]have|bonus)(?:\s+(?:qualifications?|requirements?|skills?|experience))?$",
+        re.I,
+    )
+    required_heading = re.compile(
+        r"^(?:required|minimum|basic|must[- ]have)(?:\s+(?:qualifications?|requirements?|skills?|experience))?$",
+        re.I,
+    )
+    inline_preferred = re.compile(r"^(?:preferred|nice to have|bonus|ideally|desirable)\s*[:\-]", re.I)
+    for unit in units:
+        heading = re.sub(r"[^a-z -]", "", unit.casefold()).strip()
+        if preferred_heading.fullmatch(heading):
+            in_preferred_section = True
+            continue
+        if required_heading.fullmatch(heading):
+            in_preferred_section = False
+            continue
+        if in_preferred_section or inline_preferred.search(unit):
+            continue
+        required.append(unit)
+    return required
 
 
 def _experience_minimum(description: str) -> int:
     requirements = []
     word_number = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
                    "seven": 7, "eight": 8, "nine": 9, "ten": 10}
-    # Treat sentences/bullets independently. Some feeds flatten an entire job
+    # Experience is a user-defined hard ceiling across both required and
+    # preferred qualifications. Treat sentences/bullets independently. Some feeds flatten an entire job
     # description into one line; in that case a later mention of a master's
     # degree must not turn an earlier "4+ years total, including 2+ years..."
     # requirement into a two-year requirement.
     units = []
-    for line in _required_lines(description):
+    lines = [re.sub(r"\s+", " ", line).strip() for line in description.splitlines() if line.strip()]
+    for line in lines:
         units.extend(x.strip() for x in re.split(r"(?<=[.!?;])\s+|\s+[•·]\s+", line) if x.strip())
     for line in units:
         if not re.search(r"experience|worked|background|\b\d{1,2}\s*(?:\+|plus)?\s*years?\b|"
@@ -340,9 +364,11 @@ def _assessment(title: str, location: str, description: str) -> dict[str, Any]:
         reasons.append({"code": "phd_required", "message": "The role requires PhD or doctoral eligibility.", "evidence": next((x for x in _required_lines(description) if re.search(r"ph\.?d|doctoral", x, re.I)), "PhD requirement detected")})
     if not currently_student and (jobright._requires_current_student(probe) or CURRENT_STUDENT_REQUIRED.search(required_text)):
         reasons.append({"code": "current_student", "message": "The role requires current enrolment or a future graduation window.", "evidence": next((x for x in _required_lines(description) if CURRENT_STUDENT_REQUIRED.search(x)), "Current-student requirement detected")})
-    experience = _experience_minimum(required_text)
+    experience = _experience_minimum(description)
     if experience > max_experience:
-        reasons.append({"code": "experience", "message": f"The role requires at least {experience} years; your profile allows up to {max_experience}.", "evidence": next((x for x in _required_lines(description) if _experience_minimum(x) == experience), f"{experience}+ years required")})
+        all_lines = [re.sub(r"\s+", " ", x).strip() for x in description.splitlines() if x.strip()]
+        evidence = next((x for x in all_lines if _experience_minimum(x) == experience), f"{experience}+ years required or preferred")
+        reasons.append({"code": "experience", "message": f"The role asks for at least {experience} years; your profile allows up to {max_experience}. Required and preferred experience are both enforced.", "evidence": evidence})
     if re.search(r"\bresearch scientist\b", title, re.I) and not experience and not EARLY_CAREER_RESEARCH.search(
         f"{title}\n{required_text}"
     ):
@@ -414,6 +440,7 @@ def _finish(item: dict[str, Any], retain_filtered: bool = False) -> dict[str, An
                 tech_lca_positions=int(sponsor.get("tech_lca_positions", 0)),
                 sponsorship_evidence=sponsor.get("evidence", ""), sponsorship=sponsorship,
                 application_policy=_application_policy(description), profile_fingerprint=profile_fingerprint,
+                filter_engine_version=FILTER_ENGINE_VERSION,
                 data_quality={"valid_url": url_valid, "complete_description": len(description) >= 300,
                               "valid_date": bool(item.get("posted_at") or item.get("updated_at"))})
     return item
@@ -932,7 +959,9 @@ def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Qu
     items = []
     for raw in store.get("items", []):
         x = dict(raw)
-        assessment = dict(x.get("filter_decision") or {}) if (not x.get("profile_fingerprint") or x.get("profile_fingerprint") == current_profile_fingerprint) else _assessment(
+        current_result = (x.get("filter_engine_version") == FILTER_ENGINE_VERSION
+                          and x.get("profile_fingerprint") == current_profile_fingerprint)
+        assessment = dict(x.get("filter_decision") or {}) if current_result else _assessment(
             str(x.get("title") or ""), str(x.get("location") or ""), str(x.get("description") or ""))
         correction = corrections.get(str(x.get("id")))
         if correction and correction.get("action") == "restore":

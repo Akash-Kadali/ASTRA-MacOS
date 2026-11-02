@@ -63,6 +63,23 @@ def test_total_experience_is_not_reduced_by_nested_or_later_requirements(monkeyp
     assert internet_jobs._finish({**base, "id": "compound-years", "description": description}) is None
 
 
+def test_required_experience_is_not_dropped_when_a_skill_is_preferred(monkeypatch):
+    monkeypatch.setattr(jobright_agent, "settings", lambda: {"profile": {
+        "years_experience": "2", "currently_student": "no", "security_clearance": "no",
+        "requires_sponsorship": "yes", "citizenship": "India",
+    }})
+    description = """Required Qualifications
+4+ years of experience writing production software (C or C++ preferred).
+Preferred Qualifications
+6+ years of robotics experience."""
+    assert internet_jobs._experience_minimum(description) == 6
+    item = internet_jobs._finish({"id": "preferred-skill", "company": "Example", "location": "California",
+                                  "title": "Machine Learning Engineer", "description": description}, retain_filtered=True)
+    assert item is not None
+    assert item["filter_decision"]["eligible"] is False
+    assert item["filter_decision"]["experience_required"] == 6
+
+
 def test_frontier_research_seniority_without_numeric_years_is_excluded(monkeypatch):
     monkeypatch.setattr(jobright_agent, "settings", lambda: {"profile": {
         "years_experience": "2", "currently_student": "no", "security_clearance": "no",
