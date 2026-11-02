@@ -33,13 +33,11 @@ _runtime: dict[str, Any] = {"running": False, "message": "Ready", "error": "", "
 GREENHOUSE = {
     "Anthropic": "anthropic", "Scale AI": "scaleai", "Databricks": "databricks",
     "Waymo": "waymo", "Nuro": "nuro", "Together AI": "togetherai",
-    "Weights & Biases": "wandb", "SambaNova Systems": "sambanova", "Figure AI": "figureai",
-    "Applied Intuition": "appliedintuition", "Waabi": "waabi", "Skydio": "skydio",
+    "Figure AI": "figureai", "Anduril": "andurilindustries",
 }
 ASHBY = {"OpenAI": "openai", "Cohere": "cohere", "Cursor": "cursor", "Perplexity": "perplexity",
          "Harvey": "harvey", "Pika": "pika", "Decagon": "decagon", "Baseten": "baseten"}
-LEVER = {"Zoox": "zoox", "Shield AI": "shieldai", "Anduril": "andurilindustries",
-         "Highspot": "highspot", "Highwire": "highwire"}
+LEVER = {"Zoox": "zoox", "Shield AI": "shieldai", "Highspot": "highspot"}
 MAJOR_CAREERS = {
     "google": "https://www.google.com/about/careers/applications/jobs/results/",
     "microsoft": "https://jobs.careers.microsoft.com/global/en/search",
@@ -65,6 +63,49 @@ def _sponsor_registry() -> dict[str, Any]:
 def _sponsor_map() -> dict[str, dict[str, Any]]:
     return {jobright._normalized_name(str(x.get("company") or "")): x
             for x in _sponsor_registry().get("companies", []) if isinstance(x, dict)}
+
+
+@lru_cache(maxsize=512)
+def _sponsor_for_company(company: str) -> dict[str, Any]:
+    normalized = jobright._normalized_name(company)
+    direct = _sponsor_map().get(normalized)
+    if direct:
+        return direct
+    matches = [value for key, value in _sponsor_map().items()
+               if jobright._company_match(normalized, key) or normalized in key or key in normalized]
+    return max(matches, key=lambda x: int(x.get("tech_lca_positions", 0))) if matches else {}
+
+
+def _safe_date(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text or re.fullmatch(r"\d+\s+(?:days?|hours?|months?)", text, re.I):
+        return None
+    return text if jobright._timestamp(text) else None
+
+
+def _sponsorship_assessment(description: str, sponsor: dict[str, Any]) -> dict[str, Any]:
+    if SPONSORSHIP_UNAVAILABLE.search(description):
+        return {"status": "unavailable", "confidence": 0, "reason": "This posting explicitly says sponsorship is unavailable."}
+    explicit = re.search(r"(?:visa|immigration|h-?1b).{0,50}(?:sponsor|support|available)|"
+                         r"(?:sponsor|support).{0,50}(?:visa|immigration|h-?1b)", description, re.I)
+    if explicit:
+        return {"status": "posting_supports", "confidence": 100, "reason": explicit.group(0)[:180]}
+    filings = int(sponsor.get("tech_lca_positions", 0))
+    if filings >= 20:
+        return {"status": "strong_history", "confidence": 80,
+                "reason": f"Employer had {filings} recent certified technical LCA positions."}
+    if filings:
+        return {"status": "company_history", "confidence": 55,
+                "reason": f"Employer had {filings} recent certified technical LCA positions; this role is unconfirmed."}
+    return {"status": "unknown", "confidence": 25, "reason": "No role-specific sponsorship evidence was found."}
+
+
+def _application_policy(description: str) -> dict[str, Any]:
+    cooldown = re.search(r"(?:wait(?:ing)? period|reapply|reconsider).{0,50}(\d{2,3})[- ]day|"
+                         r"(\d{2,3})[- ]day.{0,50}(?:wait|reapply|reconsider)", description, re.I)
+    days = int(next((x for x in cooldown.groups() if x), 0)) if cooldown else 0
+    return {"cooldown_days": days, "duplicate_family": bool(re.search(
+        r"multiple applications|one application|same role|duplicate application", description, re.I))}
 
 
 def _configured_feeds() -> list[tuple[str, str, str, Any]]:
@@ -172,7 +213,8 @@ PROFILE_SKILLS = {"python", "pytorch", "tensorflow", "sql", "aws", "docker", "op
 
 def _settings() -> dict[str, Any]:
     defaults = {"enabled": True, "interval_hours": 6, "minimum_score": 60,
-                "last_scheduled_refresh": None, "seen_ids": [], "corrections": [], "quality": {}}
+                "last_scheduled_refresh": None, "seen_ids": [], "corrections": [], "quality": {},
+                "saved_searches": [], "source_health": {}, "alerts": [], "company_rules": {}}
     try:
         value = json.loads(SETTINGS_STORE.read_text(encoding="utf-8"))
         return {**defaults, **value} if isinstance(value, dict) else defaults
@@ -340,7 +382,14 @@ def _accept(title: str, location: str, description: str) -> bool:
 
 
 def _finish(item: dict[str, Any], retain_filtered: bool = False) -> dict[str, Any] | None:
-    title, location, description = item["title"], item.get("location", ""), item.get("description", "")
+    title = re.sub(r"\s+", " ", str(item.get("title") or "")).strip()
+    location = re.sub(r"\s+", " ", str(item.get("location") or "")).strip()
+    description = str(item.get("description") or "").strip()
+    if not title or not str(item.get("company") or "").strip():
+        return None
+    url_valid = str(item.get("url") or item.get("application_url") or "").startswith("http")
+    item.update(title=title, location=location, description=description,
+                posted_at=_safe_date(item.get("posted_at")), updated_at=_safe_date(item.get("updated_at")))
     # Store domain-related US postings even when profile filters reject them so
     # the UI can explain the decision and allow a correction. Truly unrelated
     # titles and non-US locations are discarded before persistence.
@@ -353,13 +402,17 @@ def _finish(item: dict[str, Any], retain_filtered: bool = False) -> dict[str, An
     assessment = _assessment(title, location, description)
     if not assessment["eligible"] and not retain_filtered:
         return None
-    sponsor = _sponsor_map().get(jobright._normalized_name(str(item.get("company") or "")), {})
+    sponsor = _sponsor_for_company(str(item.get("company") or ""))
+    sponsorship = _sponsorship_assessment(description, sponsor)
     _, profile_fingerprint = _profile_context()
     item.update(category=category, relevant=True, region=region, region_priority=priority,
                 captured_at=_now(), description_status="complete" if len(description) >= 300 else "partial",
                 filter_decision=assessment, sponsor_history=bool(sponsor),
                 tech_lca_positions=int(sponsor.get("tech_lca_positions", 0)),
-                sponsorship_evidence=sponsor.get("evidence", ""), profile_fingerprint=profile_fingerprint)
+                sponsorship_evidence=sponsor.get("evidence", ""), sponsorship=sponsorship,
+                application_policy=_application_policy(description), profile_fingerprint=profile_fingerprint,
+                data_quality={"valid_url": url_valid, "complete_description": len(description) >= 300,
+                              "valid_date": bool(item.get("posted_at") or item.get("updated_at"))})
     return item
 
 
@@ -588,14 +641,27 @@ def _canonical_key(item: dict[str, Any]) -> str:
 def _rank(item: dict[str, Any]) -> int:
     decision = item.get("filter_decision") or {}
     if not decision.get("eligible"):
+        item["rank_components"] = {"eligibility": 0}
         return 0
-    score = int(decision.get("score", 70))
-    score += {3: 8, 2: 5, 1: 2}.get(int(item.get("region_priority", 0)), 0)
     title = str(item.get("title") or "")
+    experience_required = int(decision.get("experience_required", 0))
+    experience_fit = 100 if experience_required <= 1 else 80 if experience_required == 2 else 40
+    role_fit = 95 if re.search(r"llm|inference|machine learning|computer vision|\bai\b", title, re.I) else 75
     if re.search(r"\b(?:junior|associate|entry[- ]level|new grad|early career|engineer i|engineer 1)\b", title, re.I):
-        score += 10
-    if re.search(r"llm|inference|machine learning|computer vision|\bai\b", title, re.I):
-        score += 5
+        role_fit = 100
+    technical = int(decision.get("technical_fit", 75))
+    sponsorship = int((item.get("sponsorship") or {}).get("confidence", 25))
+    location = {3: 100, 2: 85, 1: 65}.get(int(item.get("region_priority", 0)), 50)
+    stamp = jobright._timestamp(str(item.get("updated_at") or item.get("posted_at") or ""))
+    age_days = max(0, int((time.time() - stamp) / 86400)) if stamp else 90
+    freshness = 100 if age_days <= 3 else 90 if age_days <= 14 else 75 if age_days <= 30 else 55
+    components = {"eligibility": 100, "experience": experience_fit, "technical": technical,
+                  "sponsorship": sponsorship, "location": location, "freshness": freshness,
+                  "role": role_fit, "interview_history": int(item.get("interview_history_score", 50))}
+    score = round(components["eligibility"] * .15 + experience_fit * .18 + technical * .18 +
+                  sponsorship * .17 + location * .10 + freshness * .10 + role_fit * .09 +
+                  components["interview_history"] * .03)
+    item["rank_components"] = components
     return max(0, min(100, score))
 
 
@@ -627,7 +693,7 @@ def _read() -> dict[str, Any]:
         return {"items": [], "sources": [], "updated_at": None}
 
 
-def refresh() -> None:
+def refresh(force: bool = False) -> None:
     with _LOCK:
         if _runtime["running"]:
             return
@@ -637,18 +703,56 @@ def refresh() -> None:
         feeds.append(("Adzuna", "USA aggregate", "configured", _adzuna))
     if os.getenv("USAJOBS_API_KEY") and os.getenv("USAJOBS_EMAIL"):
         feeds.append(("USAJOBS", "Federal jobs", "configured", _usajobs))
-    items, source_status = [], []
+    prior = _read()
+    settings = _settings()
+    health = dict(settings.get("source_health") or {})
+    prior_by_company: dict[str, list[dict[str, Any]]] = {}
+    for item in prior.get("items", []):
+        prior_by_company.setdefault(jobright._normalized_name(str(item.get("company") or "")), []).append(item)
+    active_feeds, cached_feeds = [], []
+    interval = max(1, int(settings.get("interval_hours", 6))) * 3600
+    for feed in feeds:
+        source, company, _, _ = feed
+        key = f"{source}|{company}"
+        last = jobright._timestamp(str((health.get(key) or {}).get("last_success") or ""))
+        reusable = prior_by_company.get(jobright._normalized_name(company), [])
+        if not force and last and time.time() - last < interval and reusable:
+            cached_feeds.append((feed, reusable))
+        else:
+            active_feeds.append(feed)
+    items = [dict(item) for _, reusable in cached_feeds for item in reusable]
+    source_status = [{"source": feed[0], "company": feed[1], "ok": True, "jobs": len(reusable),
+                      "cached": True, "duration_ms": 0,
+                      "last_success": (health.get(f"{feed[0]}|{feed[1]}") or {}).get("last_success")}
+                     for feed, reusable in cached_feeds]
     try:
         with ThreadPoolExecutor(max_workers=20, thread_name_prefix="astra-internet-jobs") as pool:
-            futures = {pool.submit(fn, company, key): (source, company) for source, company, key, fn in feeds}
+            started: dict[Any, float] = {}
+            futures = {}
+            for source, company, key, fn in active_feeds:
+                future = pool.submit(fn, company, key)
+                futures[future] = (source, company)
+                started[future] = time.perf_counter()
             for future in as_completed(futures):
                 source, company = futures[future]
+                duration_ms = round((time.perf_counter() - started[future]) * 1000)
+                health_key = f"{source}|{company}"
                 try:
                     found = future.result()
                     items.extend(found)
-                    source_status.append({"source": source, "company": company, "ok": True, "jobs": len(found)})
+                    health[health_key] = {"last_success": _now(), "last_failure": (health.get(health_key) or {}).get("last_failure"),
+                                          "consecutive_failures": 0, "duration_ms": duration_ms, "jobs": len(found)}
+                    source_status.append({"source": source, "company": company, "ok": True, "jobs": len(found),
+                                          "duration_ms": duration_ms, **health[health_key]})
                 except Exception as exc:
-                    source_status.append({"source": source, "company": company, "ok": False, "jobs": 0, "error": str(exc)[:240]})
+                    previous_health = health.get(health_key) or {}
+                    health[health_key] = {**previous_health, "last_failure": _now(),
+                                          "consecutive_failures": int(previous_health.get("consecutive_failures", 0)) + 1,
+                                          "duration_ms": duration_ms, "error": str(exc)[:240]}
+                    # Preserve the last successful snapshot through transient failures.
+                    items.extend(prior_by_company.get(jobright._normalized_name(company), []))
+                    source_status.append({"source": source, "company": company, "ok": False, "jobs": 0,
+                                          "duration_ms": duration_ms, **health[health_key]})
         unique: dict[str, dict[str, Any]] = {}
         for item in items:
             key = _canonical_key(item)
@@ -678,12 +782,30 @@ def refresh() -> None:
             item["rank_score"] = _rank(item)
         items.sort(key=_sort_key)
         _write(items, source_status)
-        settings = _settings()
         previous = set(settings.get("seen_ids") or [])
         eligible_ids = {str(x.get("id")) for x in items if (x.get("filter_decision") or {}).get("eligible")}
-        settings["new_jobs"] = len(eligible_ids - previous)
+        new_ids = eligible_ids - previous
+        settings["new_jobs"] = len(new_ids)
+        alerts = list(settings.get("alerts") or [])
+        for saved in settings.get("saved_searches", []):
+            matches = []
+            for item in items:
+                if str(item.get("id")) not in new_ids or not (item.get("filter_decision") or {}).get("eligible"):
+                    continue
+                text = f"{item.get('title','')} {item.get('company','')} {item.get('description','')}".casefold()
+                if saved.get("q") and str(saved["q"]).casefold() not in text: continue
+                if saved.get("region", "all") != "all" and item.get("region") != saved.get("region"): continue
+                if saved.get("category", "all") != "all" and item.get("category") != saved.get("category"): continue
+                if int(item.get("rank_score", 0)) < int(saved.get("minimum_score", 60)): continue
+                matches.append(str(item.get("id")))
+            if matches:
+                alerts.append({"id": hashlib.sha1(f"{saved.get('id')}|{_now()}".encode()).hexdigest()[:16],
+                               "saved_search_id": saved.get("id"), "name": saved.get("name"),
+                               "job_ids": matches, "count": len(matches), "created_at": _now(), "read": False})
+        settings["alerts"] = alerts[-500:]
         settings["seen_ids"] = sorted(previous | eligible_ids)[-10000:]
         settings["last_scheduled_refresh"] = _now()
+        settings["source_health"] = health
         _save_settings(settings)
         _runtime.update(message=f"Found {len(items)} relevant US jobs from {sum(x['ok'] for x in source_status)} feeds",
                         last_refresh=_now())
@@ -694,11 +816,11 @@ def refresh() -> None:
 
 
 @router.post("/refresh")
-def start_refresh() -> dict[str, Any]:
+def start_refresh(force: bool = Query(True)) -> dict[str, Any]:
     if _runtime["running"]:
         return dict(_runtime)
-    threading.Thread(target=refresh, daemon=True, name="astra-internet-job-refresh").start()
-    return {"started": True}
+    threading.Thread(target=refresh, kwargs={"force": force}, daemon=True, name="astra-internet-job-refresh").start()
+    return {"started": True, "force": force}
 
 
 @router.get("")
@@ -709,6 +831,16 @@ def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Qu
     state = _settings()
     _, current_profile_fingerprint = _profile_context()
     corrections = {str(x.get("job_id")): x for x in state.get("corrections", [])}
+    try:
+        from backend.api.decision_center import _application_candidates
+        historical = _application_candidates()
+    except Exception:
+        historical = []
+    outcomes: dict[str, list[str]] = {}
+    for candidate in historical:
+        app = candidate.get("app") or {}
+        outcomes.setdefault(jobright._normalized_name(str(app.get("company") or "")), []).append(
+            str(app.get("status") or "").casefold())
     items = []
     for raw in store.get("items", []):
         x = dict(raw)
@@ -720,6 +852,8 @@ def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Qu
                           "overridden": True}
         elif correction and correction.get("action") == "hide":
             assessment = {**assessment, "eligible": False, "reasons": [{"code": "user_hidden", "message": "You hid this posting.", "evidence": correction.get("note", "Manual correction")}], "overridden": True}
+        company_outcomes = outcomes.get(jobright._normalized_name(str(x.get("company") or "")), [])
+        x["interview_history_score"] = 85 if any(re.search(r"interview|recruiter|assessment|offer", s) for s in company_outcomes) else 35 if any("reject" in s for s in company_outcomes) else 50
         x["filter_decision"] = assessment
         x["rank_score"] = _rank(x)
         if (not correction or correction.get("action") != "restore") and assessment.get("eligible") and x["rank_score"] < int(state.get("minimum_score", 60)):
@@ -760,6 +894,7 @@ def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Qu
                  for x in store.get("sources", []) if x.get("ok")}
     return {"items": items[:limit], "total": len(items), "eligible_total": eligible_total,
             "filtered_total": filtered_total, "reason_counts": reason_counts, "new_jobs": int(state.get("new_jobs", 0)),
+            "alerts": [x for x in state.get("alerts", []) if not x.get("read")],
             "counts": counts, "updated_at": store.get("updated_at"),
             "sources": store.get("sources", []), "runtime": dict(_runtime), "sponsor_registry": {
                 "targets": len(targets),
@@ -809,6 +944,71 @@ def feedback(job_id: str, payload: dict[str, Any] = Body(...)) -> dict[str, Any]
     value["quality"] = quality
     _save_settings(value)
     return {"ok": True, "settings": value}
+
+
+@router.post("/feedback/bulk")
+def bulk_feedback(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    ids = [str(x) for x in payload.get("job_ids", [])][:1000]
+    action = str(payload.get("action") or "")
+    if action not in {"restore", "hide"}:
+        raise HTTPException(400, "Unsupported bulk action")
+    value = _settings()
+    corrections = [x for x in value.get("corrections", []) if str(x.get("job_id")) not in set(ids)]
+    corrections.extend({"job_id": job_id, "action": action, "note": str(payload.get("note") or "Bulk review"),
+                        "created_at": _now()} for job_id in ids)
+    value["corrections"] = corrections[-5000:]
+    _save_settings(value)
+    return {"ok": True, "updated": len(ids)}
+
+
+@router.get("/saved-searches")
+def saved_searches() -> dict[str, Any]:
+    value = _settings()
+    return {"items": value.get("saved_searches", []),
+            "alerts": [x for x in value.get("alerts", []) if not x.get("read")]}
+
+
+@router.post("/saved-searches")
+def save_search(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    value = _settings()
+    item = {"id": str(payload.get("id") or hashlib.sha1(f"{_now()}|{payload}".encode()).hexdigest()[:16]),
+            "name": str(payload.get("name") or "Saved search")[:80], "q": str(payload.get("q") or "")[:160],
+            "region": str(payload.get("region") or "all"), "category": str(payload.get("category") or "all"),
+            "minimum_score": max(0, min(100, int(payload.get("minimum_score", 60)))), "created_at": _now()}
+    searches = [x for x in value.get("saved_searches", []) if str(x.get("id")) != item["id"]]
+    searches.append(item)
+    value["saved_searches"] = searches[-100:]
+    _save_settings(value)
+    return item
+
+
+@router.delete("/saved-searches/{search_id}")
+def delete_search(search_id: str) -> dict[str, Any]:
+    value = _settings()
+    before = len(value.get("saved_searches", []))
+    value["saved_searches"] = [x for x in value.get("saved_searches", []) if str(x.get("id")) != search_id]
+    _save_settings(value)
+    return {"deleted": before - len(value["saved_searches"])}
+
+
+@router.post("/alerts/{alert_id}/read")
+def read_alert(alert_id: str) -> dict[str, Any]:
+    value = _settings()
+    for item in value.get("alerts", []):
+        if str(item.get("id")) == alert_id:
+            item["read"] = True
+    _save_settings(value)
+    return {"ok": True}
+
+
+@router.get("/source-health")
+def source_health() -> dict[str, Any]:
+    value = _settings()
+    rows = [{"key": key, **health} for key, health in (value.get("source_health") or {}).items()]
+    rows.sort(key=lambda x: (-int(x.get("consecutive_failures", 0)), -int(x.get("duration_ms", 0))))
+    return {"items": rows, "total": len(rows),
+            "healthy": sum(int(x.get("consecutive_failures", 0)) == 0 for x in rows),
+            "failing": sum(int(x.get("consecutive_failures", 0)) > 0 for x in rows)}
 
 
 @router.get("/analytics")

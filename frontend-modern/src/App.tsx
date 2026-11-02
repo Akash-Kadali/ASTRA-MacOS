@@ -184,6 +184,10 @@ type InternetJob = JobrightJob & {
   sponsor_history?: boolean;
   tech_lca_positions?: number;
   sponsorship_evidence?: string;
+  sponsorship?: { status: string; confidence: number; reason: string };
+  rank_components?: Record<string, number>;
+  application_policy?: { cooldown_days: number; duplicate_family: boolean };
+  data_quality?: { valid_url: boolean; complete_description: boolean; valid_date: boolean };
   filter_decision?: { eligible: boolean; score: number; overridden?: boolean; experience_required?: number; technical_fit?: number; matched_skills?: string[]; missing_skills?: string[]; reasons: { code: string; message: string; evidence: string }[] };
 };
 type InternetJobsResponse = {
@@ -193,10 +197,11 @@ type InternetJobsResponse = {
   filtered_total: number;
   new_jobs: number;
   reason_counts: Record<string, number>;
+  alerts?: { id: string; name: string; count: number; created_at: string }[];
   sponsor_registry: { targets: number; direct_feeds: number; connected_feeds: number; evidence?: string; source_url?: string; disclaimer?: string };
   counts: Record<string, number>;
   updated_at?: string;
-  sources: { source: string; company: string; ok: boolean; jobs: number; error?: string }[];
+  sources: { source: string; company: string; ok: boolean; jobs: number; error?: string; cached?: boolean; duration_ms?: number; last_success?: string; consecutive_failures?: number }[];
   runtime: { running: boolean; message: string; error?: string; last_refresh?: string };
   active_filters: { years_experience: string; currently_student: string; security_clearance: string; requires_sponsorship: string; degree: string };
 };
@@ -3073,6 +3078,22 @@ function InternetJobs() {
     queryFn: () => api<{ items: { company: string; legal_employer: string; tech_lca_positions: number; direct_feed: boolean; live_in_astra: boolean; career_url?: string; ats: string }[]; total: number }>(`/api/internet-jobs/companies?q=${encodeURIComponent(companyQuery)}`),
     enabled: companiesOpen,
   });
+  const savedSearches = useQuery({
+    queryKey: ["internet-saved-searches"],
+    queryFn: () => api<{ items: { id: string; name: string; q: string; region: string; category: string; minimum_score: number }[]; alerts: { id: string; name: string; count: number }[] }>("/api/internet-jobs/saved-searches"),
+  });
+  const saveCurrentSearch = useMutation({
+    mutationFn: () => api("/api/internet-jobs/saved-searches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      name: query || `${category === "all" ? "All related roles" : category} · ${region === "all" ? "USA" : region}`,
+      q: query, region, category, minimum_score: discoverySettings.data?.minimum_score || 60,
+    }) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["internet-saved-searches"] }); notify("Search and new-job alert saved"); },
+    onError: (error) => notify(error.message, "error"),
+  });
+  const deleteSavedSearch = useMutation({
+    mutationFn: (id: string) => api(`/api/internet-jobs/saved-searches/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["internet-saved-searches"] }),
+  });
   const saveDiscoverySettings = useMutation({
     mutationFn: (payload: Record<string, unknown>) => api("/api/internet-jobs/settings", {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
@@ -3135,7 +3156,9 @@ function InternetJobs() {
       <label className="search"><Search size={17}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, company, skill or job description"/></label>
       <select value={region} onChange={(event) => { setRegion(event.target.value); setSelected(null); }}><option value="all">All USA · Bay Area first</option><option value="Bay Area">Bay Area only</option><option value="California">California only</option><option value="United States">Other USA</option></select>
       <select value={category} onChange={(event) => { setCategory(event.target.value); setSelected(null); }}>{categories.map((item) => <option value={item} key={item}>{item === "all" ? "All related roles" : item}</option>)}</select>
+      <button className="button ghost" onClick={() => saveCurrentSearch.mutate()}>Save search</button>
     </div>
+    {(savedSearches.data?.items.length || savedSearches.data?.alerts.length) ? <div className="saved-search-row"><b>Saved alerts</b>{savedSearches.data?.alerts.map((alert) => <span className="new-alert" key={alert.id}>{alert.name} · {alert.count} new</span>)}{savedSearches.data?.items.map((saved) => <span key={saved.id}><button onClick={() => { setQuery(saved.q); setRegion(saved.region); setCategory(saved.category); }}>{saved.name}</button><button aria-label={`Delete ${saved.name}`} onClick={() => deleteSavedSearch.mutate(saved.id)}>×</button></span>)}</div> : null}
     <div className="internet-view-tabs">
       <button className={view === "eligible" ? "active" : ""} onClick={() => { setView("eligible"); setSelected(null); }}>Recommended <span>{data?.eligible_total || 0}</span></button>
       <button className={view === "filtered" ? "active" : ""} onClick={() => { setView("filtered"); setSelected(null); }}>Filtered with reasons <span>{data?.filtered_total || 0}</span></button>
@@ -3147,9 +3170,10 @@ function InternetJobs() {
       </div></section>
       <aside className="panel job-detail">{selected ? <><div className="job-detail-head"><span className="eyebrow">{selected.region} · {(selected.source_names || [selected.source]).join(" + ")}</span><h2>{selected.title}</h2><p>{selected.company} · {selected.location || "United States"}</p><div className="detail-tags"><span>{selected.category}</span><span>{selected.rank_score || selected.filter_decision?.score || 0}% fit</span><span>Link {selected.link_status || "unchecked"}</span>{selected.sponsor_history ? <span>{selected.tech_lca_positions || 0} recent technical LCA positions</span> : null}{selected.duplicate_count && selected.duplicate_count > 1 ? <span>{selected.duplicate_count} sources merged</span> : null}{selected.workplace_type ? <span>{selected.workplace_type}</span> : null}{selected.requisition_id ? <span>Req {selected.requisition_id}</span> : null}{salary(selected.salary) ? <span>{salary(selected.salary)}</span> : null}</div></div><div className="job-detail-body">
         <section className={`filter-explanation ${selected.filter_decision?.eligible ? "eligible" : "rejected"}`}><h3>{selected.filter_decision?.eligible ? "Why ASTRA recommends this" : "Why ASTRA filtered this"}</h3>{selected.filter_decision?.reasons?.length ? selected.filter_decision.reasons.map((reason) => <div key={reason.code}><b>{reason.message}</b><blockquote>{reason.evidence}</blockquote></div>) : <p>No hard eligibility conflict was found. Ranking combines experience, technical coverage, role relevance, location and freshness.</p>}{selected.filter_decision?.technical_fit !== undefined ? <small>Technical requirement coverage: {selected.filter_decision.technical_fit}%{selected.filter_decision.missing_skills?.length ? ` · Check: ${selected.filter_decision.missing_skills.join(", ")}` : ""}</small> : null}{selected.filter_decision?.overridden ? <small>Manual correction active</small> : null}</section>
+        <section className="internet-score-card"><div><h3>Application value</h3><strong>{selected.rank_score || 0}%</strong></div><div className="score-components">{Object.entries(selected.rank_components || {}).map(([name, score]) => <span key={name}><small>{name.replace("_", " ")}</small><b>{score}%</b></span>)}</div><p><b>Sponsorship: {selected.sponsorship?.status.replaceAll("_", " ") || "unknown"}</b> · {selected.sponsorship?.reason || "No evidence available."}</p>{selected.application_policy?.cooldown_days ? <p>Company application cooldown detected: {selected.application_policy.cooldown_days} days.</p> : null}{selected.data_quality && (!selected.data_quality.valid_url || !selected.data_quality.complete_description) ? <p className="quality-warning">Document warning: {!selected.data_quality.valid_url ? "invalid application URL" : "partial description"}.</p> : null}</section>
         <section className="job-section"><h3>Complete job description</h3><div className="description-copy">{(selected.description || "Description is not available.").split("\n").filter(Boolean).map((line, index) => <p key={index}>{line}</p>)}</div></section></div><div className="job-detail-actions"><a className="button ghost" href={selected.url} target="_blank" rel="noreferrer"><ExternalLink size={15}/>Employer posting</a>{selected.filter_decision?.eligible ? <><button className="button ghost" onClick={() => feedback.mutate({ job: selected, action: "hide" })}>Hide job</button><button className="button primary" onClick={() => useJob(selected)}><Command size={15}/>Generate tailored résumé</button></> : <button className="button primary" onClick={() => feedback.mutate({ job: selected, action: "restore" })}>Filter is wrong · restore</button>}</div></> : <Empty title="Choose an internet job" copy="Review its fit score, exact eligibility evidence and complete employer description."/>}</aside>
     </div>
-    {data?.sources?.length ? <details className="source-coverage panel"><summary>Source coverage · {data.sources.filter((item) => item.ok).length} of {data.sources.length} employer feeds available</summary><div>{data.sources.map((item) => <span className={item.ok ? "source-ok" : "source-error"} key={`${item.source}-${item.company}`}><b>{item.company}</b><small>{item.ok ? `${item.jobs} matching jobs · ${item.source}` : `Unavailable · ${item.error || item.source}`}</small></span>)}</div></details> : null}
+    {data?.sources?.length ? <details className="source-coverage panel"><summary>Source health · {data.sources.filter((item) => item.ok).length} of {data.sources.length} feeds healthy</summary><div>{data.sources.map((item) => <span className={item.ok ? "source-ok" : "source-error"} key={`${item.source}-${item.company}`}><b>{item.company}</b><small>{item.ok ? `${item.jobs} matching · ${item.source}${item.cached ? " · cached" : item.duration_ms ? ` · ${item.duration_ms}ms` : ""}` : `Failure ${item.consecutive_failures || 1} · ${item.error || item.source}`}</small>{item.last_success ? <small>Last success {fmt(item.last_success)}</small> : null}</span>)}</div></details> : null}
   </div>;
 }
 

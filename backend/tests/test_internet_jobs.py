@@ -138,3 +138,33 @@ def test_wide_feed_non_engineering_ai_titles_are_excluded(monkeypatch):
                   "Applied AI Engineer, Fullstack", "Applied Scientist Intern"):
         assert internet_jobs._finish({**base, "id": title, "title": title}) is None
     assert internet_jobs._finish({**base, "id": "rs", "title": "AI Research Scientist"}) is None
+
+
+def test_role_specific_sponsorship_confidence_overrides_company_history():
+    sponsor = {"tech_lca_positions": 100}
+    unavailable = internet_jobs._sponsorship_assessment(
+        "We are unable to provide visa sponsorship for this position.", sponsor)
+    assert unavailable["status"] == "unavailable"
+    assert unavailable["confidence"] == 0
+    explicit = internet_jobs._sponsorship_assessment(
+        "Immigration sponsorship support is available for qualified candidates.", {})
+    assert explicit["status"] == "posting_supports"
+    assert internet_jobs._sponsorship_assessment("Build ML systems.", sponsor)["status"] == "strong_history"
+
+
+def test_application_value_has_explainable_components():
+    item = {"title": "Machine Learning Engineer I", "region_priority": 3,
+            "posted_at": internet_jobs._now(), "filter_decision": {
+                "eligible": True, "experience_required": 1, "technical_fit": 80,
+            }, "sponsorship": {"confidence": 80}}
+    score = internet_jobs._rank(item)
+    assert score >= 80
+    assert {"experience", "technical", "sponsorship", "freshness", "location"} <= set(item["rank_components"])
+
+
+def test_saved_search_crud(tmp_path, monkeypatch):
+    monkeypatch.setattr(internet_jobs, "SETTINGS_STORE", tmp_path / "internet-settings.json")
+    saved = internet_jobs.save_search({"name": "Bay AI", "q": "inference", "region": "Bay Area",
+                                       "category": "LLM & Inference", "minimum_score": 75})
+    assert internet_jobs.saved_searches()["items"][0]["name"] == "Bay AI"
+    assert internet_jobs.delete_search(saved["id"])["deleted"] == 1
