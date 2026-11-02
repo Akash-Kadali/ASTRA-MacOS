@@ -28,3 +28,14 @@ def test_activity_and_json_mirror_are_transactional(tmp_path: Path, monkeypatch)
     operational_store.add_activity("integrity", "repaired", "Removed one missing reference")
     assert operational_store.activities()[0]["kind"] == "integrity"
     assert operational_store.status()["snapshots"] == 1
+
+
+def test_indexed_record_sync_replaces_collection(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(operational_store, "DB_PATH", tmp_path / "astra.sqlite3")
+    assert operational_store.sync_records("application", [
+        {"id": "a", "company": "Acme", "role": "ML Engineer", "lifecycle_stage": "generated"},
+        {"id": "b", "company": "Beta", "role": "AI Engineer", "lifecycle_stage": "submitted"},
+    ]) == 2
+    assert operational_store.record_counts()["application"] == 2
+    operational_store.sync_records("application", [{"id": "b", "company": "Beta"}])
+    assert operational_store.record_counts()["application"] == 1

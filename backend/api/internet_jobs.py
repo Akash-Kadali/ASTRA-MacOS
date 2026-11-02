@@ -21,7 +21,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from lxml import html as lxml_html
 
 from backend.api import jobright
-from backend.core import config
+from backend.core import config, operational_store
 
 router = APIRouter(prefix="/api/internet-jobs", tags=["internet-jobs"])
 STORE = Path(config.DATA_DIR) / "internet_jobs.json"
@@ -670,7 +670,24 @@ def _apple(_company: str, _key: str) -> list[dict[str, Any]]:
                     "salary": []}, retain_filtered=True)
                 if item:
                     results[external] = item
-    return list(results.values())
+    def enrich(item: dict[str, Any]) -> dict[str, Any]:
+        try:
+            response = requests.get(str(item.get("url") or ""),
+                                    headers={"User-Agent": "Mozilla/5.0 ASTRA Job Discovery"}, timeout=25)
+            response.raise_for_status()
+            tree = lxml_html.fromstring(response.content)
+            nodes = tree.xpath("//main|//article")
+            text = "\n".join(x.strip() for x in (nodes[0] if nodes else tree).text_content().splitlines() if x.strip())
+            if len(text) > len(str(item.get("description") or "")):
+                item["description"] = text
+                item["description_status"] = "complete" if len(text) >= 1000 else "partial"
+                item["filter_decision"] = _assessment(str(item.get("title") or ""), str(item.get("location") or ""), text)
+                item["data_quality"] = {**dict(item.get("data_quality") or {}), "complete_description": len(text) >= 1000}
+        except Exception as exc:
+            item["detail_error"] = str(exc)[:160]
+        return item
+    with ThreadPoolExecutor(max_workers=12, thread_name_prefix="astra-apple-detail") as pool:
+        return list(pool.map(enrich, results.values()))
 
 
 def _adzuna(_company: str, _key: str) -> list[dict[str, Any]]:
@@ -740,6 +757,7 @@ def _write(items: list[dict[str, Any]], sources: list[dict[str, Any]]) -> None:
     pending = STORE.with_suffix(".tmp")
     pending.write_text(json.dumps({"updated_at": _now(), "items": items, "sources": sources}, ensure_ascii=False), encoding="utf-8")
     os.replace(pending, STORE)
+    operational_store.sync_records("internet_job", items)
 
 
 def _snapshot_store() -> str:
@@ -873,8 +891,13 @@ def refresh(force: bool = False) -> None:
                 try:
                     found = future.result()
                     items.extend(found)
+                    freshest = max((jobright._timestamp(str(x.get("updated_at") or x.get("posted_at") or "")) for x in found), default=0)
+                    incomplete = sum((x.get("data_quality") or {}).get("complete_description") is False for x in found)
+                    quality = "degraded" if found and incomplete / len(found) > .5 else "empty" if not found else "healthy"
                     health[health_key] = {"last_success": _now(), "last_failure": (health.get(health_key) or {}).get("last_failure"),
-                                          "consecutive_failures": 0, "duration_ms": duration_ms, "jobs": len(found)}
+                                          "consecutive_failures": 0, "duration_ms": duration_ms, "jobs": len(found),
+                                          "quality": quality, "incomplete_descriptions": incomplete,
+                                          "freshest_posting_at": datetime.fromtimestamp(freshest, timezone.utc).isoformat() if freshest else None}
                     source_status.append({"source": source, "company": company, "ok": True, "jobs": len(found),
                                           "duration_ms": duration_ms, **health[health_key]})
                 except Exception as exc:
@@ -931,6 +954,11 @@ def refresh(force: bool = False) -> None:
                 if saved.get("region", "all") != "all" and item.get("region") != saved.get("region"): continue
                 if saved.get("category", "all") != "all" and item.get("category") != saved.get("category"): continue
                 if int(item.get("rank_score", 0)) < int(saved.get("minimum_score", 60)): continue
+                if saved.get("sponsorship", "all") == "confirmed" and (item.get("sponsorship") or {}).get("status") != "posting_supports": continue
+                freshness = int(saved.get("freshness_days", 0) or 0)
+                if freshness and jobright._timestamp(str(item.get("updated_at") or item.get("posted_at") or "")) < time.time() - freshness * 86400: continue
+                workplace = str(saved.get("workplace") or "all").casefold()
+                if workplace != "all" and workplace not in f"{item.get('workplace_type','')} {item.get('location','')} {item.get('description','')[:800]}".casefold(): continue
                 matches.append(str(item.get("id")))
             if matches:
                 alerts.append({"id": hashlib.sha1(f"{saved.get('id')}|{_now()}".encode()).hexdigest()[:16],
@@ -1132,6 +1160,10 @@ def save_search(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     item = {"id": str(payload.get("id") or hashlib.sha1(f"{_now()}|{payload}".encode()).hexdigest()[:16]),
             "name": str(payload.get("name") or "Saved search")[:80], "q": str(payload.get("q") or "")[:160],
             "region": str(payload.get("region") or "all"), "category": str(payload.get("category") or "all"),
+            "company_tier": str(payload.get("company_tier") or "all"),
+            "sponsorship": str(payload.get("sponsorship") or "all"),
+            "freshness_days": max(0, min(365, int(payload.get("freshness_days", 0)))),
+            "workplace": str(payload.get("workplace") or "all"),
             "minimum_score": max(0, min(100, int(payload.get("minimum_score", 60)))), "created_at": _now()}
     searches = [x for x in value.get("saved_searches", []) if str(x.get("id")) != item["id"]]
     searches.append(item)

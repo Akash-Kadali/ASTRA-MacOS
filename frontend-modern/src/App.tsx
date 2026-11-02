@@ -68,6 +68,8 @@ type Application = {
   company: string;
   role: string;
   status: string;
+  lifecycle_stage?: "generated" | "prepared" | "submitted";
+  generated_at?: string;
   applied_at?: string;
   call_at?: string;
   interview_at?: string;
@@ -87,6 +89,9 @@ type ApplicationsResponse = {
   limit: number;
   stats: {
     total: number;
+    generated: number;
+    prepared: number;
+    submitted: number;
     companies: number;
     calls: number;
     interviews: number;
@@ -1704,6 +1709,7 @@ function Applications() {
   });
   const [query, setQuery] = useState(focus.company || "");
   const [status, setStatus] = useState("all");
+  const [lifecycle, setLifecycle] = useState("all");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<Application | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -1714,10 +1720,10 @@ function Applications() {
   const limit = 50;
   useEffect(() => localStorage.setItem("astra-app-view", display), [display]);
   const result = useQuery({
-    queryKey: ["applications", query, status, page],
+    queryKey: ["applications", query, status, lifecycle, page],
     queryFn: () =>
       api<ApplicationsResponse>(
-        `/api/applications?limit=${limit}&page=${page}&q=${encodeURIComponent(query)}&status=${status}`,
+        `/api/applications?limit=${limit}&page=${page}&q=${encodeURIComponent(query)}&status=${status}&lifecycle=${lifecycle}`,
       ),
     placeholderData: (previous) => previous,
   });
@@ -1799,7 +1805,9 @@ function Applications() {
       />
       <div className="metrics">
         {[
-          ["Applications", data?.stats.total],
+          ["Generated", data?.stats.generated],
+          ["Prepared", data?.stats.prepared],
+          ["Submitted", data?.stats.submitted],
           ["Companies", data?.stats.companies],
           ["Recruiter calls", data?.stats.calls],
           ["Interviews", data?.stats.interviews],
@@ -1826,6 +1834,15 @@ function Applications() {
               placeholder="Search company or role"
             />
           </label>
+          <select
+            value={lifecycle}
+            onChange={(e) => { setLifecycle(e.target.value); setPage(1); }}
+          >
+            <option value="all">All lifecycle stages</option>
+            <option value="generated">Résumé generated</option>
+            <option value="prepared">Application prepared</option>
+            <option value="submitted">Confirmed submitted</option>
+          </select>
           <select
             value={status}
             onChange={(e) => {
@@ -2419,6 +2436,7 @@ function Genie() {
   const overdue = (archive.data || []).filter(
     (x) =>
       x.follow_up_at &&
+      x.lifecycle_stage === "submitted" &&
       new Date(x.follow_up_at).getTime() < today &&
       !["offer", "rejected", "withdrawn"].includes(x.status),
   );
@@ -2510,8 +2528,8 @@ function Genie() {
           ) : (
             <div className="pulse">
               <div>
-                <strong>{data?.stats.total.toLocaleString() || "0"}</strong>
-                <span>Applications</span>
+                <strong>{data?.stats.submitted.toLocaleString() || "0"}</strong>
+                <span>Submitted</span>
               </div>
               <div>
                 <strong>{data?.stats.calls.toLocaleString() || "0"}</strong>
@@ -2536,7 +2554,9 @@ function Genie() {
           </div>
           <div className="funnel">
             {[
-              ["Applied", data?.stats.status_counts?.applied || 0],
+              ["Generated", data?.stats.generated || 0],
+              ["Prepared", data?.stats.prepared || 0],
+              ["Submitted", data?.stats.submitted || 0],
               ["Recruiter calls", data?.stats.calls || 0],
               ["Interviews", data?.stats.interviews || 0],
               ["Offers", data?.stats.offers || 0],
@@ -3097,12 +3117,13 @@ function InternetJobs() {
   });
   const savedSearches = useQuery({
     queryKey: ["internet-saved-searches"],
-    queryFn: () => api<{ items: { id: string; name: string; q: string; region: string; category: string; minimum_score: number }[]; alerts: { id: string; name: string; count: number }[] }>("/api/internet-jobs/saved-searches"),
+    queryFn: () => api<{ items: { id: string; name: string; q: string; region: string; category: string; company_tier?: "all" | "major"; sponsorship?: string; freshness_days?: number; workplace?: string; minimum_score: number }[]; alerts: { id: string; name: string; count: number }[] }>("/api/internet-jobs/saved-searches"),
   });
   const saveCurrentSearch = useMutation({
     mutationFn: () => api("/api/internet-jobs/saved-searches", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
       name: query || `${category === "all" ? "All related roles" : category} · ${region === "all" ? "USA" : region}`,
-      q: query, region, category, minimum_score: discoverySettings.data?.minimum_score || 60,
+      q: query, region, category, company_tier: companyTier, sponsorship, freshness_days: freshness, workplace,
+      minimum_score: discoverySettings.data?.minimum_score || 60,
     }) }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["internet-saved-searches"] }); notify("Search and new-job alert saved"); },
     onError: (error) => notify(error.message, "error"),
@@ -3179,7 +3200,7 @@ function InternetJobs() {
       <select value={workplace} onChange={(event) => setWorkplace(event.target.value)}><option value="all">Any workplace</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">Onsite</option></select>
       <button className="button ghost" onClick={() => saveCurrentSearch.mutate()}>Save search</button>
     </div>
-    {(savedSearches.data?.items.length || savedSearches.data?.alerts.length) ? <div className="saved-search-row"><b>Saved alerts</b>{savedSearches.data?.alerts.map((alert) => <span className="new-alert" key={alert.id}>{alert.name} · {alert.count} new</span>)}{savedSearches.data?.items.map((saved) => <span key={saved.id}><button onClick={() => { setQuery(saved.q); setRegion(saved.region); setCategory(saved.category); }}>{saved.name}</button><button aria-label={`Delete ${saved.name}`} onClick={() => deleteSavedSearch.mutate(saved.id)}>×</button></span>)}</div> : null}
+    {(savedSearches.data?.items.length || savedSearches.data?.alerts.length) ? <div className="saved-search-row"><b>Saved alerts</b>{savedSearches.data?.alerts.map((alert) => <span className="new-alert" key={alert.id}>{alert.name} · {alert.count} new</span>)}{savedSearches.data?.items.map((saved) => <span key={saved.id}><button onClick={() => { setQuery(saved.q); setRegion(saved.region); setCategory(saved.category); setCompanyTier(saved.company_tier || "all"); setSponsorship(saved.sponsorship || "all"); setFreshness(saved.freshness_days || 0); setWorkplace(saved.workplace || "all"); }}>{saved.name}</button><button aria-label={`Delete ${saved.name}`} onClick={() => deleteSavedSearch.mutate(saved.id)}>×</button></span>)}</div> : null}
     <div className="internet-view-tabs">
       <button className={view === "eligible" ? "active" : ""} onClick={() => { setView("eligible"); setSelected(null); }}>Recommended <span>{data?.eligible_total || 0}</span></button>
       <button className={view === "filtered" ? "active" : ""} onClick={() => { setView("filtered"); setSelected(null); }}>Filtered with reasons <span>{data?.filtered_total || 0}</span></button>

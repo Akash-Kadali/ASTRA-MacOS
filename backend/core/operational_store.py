@@ -11,7 +11,7 @@ from typing import Any
 from backend.core import config
 
 DB_PATH = Path(config.DATA_DIR) / "astra.sqlite3"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _LOCK = threading.RLock()
 
 
@@ -64,13 +64,55 @@ def initialize() -> None:
                 source_mtime_ns INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS records (
+                kind TEXT NOT NULL,
+                record_id TEXT NOT NULL,
+                company TEXT NOT NULL DEFAULT '',
+                role TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                PRIMARY KEY(kind, record_id)
+            );
             CREATE INDEX IF NOT EXISTS idx_activity_created ON activity(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_activity_job ON activity(job_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_records_company_role ON records(kind, company, role);
+            CREATE INDEX IF NOT EXISTS idx_records_status ON records(kind, status, updated_at DESC);
             """
         )
         current = db.execute("SELECT MAX(version) AS version FROM schema_meta").fetchone()["version"]
         if not current:
             db.execute("INSERT INTO schema_meta(version, applied_at) VALUES (?, ?)", (SCHEMA_VERSION, _now()))
+        elif current < SCHEMA_VERSION:
+            db.execute("INSERT INTO schema_meta(version, applied_at) VALUES (?, ?)", (SCHEMA_VERSION, _now()))
+
+
+def sync_records(kind: str, records: list[dict[str, Any]]) -> int:
+    """Transactionally replace one indexed entity collection."""
+    initialize()
+    rows = []
+    for item in records:
+        record_id = str(item.get("id") or item.get("external_id") or "").strip()
+        if not record_id:
+            continue
+        rows.append((kind, record_id, str(item.get("company") or ""),
+                     str(item.get("role") or item.get("title") or ""),
+                     str(item.get("lifecycle_stage") or item.get("status") or ""),
+                     str(item.get("updated_at") or _now()), json.dumps(item, ensure_ascii=False)))
+    with _LOCK, _connect() as db:
+        db.execute("DELETE FROM records WHERE kind=?", (kind,))
+        db.executemany(
+            "INSERT INTO records(kind,record_id,company,role,status,updated_at,payload) VALUES(?,?,?,?,?,?,?)",
+            rows,
+        )
+    return len(rows)
+
+
+def record_counts() -> dict[str, int]:
+    initialize()
+    with _connect() as db:
+        return {str(row["kind"]): int(row["count"]) for row in db.execute(
+            "SELECT kind, COUNT(*) AS count FROM records GROUP BY kind").fetchall()}
 
 
 def save_checkpoint(job_id: str, **values: Any) -> dict[str, Any]:
@@ -182,6 +224,7 @@ def status() -> dict[str, Any]:
             "checkpoints": db.execute("SELECT COUNT(*) FROM checkpoints").fetchone()[0],
             "activity_events": db.execute("SELECT COUNT(*) FROM activity").fetchone()[0],
             "snapshots": db.execute("SELECT COUNT(*) FROM json_snapshots").fetchone()[0],
+            "records": record_counts(),
         }
 
 

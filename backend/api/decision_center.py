@@ -134,6 +134,7 @@ def _application_candidates() -> list[dict[str, Any]]:
             "role": jobright._normalized_role(app.get("role", "")),
             "role_tokens": set(jobright._normalized_role(app.get("role", "")).split()),
             "jd_tokens": jobright._text_tokens(app.get("jd_text", "")),
+            "requisition": re.sub(r"\W+", "", str(app.get("requisition_id") or "")).casefold(),
         })
     _APP_CACHE_STAMP, _APP_CACHE = stamp, result
     return result
@@ -147,20 +148,22 @@ def _best_application_match(job: dict[str, Any]) -> dict[str, Any] | None:
     job_role = jobright._normalized_role(job.get("title", ""))
     job_role_tokens = set(job_role.split())
     job_jd_tokens = jobright._text_tokens(job.get("description", ""))
+    job_requisition = re.sub(r"\W+", "", str(job.get("requisition_id") or job.get("external_id") or "")).casefold()
     for candidate in _application_candidates():
         app, pdfs = candidate["app"], candidate["pdfs"]
         app_url = candidate["url"]
         url_match = bool(app_url and app_url in urls)
+        requisition_match = bool(job_requisition and candidate["requisition"] and job_requisition == candidate["requisition"])
         company_score = 1.0 if job_company == candidate["company"] else (0.85 if jobright._company_match(job_company, candidate["company"]) else 0.0)
         # Avoid expensive role/JD similarity work for unrelated companies.
         # This is material with the 300-employer internet feed and large local
         # application libraries, while exact requisition URLs still bypass it.
-        if not url_match and company_score == 0:
+        if not url_match and not requisition_match and company_score == 0:
             continue
         role_score = len(job_role_tokens & candidate["role_tokens"]) / max(1, len(job_role_tokens | candidate["role_tokens"]))
         jd_score = (len(job_jd_tokens & candidate["jd_tokens"]) / min(len(job_jd_tokens), len(candidate["jd_tokens"]))) if job_jd_tokens and candidate["jd_tokens"] else 0.0
-        score = 1.0 if url_match else (0.40 * company_score + 0.35 * role_score + 0.25 * jd_score)
-        is_match = url_match or (company_score > 0 and jobright._role_match(
+        score = 1.0 if (url_match or requisition_match) else (0.40 * company_score + 0.35 * role_score + 0.25 * jd_score)
+        is_match = url_match or requisition_match or (company_score > 0 and jobright._role_match(
             job_role, candidate["role"])) or (
             company_score > 0 and jd_score >= 0.85)
         if is_match and score > best_score:
@@ -173,7 +176,7 @@ def _best_application_match(job: dict[str, Any]) -> dict[str, Any] | None:
                 "role_similarity": round(role_score * 100),
                 "jd_similarity": round(jd_score * 100),
                 "confidence": round(score * 100),
-                "reason": "Exact requisition URL" if url_match else (
+                "reason": "Exact requisition URL" if url_match else "Exact requisition ID" if requisition_match else (
                     "Same company and highly similar job description" if jd_score >= 0.85 else
                     "Matching company and role in résumé library"),
             }
@@ -194,6 +197,15 @@ def _qualification_evidence(job: dict[str, Any]) -> list[str]:
 
 def _eligibility(job: dict[str, Any]) -> dict[str, Any]:
     evidence = _qualification_evidence(job)
+    # Internet Jobs and Jobright must produce the same hard eligibility result.
+    from backend.api import internet_jobs
+    shared = internet_jobs._assessment(str(job.get("title") or ""), str(job.get("location") or "United States"),
+                                       str(job.get("description") or job.get("card_text") or ""))
+    if not shared.get("eligible"):
+        return {"status": "not_eligible", "score": 0,
+                "reasons": [str(x.get("message") or x.get("code")) for x in shared.get("reasons", [])],
+                "evidence": [str(x.get("evidence") or "") for x in shared.get("reasons", []) if x.get("evidence")],
+                "experience_required": shared.get("experience_required", 0), "engine": "shared-v2"}
     reasons: list[str] = []
     profile = jobright_agent.settings().get("profile", {})
     years_experience = int(re.search(r"\d+", str(profile.get("years_experience") or "2")).group(0))
@@ -227,7 +239,8 @@ def _eligibility(job: dict[str, Any]) -> dict[str, Any]:
         return {"status": "not_eligible", "score": 0, "reasons": reasons, "evidence": evidence}
     if len(str(job.get("description") or "")) < 300:
         return {"status": "possibly_eligible", "score": 50, "reasons": ["Full qualifications have not been loaded yet."], "evidence": evidence}
-    return {"status": "eligible", "score": 100, "reasons": ["No saved-profile eligibility conflicts were found."], "evidence": evidence}
+    return {"status": "eligible", "score": 100, "reasons": ["No saved-profile eligibility conflicts were found."], "evidence": evidence,
+            "experience_required": shared.get("experience_required", 0), "engine": "shared-v2"}
 
 
 def _decorate(job: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
@@ -267,7 +280,9 @@ def _group_duplicate_jobs(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     by_key: dict[str, dict[str, Any]] = {}
     for item in items:
         url = jobright._normalized_url(item.get("application_url") or item.get("url") or "")
-        key = f"url:{url}" if url else "text:" + "|".join((
+        requisition = re.sub(r"\W+", "", str(item.get("requisition_id") or item.get("external_id") or "")).casefold()
+        company = jobright._normalized_name(str(item.get("company", "")))
+        key = f"req:{company}:{requisition}" if requisition else f"url:{url}" if url else "text:" + "|".join((
             jobright._normalized_name(str(item.get("company", ""))),
             jobright._normalized_role(str(item.get("title", ""))),
             jobright._normalized_name(str(item.get("location", ""))),
@@ -306,7 +321,7 @@ def list_decisions(
             "saved_views": state.get("saved_views", [])}
 
 
-def _record_application(job: dict[str, Any], status: str = "applied", confirmation: dict[str, Any] | None = None) -> str:
+def _record_application(job: dict[str, Any], status: str = "submitted", confirmation: dict[str, Any] | None = None) -> str:
     confirmation = confirmation or {}
     with applications._LOCK:
         store = applications._load()
@@ -314,7 +329,8 @@ def _record_application(job: dict[str, Any], status: str = "applied", confirmati
         existing = store["applications"].get(app_id, {})
         store["applications"][app_id] = {
             **existing, "id": app_id, "company": job.get("company", ""), "role": job.get("title", ""),
-            "status": status, "applied_at": str(confirmation.get("submitted_at") or existing.get("applied_at") or _now()),
+            "status": status, "lifecycle_stage": "submitted",
+            "applied_at": str(confirmation.get("submitted_at") or existing.get("applied_at") or _now()),
             "applied_date_source": "Decision Centre confirmation", "source": "Jobright",
             "job_url": job.get("application_url") or job.get("url") or "",
             "requisition_id": str(confirmation.get("requisition_id") or existing.get("requisition_id") or ""),
@@ -644,6 +660,8 @@ def analytics() -> dict[str, Any]:
         by_source[source] = by_source.get(source, 0) + 1
         role = jobright._classify_role(str(app.get("role") or ""))[0]
         by_role[role] = by_role.get(role, 0) + 1
+        if applications._normalize_lifecycle(app) != "submitted":
+            continue
         status = str(app.get("status") or "").casefold()
         for name in outcomes:
             if name in status:
@@ -659,7 +677,8 @@ def analytics() -> dict[str, Any]:
                 record["applications"] += 1
                 record["responses"] += int(any(x in status for x in ("recruiter", "assessment", "interview", "offer")))
                 record["interviews"] += int(any(x in status for x in ("interview", "offer")))
-    total = max(1, len(apps))
+    submitted_apps = [app for app in apps if applications._normalize_lifecycle(app) == "submitted"]
+    total = max(1, len(submitted_apps))
     return {"stats": stats, "by_source": by_source, "by_role": by_role, "outcomes": outcomes,
             "response_rate": round(100 * sum(outcomes[x] for x in ("recruiter", "assessment", "interview", "offer")) / total, 1),
             "interview_rate": round(100 * (outcomes["interview"] + outcomes["offer"]) / total, 1),
@@ -678,6 +697,8 @@ def followups_due(days: int = Query(6, ge=1, le=30)) -> dict[str, Any]:
     now = datetime.now(timezone.utc).timestamp()
     items = []
     for app in applications._load().get("applications", {}).values():
+        if applications._normalize_lifecycle(app) != "submitted":
+            continue
         applied = jobright._timestamp(str(app.get("applied_at") or ""))
         status = str(app.get("status") or "").casefold()
         if applied and now - applied >= days * 86400 and not any(x in status for x in ("interview", "offer", "rejected")):

@@ -12,6 +12,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 from fastapi import APIRouter, Body, HTTPException
@@ -56,6 +57,31 @@ DEFAULTS: dict[str, Any] = {
         "education": [],
     },
 }
+
+TRUSTED_ATS_SUFFIXES = (
+    "greenhouse.io", "lever.co", "ashbyhq.com", "myworkdayjobs.com", "workdayjobs.com",
+    "icims.com", "smartrecruiters.com", "oraclecloud.com", "successfactors.com", "amazon.jobs",
+    "apple.com", "google.com", "microsoft.com", "nvidia.com", "jobright.ai",
+)
+
+
+def _trusted_application_url(url: str) -> bool:
+    host = (urlparse(url).hostname or "").casefold().strip(".")
+    return bool(host and urlparse(url).scheme == "https" and any(host == suffix or host.endswith("." + suffix) for suffix in TRUSTED_ATS_SUFFIXES))
+
+
+def _already_submitted(job: dict[str, Any]) -> bool:
+    company = jobright._normalized_name(str(job.get("company") or ""))
+    role = jobright._normalized_role(str(job.get("title") or ""))
+    url = jobright._normalized_url(str(job.get("application_url") or job.get("url") or ""))
+    for app in applications._load().get("applications", {}).values():
+        if applications._normalize_lifecycle(app) != "submitted":
+            continue
+        if url and url == jobright._normalized_url(str(app.get("job_url") or "")):
+            return True
+        if jobright._company_match(company, str(app.get("company") or "")) and jobright._role_match(role, str(app.get("role") or "")):
+            return True
+    return False
 
 HIREX_APPLICATION_STYLE = """Answer this job application question using only facts in the resume,
 saved candidate profile, and job description. Use simple, natural Indian English at approximately
@@ -353,10 +379,16 @@ def _apply(job: dict[str, Any], resume: Path, cfg: dict[str, Any], browser_conte
     completed_fields: list[str] = []
     generated_answers: dict[str, str] = {}
     try:
+        if not _trusted_application_url(str(job.get("application_url") or "")):
+            return "needs_attention", "Application domain is not on ASTRA's trusted ATS allowlist.", {
+                "completed_fields": [], "unanswered_fields": ["Untrusted application domain"], "answers": {}}
         page.goto(job["application_url"], wait_until="domcontentloaded", timeout=120000)
         page.wait_for_timeout(3500)
         for node in page.locator('input:not([type=hidden]), textarea').all():
             try:
+                if _stop.is_set():
+                    return "stopped", "Application preparation stopped by user.", {"completed_fields": completed_fields,
+                        "unanswered_fields": [], "answers": generated_answers}
                 if not node.is_visible() or node.is_disabled():
                     continue
                 kind = (node.get_attribute("type") or "text").lower()
@@ -364,6 +396,9 @@ def _apply(job: dict[str, Any], resume: Path, cfg: dict[str, Any], browser_conte
                     continue
                 if kind == "file":
                     node.set_input_files(str(resume))
+                    uploaded = node.evaluate("el => el.files ? [...el.files].map(f => f.name) : []")
+                    if resume.name not in uploaded:
+                        raise RuntimeError("Résumé upload could not be verified")
                     completed_fields.append(_question_for(node) or "Résumé upload")
                     continue
                 if kind in {"checkbox", "radio", "submit", "button"} or node.input_value().strip():
@@ -484,12 +519,21 @@ def run_agent(target_job_id: str | None = None, dry_run: bool = False) -> None:
                     attempted += 1
                     _runtime.update(current_job=job.get("title", ""), message=f"Preparing {job.get('company')}")
                     try:
+                        if _already_submitted(job):
+                            _event(job, "skipped_duplicate", "A confirmed submission already matches this company, role or requisition URL.")
+                            continue
                         _event(job, "preparing", "Loading the full job description.")
                         job = _ensure_description(job, browser_context)
                         resume = _generate_resume(job)
                         _event(job, "applying", "Opening employer application and attaching tailored résumé.")
                         evidence = DRY_RUNS / f"{job['id']}.png" if dry_run else None
                         status, message, review = _apply(job, resume, cfg, browser_context, evidence)
+                        if status == "ready_to_submit":
+                            applications.mark_lifecycle(str(job.get("company") or ""), str(job.get("title") or ""),
+                                                        "prepared", str(job.get("application_url") or ""))
+                        elif status == "applied":
+                            applications.mark_lifecycle(str(job.get("company") or ""), str(job.get("title") or ""),
+                                                        "submitted", str(job.get("application_url") or ""))
                         _event(job, status, message, **review,
                                **({"evidence_path": str(evidence)} if evidence else {}))
                         if status == "applied":

@@ -22,6 +22,8 @@ def test_archive_scan_deduplicates_and_tracks_dates(tmp_path: Path, monkeypatch)
     listing = client.get("/api/applications", params={"limit": 10}).json()
     assert listing["total"] == 1
     assert listing["items"][0]["company"] == "Acme"
+    assert listing["items"][0]["lifecycle_stage"] == "generated"
+    assert listing["items"][0]["applied_at"] is None
     assert len(listing["items"][0]["files"]) == 2
 
     app_id = listing["items"][0]["id"]
@@ -68,3 +70,28 @@ def test_generated_jobright_resume_keeps_exact_job_url(tmp_path: Path, monkeypat
     record = next(iter(applications._load()["applications"].values()))
     assert record["job_url"] == "https://jobs.example.com/acme/ml-engineer"
     assert record["source"] == "Jobright"
+    assert record["lifecycle_stage"] == "generated"
+
+
+def test_only_confirmation_promotes_to_submitted(tmp_path: Path, monkeypatch):
+    resume = tmp_path / "resume.pdf"
+    resume.write_bytes(b"%PDF")
+    monkeypatch.setattr(applications, "STORE_PATH", tmp_path / "tracker.json")
+    applications.record_generated("Acme", "ML Engineer", resume)
+    record = next(iter(applications._load()["applications"].values()))
+    assert record["lifecycle_stage"] == "generated"
+    import asyncio
+    submitted = asyncio.run(applications.update_application(record["id"], {"status": "submitted"}))
+    assert submitted["lifecycle_stage"] == "submitted"
+    assert submitted["applied_at"]
+
+
+def test_unconfirmed_outcomes_do_not_corrupt_response_rate():
+    items = [
+        {"id": "generated", "status": "applied", "applied_date_source": "file-created date", "call_at": "2026-01-01"},
+        {"id": "submitted", "status": "submitted", "lifecycle_stage": "submitted", "call_at": "2026-01-02"},
+    ]
+    stats = applications._stats(items)
+    assert stats["submitted"] == 1
+    assert stats["calls"] == 1
+    assert stats["response_rate"] == 100.0

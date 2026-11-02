@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import Response
 
-from backend.core import config
+from backend.core import config, operational_store
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 
@@ -24,7 +24,7 @@ STORE_PATH = Path(config.DATA_DIR) / "application_tracker.json"
 _LOCK = threading.RLock()
 _ALLOWED_SUFFIXES = {".pdf"}
 STATUSES = (
-    "saved", "applied", "recruiter_call", "interview",
+    "generated", "prepared", "submitted", "saved", "applied", "recruiter_call", "interview",
     "offer", "rejected", "withdrawn",
 )
 
@@ -66,6 +66,8 @@ def _load() -> Dict[str, Any]:
     try:
         data = json.loads(STORE_PATH.read_text(encoding="utf-8"))
         if isinstance(data, dict) and isinstance(data.get("applications"), dict):
+            for app in data["applications"].values():
+                _normalize_lifecycle(app)
             return data
     except Exception:
         pass
@@ -78,6 +80,25 @@ def _save(data: Dict[str, Any]) -> None:
     pending = STORE_PATH.with_suffix(".tmp")
     pending.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(pending, STORE_PATH)
+    operational_store.sync_records("application", list(data.get("applications", {}).values()))
+
+
+def _normalize_lifecycle(app: Dict[str, Any]) -> str:
+    stage = str(app.get("lifecycle_stage") or "").casefold()
+    if stage in {"generated", "prepared", "submitted"}:
+        return stage
+    status = str(app.get("status") or "").casefold()
+    source = str(app.get("applied_date_source") or "").casefold()
+    if status in {"recruiter_call", "interview", "offer", "rejected", "withdrawn", "submitted"}:
+        stage = "submitted"
+    elif status == "applied" and source not in {"file-created date", "not confirmed", ""}:
+        stage = "submitted"
+    elif status == "prepared":
+        stage = "prepared"
+    else:
+        stage = "generated"
+    app["lifecycle_stage"] = stage
+    return stage
 
 
 def _key(company: str, role: str) -> str:
@@ -191,9 +212,11 @@ def scan_archive() -> Dict[str, Any]:
                         "id": app_id,
                         "company": existing.get("company") or parsed["company"],
                         "role": existing.get("role") or parsed["role"],
-                        "status": existing.get("status") or "applied",
-                        "applied_at": existing.get("applied_at") or first_seen,
-                        "applied_date_source": existing.get("applied_date_source") or "file-created date",
+                        "status": existing.get("status") or "generated",
+                        "lifecycle_stage": _normalize_lifecycle(existing) if existing else "generated",
+                        "generated_at": existing.get("generated_at") or first_seen,
+                        "applied_at": existing.get("applied_at"),
+                        "applied_date_source": existing.get("applied_date_source") or "not confirmed",
                         "call_at": existing.get("call_at"),
                         "interview_at": existing.get("interview_at"),
                         "offer_at": existing.get("offer_at"),
@@ -242,7 +265,9 @@ def record_generated(company: str, role: str, resume_path: Path, job_url: str = 
             }
         store["applications"][app_id] = {
             "id": app_id, "company": company.strip(), "role": role.strip(),
-            "status": existing.get("status") or "saved",
+            "status": existing.get("status") or "generated",
+            "lifecycle_stage": existing.get("lifecycle_stage") or "generated",
+            "generated_at": existing.get("generated_at") or created_at,
             "applied_at": existing.get("applied_at"),
             "applied_date_source": existing.get("applied_date_source") or "not confirmed",
             "call_at": existing.get("call_at"), "interview_at": existing.get("interview_at"),
@@ -254,6 +279,28 @@ def record_generated(company: str, role: str, resume_path: Path, job_url: str = 
             "first_seen_at": existing.get("first_seen_at") or created_at, "updated_at": _now(),
         }
         _save(store)
+
+
+def mark_lifecycle(company: str, role: str, stage: str, job_url: str = "") -> bool:
+    if stage not in {"generated", "prepared", "submitted"}:
+        raise ValueError("Invalid application lifecycle stage")
+    with _LOCK:
+        store = _load()
+        app = store.get("applications", {}).get(_key(company, role))
+        if not app:
+            return False
+        app["lifecycle_stage"] = stage
+        if stage == "prepared" and app.get("status") in {"saved", "generated", "applied"}:
+            app["status"] = "prepared"
+        if stage == "submitted":
+            app["status"] = "submitted"
+            app["applied_at"] = app.get("applied_at") or _now()
+            app["applied_date_source"] = "agent confirmation"
+        if job_url:
+            app["job_url"] = job_url
+        app["updated_at"] = _now()
+        _save(store)
+        return True
 
 
 def resolve_job_description(app: Dict[str, Any]) -> str:
@@ -306,18 +353,24 @@ def _stats(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         status = app.get("status", "applied")
         counts[status] = counts.get(status, 0) + 1
         companies.add(str(app.get("company", "")).casefold())
-        calls += bool(app.get("call_at"))
-        interviews += bool(app.get("interview_at"))
-        offers += bool(app.get("offer_at"))
+        if _normalize_lifecycle(app) == "submitted":
+            calls += bool(app.get("call_at"))
+            interviews += bool(app.get("interview_at"))
+            offers += bool(app.get("offer_at"))
+    submitted_items = [app for app in items if _normalize_lifecycle(app) == "submitted"]
     total = len(items)
+    submitted = len(submitted_items)
     return {
         "total": total,
+        "generated": sum(_normalize_lifecycle(app) == "generated" for app in items),
+        "prepared": sum(_normalize_lifecycle(app) == "prepared" for app in items),
+        "submitted": submitted,
         "companies": len(companies - {""}),
         "calls": calls,
         "interviews": interviews,
         "offers": offers,
-        "response_rate": round((calls / total * 100), 1) if total else 0,
-        "interview_rate": round((interviews / total * 100), 1) if total else 0,
+        "response_rate": round((calls / submitted * 100), 1) if submitted else 0,
+        "interview_rate": round((interviews / submitted * 100), 1) if submitted else 0,
         "status_counts": counts,
     }
 
@@ -331,6 +384,7 @@ async def scan_applications():
 @router.get("/")
 async def list_applications(
     q: str = Query(""), status: str = Query("all"),
+    lifecycle: str = Query("all"),
     page: int = Query(1, ge=1), limit: int = Query(50, ge=1, le=250),
 ):
     with _LOCK:
@@ -342,6 +396,8 @@ async def list_applications(
     all_items = list(store["applications"].values())
     needle = q.strip().casefold()
     items = [a for a in all_items if (status == "all" or a.get("status") == status)]
+    if lifecycle != "all":
+        items = [a for a in items if _normalize_lifecycle(a) == lifecycle]
     if needle:
         items = [a for a in items if needle in f"{a.get('company','')} {a.get('role','')} {a.get('notes','')}".casefold()]
     items.sort(key=lambda a: a.get("applied_at") or a.get("first_seen_at") or "", reverse=True)
@@ -349,7 +405,7 @@ async def list_applications(
     return {
         "items": items[start:start + limit], "total": len(items), "page": page,
         "limit": limit, "stats": _stats(all_items), "last_scan_at": store.get("last_scan_at"),
-        "statuses": list(STATUSES),
+        "statuses": list(STATUSES), "lifecycles": ["generated", "prepared", "submitted"],
     }
 
 
@@ -372,6 +428,11 @@ async def bulk_update_applications(payload: Dict[str, Any] = Body(...)):
             for key, value in patch.items():
                 if key in allowed:
                     app[key] = value
+            if patch.get("status") in {"applied", "submitted", "recruiter_call", "interview", "offer", "rejected", "withdrawn"}:
+                app["lifecycle_stage"] = "submitted"
+                app["applied_at"] = app.get("applied_at") or _now()
+            elif patch.get("status") == "prepared":
+                app["lifecycle_stage"] = "prepared"
             app["updated_at"] = _now()
             updated.append(application_id)
         _save(store)
@@ -394,6 +455,12 @@ async def update_application(application_id: str, patch: Dict[str, Any] = Body(.
         for key, value in patch.items():
             if key in allowed:
                 app[key] = value
+        if patch.get("status") in {"applied", "submitted", "recruiter_call", "interview", "offer", "rejected", "withdrawn"}:
+            app["lifecycle_stage"] = "submitted"
+            app["applied_at"] = app.get("applied_at") or _now()
+            app["applied_date_source"] = app.get("applied_date_source") if app.get("applied_date_source") not in {"", "not confirmed", "file-created date", None} else "status confirmation"
+        elif patch.get("status") == "prepared":
+            app["lifecycle_stage"] = "prepared"
         if "applied_at" in patch:
             app["applied_date_source"] = "manual"
         app["updated_at"] = _now()
@@ -428,6 +495,9 @@ async def add_application_timeline_event(application_id: str, payload: Dict[str,
         if not app:
             raise HTTPException(404, "Application not found")
         app.setdefault("timeline", []).insert(0, event)
+        if event_type == "applied":
+            app.update(status="submitted", lifecycle_stage="submitted", applied_at=event["at"],
+                       applied_date_source="timeline confirmation")
         app["updated_at"] = _now()
         _save(store)
     return event

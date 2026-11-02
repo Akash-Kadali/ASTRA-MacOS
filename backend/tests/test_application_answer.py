@@ -5,6 +5,13 @@ import asyncio
 from backend.api import jobright_agent, talk
 
 
+def test_agent_domain_allowlist_requires_https_and_known_ats():
+    assert jobright_agent._trusted_application_url("https://boards.greenhouse.io/acme/jobs/1")
+    assert jobright_agent._trusted_application_url("https://jobs.apple.com/en-us/details/1")
+    assert not jobright_agent._trusted_application_url("http://boards.greenhouse.io/acme/jobs/1")
+    assert not jobright_agent._trusted_application_url("https://example.invalid/apply")
+
+
 def test_talk_application_answer_is_grounded_then_superhuman(monkeypatch):
     calls = []
 
