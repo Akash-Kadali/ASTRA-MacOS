@@ -33,6 +33,9 @@ test("internet jobs shows direct employer results and filters", async ({ page })
   await expect(page.getByRole("button", { name: /Filtered with reasons/ })).toBeVisible();
   await expect(page.locator(".internet-filters select").first()).toContainText("All USA");
   await expect(page.locator(".job-list > button").first()).toBeVisible();
+  await page.getByRole("button", { name: "Big Tech only" }).click();
+  await expect(page.getByRole("button", { name: "Big Tech only ✓" })).toBeVisible();
+  await expect(page.locator(".job-list > button").first()).toBeVisible();
   await page.getByRole("button", { name: "View all 300 companies" }).click();
   await expect(page.getByText("Google LLC", { exact: true })).toBeVisible();
   await expect(page.getByText("Microsoft Corporation", { exact: true })).toBeVisible();

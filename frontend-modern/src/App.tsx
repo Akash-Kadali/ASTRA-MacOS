@@ -3051,14 +3051,15 @@ function InternetJobs() {
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("all");
   const [category, setCategory] = useState("all");
+  const [companyTier, setCompanyTier] = useState<"all" | "major">("all");
   const [view, setView] = useState<"eligible" | "filtered" | "all">("eligible");
   const [companiesOpen, setCompaniesOpen] = useState(false);
   const [companyQuery, setCompanyQuery] = useState("");
   const [selected, setSelected] = useState<InternetJob | null>(null);
   const qc = useQueryClient();
   const jobs = useQuery({
-    queryKey: ["internet-jobs", query, region, category, view],
-    queryFn: () => api<InternetJobsResponse>(`/api/internet-jobs?q=${encodeURIComponent(query)}&region=${encodeURIComponent(region)}&category=${encodeURIComponent(category)}&view=${view}&hide_applied=${view === "eligible"}&limit=2000`),
+    queryKey: ["internet-jobs", query, region, category, companyTier, view],
+    queryFn: () => api<InternetJobsResponse>(`/api/internet-jobs?q=${encodeURIComponent(query)}&region=${encodeURIComponent(region)}&category=${encodeURIComponent(category)}&company_tier=${companyTier}&view=${view}&hide_applied=${view === "eligible"}&limit=2000`),
     refetchInterval: (result) => result.state.data?.runtime.running ? 1500 : 30000,
   });
   const refresh = useMutation({
@@ -3156,6 +3157,7 @@ function InternetJobs() {
       <label className="search"><Search size={17}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, company, skill or job description"/></label>
       <select value={region} onChange={(event) => { setRegion(event.target.value); setSelected(null); }}><option value="all">All USA · Bay Area first</option><option value="Bay Area">Bay Area only</option><option value="California">California only</option><option value="United States">Other USA</option></select>
       <select value={category} onChange={(event) => { setCategory(event.target.value); setSelected(null); }}>{categories.map((item) => <option value={item} key={item}>{item === "all" ? "All related roles" : item}</option>)}</select>
+      <button className={`button ghost ${companyTier === "major" ? "active" : ""}`} onClick={() => { setCompanyTier((value) => value === "major" ? "all" : "major"); setSelected(null); }}>{companyTier === "major" ? "Big Tech only ✓" : "Big Tech only"}</button>
       <button className="button ghost" onClick={() => saveCurrentSearch.mutate()}>Save search</button>
     </div>
     {(savedSearches.data?.items.length || savedSearches.data?.alerts.length) ? <div className="saved-search-row"><b>Saved alerts</b>{savedSearches.data?.alerts.map((alert) => <span className="new-alert" key={alert.id}>{alert.name} · {alert.count} new</span>)}{savedSearches.data?.items.map((saved) => <span key={saved.id}><button onClick={() => { setQuery(saved.q); setRegion(saved.region); setCategory(saved.category); }}>{saved.name}</button><button aria-label={`Delete ${saved.name}`} onClick={() => deleteSavedSearch.mutate(saved.id)}>×</button></span>)}</div> : null}

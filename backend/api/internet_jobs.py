@@ -17,6 +17,7 @@ from functools import lru_cache
 
 import requests
 from fastapi import APIRouter, Body, HTTPException, Query
+from lxml import html as lxml_html
 
 from backend.api import jobright
 from backend.core import config
@@ -121,6 +122,8 @@ def _configured_feeds() -> list[tuple[str, str, str, Any]]:
     for company, token in LEVER.items(): feeds.setdefault(("lever", token), ("Lever", company, token, _lever))
     feeds[("amazon", "amazon.jobs")] = ("Amazon Jobs", "Amazon", "amazon.jobs", _amazon)
     feeds[("workday", "nvidia")] = ("Workday", "NVIDIA", "nvidia", _nvidia)
+    feeds[("google", "google-careers")] = ("Google Careers", "Google", "google-careers", _google)
+    feeds[("apple", "apple-careers")] = ("Apple Careers", "Apple", "apple-careers", _apple)
     return list(feeds.values())
 
 ROLE_TERMS = re.compile(
@@ -553,6 +556,90 @@ def _nvidia(_company: str, _key: str) -> list[dict[str, Any]]:
         return [item for item in pool.map(load_detail, list(postings.items())[:160]) if item]
 
 
+def _google_payload_jobs(page: str) -> list[list[Any]]:
+    """Extract the public job payload embedded in a Google Careers result page."""
+    match = re.search(r"AF_initDataCallback\(\{key: 'ds:1'.*?data:(.*?), sideChannel:", page, re.S)
+    if not match:
+        return []
+    try:
+        payload = json.loads(match.group(1))
+        return payload[0] if isinstance(payload, list) and payload and isinstance(payload[0], list) else []
+    except (json.JSONDecodeError, TypeError, IndexError):
+        return []
+
+
+def _google(_company: str, _key: str) -> list[dict[str, Any]]:
+    base = "https://www.google.com/about/careers/applications/jobs/results/"
+    raw_jobs: dict[str, list[Any]] = {}
+    for query in ("machine learning", "artificial intelligence", "LLM inference", "computer vision", "AI software engineer"):
+        response = requests.get(base, params={"location": "United States", "q": query},
+                                headers={"User-Agent": "Mozilla/5.0 ASTRA Job Discovery"}, timeout=40)
+        response.raise_for_status()
+        for raw in _google_payload_jobs(response.text):
+            if isinstance(raw, list) and len(raw) > 10 and raw[0]:
+                raw_jobs[str(raw[0])] = raw
+    results = []
+    for external, raw in raw_jobs.items():
+        title = str(raw[1] or "").strip()
+        company = str(raw[7] or "Google")
+        locations = raw[9] if isinstance(raw[9], list) else []
+        location = "; ".join(str(x[0]) for x in locations if isinstance(x, list) and x) or "United States"
+        chunks = []
+        for index in (3, 4, 10, 19):
+            value = raw[index] if len(raw) > index else None
+            if isinstance(value, list) and len(value) > 1 and value[1]:
+                chunks.append(_clean_html(value[1]))
+        description = "\n".join(dict.fromkeys(chunks))
+        slug = re.sub(r"[^a-z0-9]+", "-", title.casefold()).strip("-")
+        url = f"{base}{external}-{slug}"
+        item = _finish({"id": _id("Google Careers", external, company, title), "external_id": external,
+            "requisition_id": external, "title": title, "company": company, "location": location,
+            "description": description, "url": url, "application_url": url, "source": "Google Careers",
+            "posted_at": None, "updated_at": None, "salary": []}, retain_filtered=True)
+        if item:
+            results.append(item)
+    return results
+
+
+def _apple(_company: str, _key: str) -> list[dict[str, Any]]:
+    base = "https://jobs.apple.com"
+    results: dict[str, dict[str, Any]] = {}
+    for query in ("machine learning", "artificial intelligence", "LLM", "computer vision", "AI engineer"):
+        for page in (1, 2, 3):
+            response = requests.get(base + "/en-us/search", params={
+                "location": "united-states-USA", "search": query, "sort": "newest", "page": page,
+            }, headers={"User-Agent": "Mozilla/5.0 ASTRA Job Discovery"}, timeout=40)
+            response.raise_for_status()
+            tree = lxml_html.fromstring(response.content)
+            cards = tree.xpath("//li[@data-core-accordion-item]")
+            if not cards:
+                break
+            for card in cards:
+                links = card.xpath(".//h3//a[contains(@href, '/details/')]")
+                if not links:
+                    continue
+                link = links[0]
+                title = " ".join(link.text_content().split())
+                href = str(link.get("href") or "")
+                external_match = re.search(r"/details/([^/]+)", href)
+                external = external_match.group(1) if external_match else href
+                text = "\n".join(x.strip() for x in card.text_content().splitlines() if x.strip())
+                location_nodes = card.xpath(".//*[contains(@class,'job-location') or contains(@class,'location')]")
+                location = " ".join(location_nodes[0].text_content().split()) if location_nodes else "United States"
+                location = re.sub(r"^Location\s*", "", location, flags=re.I).strip()
+                if location and not US_HINT.search(location):
+                    location += ", United States"
+                url = base + href if href.startswith("/") else href
+                item = _finish({"id": _id("Apple Careers", external, "Apple", title), "external_id": external,
+                    "requisition_id": external.split("-")[0], "title": title, "company": "Apple",
+                    "location": location, "description": text, "url": url, "application_url": url,
+                    "source": "Apple Careers", "posted_at": None, "updated_at": None,
+                    "salary": []}, retain_filtered=True)
+                if item:
+                    results[external] = item
+    return list(results.values())
+
+
 def _adzuna(_company: str, _key: str) -> list[dict[str, Any]]:
     app_id, app_key = os.getenv("ADZUNA_APP_ID", "").strip(), os.getenv("ADZUNA_APP_KEY", "").strip()
     if not app_id or not app_key:
@@ -826,6 +913,7 @@ def start_refresh(force: bool = Query(True)) -> dict[str, Any]:
 @router.get("")
 def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Query("all"),
               hide_applied: bool = Query(True), view: str = Query("eligible"),
+              company_tier: str = Query("all"),
               limit: int = Query(500, ge=1, le=5000)) -> dict[str, Any]:
     store = _read()
     state = _settings()
@@ -874,6 +962,10 @@ def list_jobs(q: str = Query(""), region: str = Query("all"), category: str = Qu
     if q.strip():
         needle = q.casefold()
         items = [x for x in items if needle in f"{x.get('title','')} {x.get('company','')} {x.get('location','')} {x.get('description','')}".casefold()]
+    if company_tier == "major":
+        major = {"google", "youtube", "apple", "amazon", "nvidia", "microsoft", "meta", "oracle",
+                 "salesforce", "adobe", "intel", "uber", "airbnb", "databricks", "openai", "netflix", "tesla"}
+        items = [x for x in items if any(name in jobright._normalized_name(str(x.get("company") or "")) for name in major)]
     if region != "all":
         items = [x for x in items if str(x.get("region")) == region]
     if category != "all":
@@ -1041,7 +1133,13 @@ def companies(q: str = Query("")) -> dict[str, Any]:
             elif ats == "lever": career_url = f"https://jobs.lever.co/{token}"
             elif ats == "ashby": career_url = f"https://jobs.ashbyhq.com/{token}"
         item["career_url"] = career_url
-        item["live_in_astra"] = bool(item.get("direct_feed")) or any(k in lowered for k in ("amazon", "nvidia"))
+        connector = next((label for key, label in {
+            "amazon": "Amazon Jobs", "nvidia": "NVIDIA Workday", "google": "Google Careers",
+            "apple": "Apple Careers",
+        }.items() if key in lowered), "")
+        item["live_in_astra"] = bool(item.get("direct_feed")) or bool(connector)
+        item["connector"] = connector or (str(item.get("ats") or "").title() if item.get("direct_feed") else "")
+        item["coverage_status"] = "live" if item["live_in_astra"] else "career_link_only" if career_url else "unconnected"
         rows.append(item)
     if q.strip():
         needle = q.casefold()

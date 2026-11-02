@@ -1,6 +1,12 @@
 from backend.api import internet_jobs, jobright_agent
 
 
+def test_google_embedded_payload_parser():
+    page = """<script>AF_initDataCallback({key: 'ds:1', hash: 'x', data:[[[\"123\",\"Machine Learning Engineer\"]],null,1,1], sideChannel: {}});</script>"""
+    assert internet_jobs._google_payload_jobs(page) == [["123", "Machine Learning Engineer"]]
+    assert internet_jobs._google_payload_jobs("no payload") == []
+
+
 def test_related_us_job_is_ranked_for_bay_area():
     item = internet_jobs._finish({
         "id": "one", "title": "Machine Learning Engineer, LLM Inference",
